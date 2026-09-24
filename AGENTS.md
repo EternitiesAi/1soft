@@ -1,38 +1,23 @@
 # 1soft engineering contract
 
-The owner selected this private repository for the Eternities independent Layer
-1 / persistent-agent finance project. Do not rename the product or finalize its
-public monetary policy from the development label. Preserve the owner's original
-`1soft` placeholder and existing Git history. Do not modify unrelated repos.
+Dom selected the private `xnuonux/1soft` repository for the independent native Layer 1 and persistent-agent financial-account project. Preserve the original `1soft` placeholder, private visibility, owner history and unrelated repositories. Check current refs and parallel work before writing. Branding and public monetary policy are not finalized.
 
-## Start here
+Read `docs/HANDOFF.md`, `docs/LOCAL_FIRST.md`, `docs/OFFLINE_WALLET.md` and `docs/VERIFICATION.md` first. `docs/IMPORT_STATUS.md` records the historical v0.6 import interruption.
 
-Read `docs/IMPORT_STATUS.md`, `docs/HANDOFF.md`, and `docs/VERIFICATION.md`.
-Check current remote refs and active work before edits. The GitHub import is
-partial. The full v0.6 archive in the project conversation has additional code,
-research, interface previews, historical evidence and a separate local history.
-Do not claim that a missing file is implemented in this checkout.
+## Owner's local-first instruction
 
-## Evidence and safety
+No GitHub Actions. All active workflows are archived. Do not re-enable them, register self-hosted Actions, or provision paid compute without explicit authorization. Use `scripts/local_dev.py` and keep ordinary timestamped evidence files. Dependencies are installed only by explicit commands; network verification defaults to cached Go dependencies.
 
-- Do not handle customer funds, production keys, public issuance, bank/card
-  deployment, or real-asset trading in this development lane.
-- Keep native protocol 1 and explicit fresh-genesis protocol 2 distinct. Do not
-  silently rewrite existing genesis, account history, counters or permissions.
-- Run `python scripts/verify_checkout.py` before the full test gate. Missing files
-  must fail. Deliberate reviewed source edits require corresponding manifest
-  updates; never remove required files solely to obtain a green result.
-- The native-only test command is a subset. Do not advertise it as the full suite.
-- Record passing, failed and unassessed gates separately. Synthetic certificates,
-  scripted ABCI calls and single-host replay are not real validator consensus.
-- The current hosted workflows have startup failures with zero jobs. Do not
-  assign a cause such as billing or permissions without actual evidence.
-- A platform-blocked upload is not permission to encode, split, or reroute it.
-- Do not remove or replace upstream verification with a mock consensus engine.
-- Keep old evidence immutable; write new results under a new checkpoint folder.
-- Preserve third-party notices; no new open-source license has been selected.
+## Scope and evidence
 
-The next acceptance milestone is the real pinned upstream codec and actual
-four-validator network, including signed transfers, quorum loss/recovery,
-onboarding, key rotation and independently checked payment receipts. Do not add
-more marketing claims in place of this result.
+- No customer funds, production keys, public issuance, bank/card deployment or real-asset trading in this development lane.
+- Keep protocol 1 and explicit fresh-genesis protocol 2 distinct. Never silently rewrite existing genesis, account history, counters or permissions.
+- Verify required source. The complete local package has 48 required source files and 395 Python tests. The GitHub node import remains partial; never call it complete.
+- Core mode deliberately exercises only the 90 native/wallet tests. It must remain labelled as a subset and must not weaken the full manifest gate.
+- Preserve passing, failed and unassessed results separately. Scripted ABCI requests, local database replay and synthetic certificates are not validator consensus.
+- No workaround may encode, split or reroute the previously platform-blocked ABCI upload. New offline wallet/local-runner files are distinct work, not a replacement for that transport.
+- No mock-consensus fallback. The real upstream codec and four-validator protocol-1/protocol-2 runners must actually execute before the consensus milestone passes.
+- Preserve historical evidence and attribution. No new open-source license has been selected.
+- Offline wallet review does not prove current authority, nonce, balances or settlement. The confirmation digest is not human authentication. The development vault is not an audited custody product or hostile-OS protection.
+
+The complete local Git history and smaller remote history are distinct. Never force-replace remote main with the local bundle. After real consensus passes, prioritize authenticated state, bounded resource use, protected signing and operator security. Native grants, the settlement journal and the JS budget reference do not yet share one cross-route budget. Native key rotation cannot cancel external card authorizations.

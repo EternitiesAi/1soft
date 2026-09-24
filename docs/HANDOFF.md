@@ -1,54 +1,17 @@
-# 1soft continuation handoff — v0.6
+# 1soft handoff — v0.7
 
-## Authoritative direction
+Owner direction: no GitHub Actions. GitHub is the source store; run installed local tooling. Do not substitute self-hosted Actions, provision paid compute or create public infrastructure without approval. Native independent Layer 1 and agent finance remain the objective; branding/monetary policy remain open.
 
-Dom created and authorized `xnuonux/1soft` as the dedicated private repository.
-The product remains an independent native Layer 1 and agent-native financial
-account vision. Branding and monetary policy are not finalized. Development units
-are not backed dollars, customer deposits or a launched asset.
+Read `LOCAL_FIRST.md`, `OFFLINE_WALLET.md` and `VERIFICATION.md`. All three workflows on remote main were archived out of `.github/workflows`. The full package's inherited fourth workflow was also archived. No Actions run was requested in this turn.
 
-## Current state
+New files: `src/offline_signer.py`, `scripts/wallet.py`, `scripts/local_dev.py`, `tests/test_offline_signer.py`, `tests/test_local_dev.py`. The existing `scripts/verify_network.sh` now invokes local gates without automatic package installation. The full required-source inventory now has 48 entries.
 
-Read `IMPORT_STATUS.md` and `VERIFICATION.md`. The remote import is partial:
-original native ledger, native-only tests, new checkout/test-runner gates, source
-inventory, requirements, workflows and these documents. The full local package
-contains the inherited consensus application, receipt verifier, other source and
-tests, research, HTML preview and evidence. Its prior source head is `3a5459a`.
-Remote and full-package histories differ; preserve both without force pushes.
-`RELEASE.json` and the publication inventory in the full archive record exact
-heads once packaged. Do not mistake an unpublished local commit for remote main.
+395 local Python tests, 30 separate JS tests and the 39/65-check scripted application exercises passed. The terminal signing tests create only disposable keys and sign real native envelopes accepted by the local ledger. These are not validator-network or production-custody results.
 
-## New code
+The explicit local Go build failed at DNS before compiling; the offline official-codec gate has no cached dependencies. The network command correctly reports unassessed with no mock engine. The installed Go toolchain is 1.23.2. No claim is made that a real CometBFT process ran.
 
-`scripts/verify_checkout.py`: required-file shape/path checks, SHA-256 and lengths,
-missing-file reporting, rejecting symlinks and unexpected source kinds.
-`scripts/run_tests.py`: checks inventory first; rejects zero discovered tests,
-all-skipped runs and failures; correctly propagates cwd/PYTHONPATH to subprocesses.
-`tests/test_checkout_gate.py`: 33 new tests. Full suite: 320 passed. The source
-inventory is explicit and must not be shortened to hide incomplete publication.
+New wallet/library review requires a trusted local genesis and exact public signer, shows all transaction fields, and binds them/role in a confirmation digest. It does not know current authority or nonce. Vaults are encrypted PKCS8 with private POSIX file/dir requirements. No password arguments, environment shortcut, network service or public-key-to-balance magic exists. External cards/payment journals remain separate.
 
-## Blocking evidence
+The earlier ABCI upload safety-status block remains unresolved and was not rerouted. New wallet/local-runner source is separate work; remote import remains partial. Keep exact publication/source heads in RELEASE.json and the publication inventory. Do not force-push the full local history over the owner's remote history.
 
-The platform blocked the existing ABCI transport upload twice; it remains absent
-remotely. Do not retry via encoded content, fragments or another upload tool.
-Hosted engine and minimal echo workflows both report startup_failure and zero
-jobs. Their cause is unavailable; source/Go/permission/billing failure is not
-established. Local module-host DNS fails too. No build was run elsewhere and no
-cloud resources, customer funds or public endpoint were provisioned.
-
-## Next acceptance result
-
-After the publication and execution restrictions are resolved through supported
-means, verify complete source, run the full suite, official upstream codec probe,
-and the actual four-validator CometBFT 0.38.25 runner for protocols 1 and 2.
-Require native transfers, grants, revocation, quorum loss/recovery, onboarding,
-key rotation, and independently verified payment receipts. Preserve failures and
-report unassessed if the engine cannot execute. Never replace it with scripted
-application calls or synthetic certificates to satisfy this milestone.
-
-Do not treat growing unit-test counts as progress toward distributed consensus.
-Once real engine execution passes, prioritize bounded authenticated state,
-resource limits, operator security and authenticated signing/account interfaces.
-The separate settlement journal/JS budget model is not a shared cross-route
-spending limit. External cards and bank authorizations cannot be canceled merely
-by rotating a native account key.
+Next substantial result: use a supported network-enabled local runtime or trusted prebuilt pinned engine, execute the official upstream codec and both actual four-validator tests. Do not fabricate that result, rewrite the consensus algorithm, or expand unit counts as a replacement. After consensus passes, integrate authenticated account-state retrieval and protected signing with the interface, and address full-state-snapshot/resource limits before any public testnet.
