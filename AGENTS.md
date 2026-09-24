@@ -1,23 +1,31 @@
-# 1soft engineering contract
+# 1soft engineering contract — v0.8
 
-Dom selected the private `xnuonux/1soft` repository for the independent native Layer 1 and persistent-agent financial-account project. Preserve the original `1soft` placeholder, private visibility, owner history and unrelated repositories. Check current refs and parallel work before writing. Branding and public monetary policy are not finalized.
+Owner-authorized private repository: xnuonux/1soft. Preserve privacy, owner history,
+the original placeholder and unrelated repositories. Check current refs before
+writes. Do not force-replace remote main with the separate complete local history.
 
-Read `docs/HANDOFF.md`, `docs/LOCAL_FIRST.md`, `docs/OFFLINE_WALLET.md` and `docs/VERIFICATION.md` first. `docs/IMPORT_STATUS.md` records the historical v0.6 import interruption.
+No GitHub Actions, self-hosted Actions or paid/public compute without explicit
+authorization. Work locally and retain ordinary evidence files. No customer funds,
+production keys, public issuance, trading, bank or card deployment in this lane.
+Branding, public economics, issuer backing and project-wide licensing remain open.
 
-## Owner's local-first instruction
+Read docs/HANDOFF.md, docs/STATE_WALLET.md and docs/VERIFICATION.md. The full package
+has 53 required source files; the remote full-node import remains partial. The
+published wallet subset is independently runnable and does not use the blocked
+ABCI transport. Never encode, rename, split or reroute that blocked upload.
 
-No GitHub Actions. All active workflows are archived. Do not re-enable them, register self-hosted Actions, or provision paid compute without explicit authorization. Use `scripts/local_dev.py` and keep ordinary timestamped evidence files. Dependencies are installed only by explicit commands; network verification defaults to cached Go dependencies.
+449 distinct Python cases passed across five bounded local processes; a single-
+process pass is not claimed. The new 54-case wallet subset uses SYNTHETIC validator
+attestations over real local native-ledger execution. No real consensus result,
+independent audit or production light-client security is established. Preserve
+failed, interrupted, unassessed and successful evidence with accurate scopes.
 
-## Scope and evidence
+Wallet checks establish authority AS OF a signed state height, not latest state.
+Local holds are not on-chain locks or cross-card/cash budgets. Other devices,
+legacy signers and restoration of an old whole workspace are outside their
+protection. Never give an agent the owner's vault password or treat the review
+digest as user authentication. Keep existing protocol histories/monetary rules
+unchanged unless an explicit reviewed version migration is implemented.
 
-- No customer funds, production keys, public issuance, bank/card deployment or real-asset trading in this development lane.
-- Keep protocol 1 and explicit fresh-genesis protocol 2 distinct. Never silently rewrite existing genesis, account history, counters or permissions.
-- Verify required source. The complete local package has 48 required source files and 395 Python tests. The GitHub node import remains partial; never call it complete.
-- Core mode deliberately exercises only the 90 native/wallet tests. It must remain labelled as a subset and must not weaken the full manifest gate.
-- Preserve passing, failed and unassessed results separately. Scripted ABCI requests, local database replay and synthetic certificates are not validator consensus.
-- No workaround may encode, split or reroute the previously platform-blocked ABCI upload. New offline wallet/local-runner files are distinct work, not a replacement for that transport.
-- No mock-consensus fallback. The real upstream codec and four-validator protocol-1/protocol-2 runners must actually execute before the consensus milestone passes.
-- Preserve historical evidence and attribution. No new open-source license has been selected.
-- Offline wallet review does not prove current authority, nonce, balances or settlement. The confirmation digest is not human authentication. The development vault is not an audited custody product or hostile-OS protection.
-
-The complete local Git history and smaller remote history are distinct. Never force-replace remote main with the local bundle. After real consensus passes, prioritize authenticated state, bounded resource use, protected signing and operator security. Native grants, the settlement journal and the JS budget reference do not yet share one cross-route budget. Native key rotation cannot cancel external card authorizations.
+The next network gate remains actual upstream codec and validator execution.
+Do not replace it with fixture signatures, scripted requests or larger test counts.

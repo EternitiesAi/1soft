@@ -1,32 +1,67 @@
-# v0.7 verification record — local execution and offline signing
+# 1soft v0.8 — observed verification
 
-24 September 2026. No Actions runs were requested. No real funds or public network were used.
+September 24, 2026. Local execution only; no GitHub Actions, paid compute,
+production keys, customer funds or public deployment.
 
-| Gate | Observed result | Scope |
+| Check | Observed result | Actual scope |
 |---|---|---|
-| Inherited v0.6 package inventory | 212 entries matched | Original bytes, before edits. |
-| Inherited Python suite | 320 passed | Rerun locally before changes. |
-| Current full Python suite | 395 passed, 0 skipped | 320 inherited + 55 wallet + 20 local-runner cases. |
-| Required-source inventory | 48/48 matched | Full local package, not remote completeness. |
-| Separate JavaScript model | 30 passed | Still separate from native accounting. |
-| Scripted ABCI process exercise | 39 checks passed | Four application processes; no validator votes. |
-| Scripted account-process exercise | 65 checks passed | Account lifecycle/crash behavior, not consensus. |
-| Local engine build | Failed at dependency DNS lookup | No compilation or native engine execution. |
-| Cache-only upstream codec probe | Unassessed | Required Go modules not cached. |
-| Local real-network command | Unassessed, no steps | Engine absent; no simulated fallback. |
+| Inherited v0.7 inventory | 261 entries matched | Original archive before edits. |
+| Inherited Python baseline | 395 passed | Rerun before adding the new code. |
+| Final discovered Python cases | 449 passed across five bounded processes | All distinct case IDs covered once; zero skipped. |
+| New cases included above | 46 state/outbox + 8 command-line cases | Not additional to 449. |
+| Separate JavaScript reference | 30 passed | Still separate from native accounting. |
+| Full required-source inventory | 53 files | Not an assertion that the remote node import is complete. |
+| Actual consensus engine | Not built or run | Module-host DNS lookup failed before compilation. |
+| Real validator transfer / public network | Unassessed / absent | No synthetic replacement. |
 
-The terminal tests initially failed because their subprocess inherited a controlling terminal outside the test capture. The test harness now starts a separate session and applies a finite post-response deadline. Its initial interrupted log is retained. These were test-harness failures, not evidence of a password-echo defect. The final full test log includes successful real pseudo-terminal create-key and sign operations and confirms the fixture password is not echoed.
+The new tests exercise signature and state tampering, genesis pinning, same-height
+conflicts, rollback after restart, missing/forged predecessor links, local age
+bounds, signer/nonces, agent limits including fees, shared native balance holds,
+competing approval connections, exact receipt reconciliation, signed-height
+expiry, and recovery after abrupt process exit before export. Real terminal
+sessions cover encrypted signing and verify that the fixture password is not
+echoed. Failed output creation retains the original signature in the outbox.
 
-The local runner separately tests timeout cleanup, missing commands, exclusive evidence creation, incomplete core/full scopes, zero tests, explicit download permission and internally inconsistent pass reports. These checks are not additional consensus features.
+All validator certificates supplied to these exercises are SYNTHETIC. Ed25519
+operations and native ledger execution are real, but no consensus engine produced
+these headers. This is not a network finality claim or an independent audit.
 
-Evidence is under `evidence/v07/`. Earlier evidence remains historical and retains its original scope. The original complete history remains in the local bundle; remote history is separate and is preserved rather than force-replaced.
+## Failures retained rather than hidden
 
-Remote publication: Actions were archived in commit `f3a526825cf611d30fc1176b342078db4366c8d2`. New source-publication results and the final remote head are recorded in `RELEASE.json` and the publication inventory when packaging finishes. The previously blocked ABCI transport was not uploaded through another route; the remote node import remains partial.
+The first implementation supplied 12 placeholders to an 11-column outbox insert;
+14 focused tests errored. The SQL was corrected and those tests passed. Both logs
+remain under `evidence/v08/`.
 
-## Boundaries
+Three combined full-suite invocations were interrupted by tool execution limits,
+without a final suite result. They are not counted as passes. The initial progress
+update described a terminal-test hang; that diagnosis was not established. The
+final evidence instead partitions all 449 discovered case IDs into 100, 100, 100,
+100 and 49, each in its own local process. All passed. A single-process full-gate
+success is not claimed for v0.8. Coverage and exact IDs are recorded in
+`partition-coverage.json` and `partition-*.json`.
 
-Wallet review is static and marks current authority unverified. The encrypted vault is development-only, has no hardware/memory-extraction protection or lost-key recovery, and does not make passwords safe to give to agents. The terminal digest is a binding to content, not authentication. No signing step broadcasts a payment.
+The explicit local engine build returned a Go module-host DNS/connection refusal
+before compilation. The release metadata inspected through GitHub lists no binary
+assets for the pinned v0.38.25 release. An attempted supported download path did
+not produce the module file. No workflow was enabled, runner registered, paid
+resource provisioned, or blocked ABCI upload retried/rerouted.
 
-The chain's actual consensus network, scalable authenticated state, operator independence, production custody, dollar backing, public economics, cash conversion, card issuance and bank integration remain unimplemented or unassessed. No new supply or monetary policy was selected. The standalone receipt fault-injection sweeps were not rerun as standalone scripts in v0.7; their relevant unit tests remain in the full suite.
+## Evidence and publication
 
-A checksum inventory is neither a signature nor an independent audit. Fresh-archive tests are recorded separately after packaging and do not add new distinct test cases.
+New source: `src/wallet_state.py`, `scripts/state_wallet.py`,
+`tests/wallet_state_fixture.py`, `tests/test_wallet_state.py`, and
+`tests/test_state_wallet_cli.py`. The existing `src/commit_verifier.py` is unchanged
+and is now included with this standalone wallet subset on GitHub; it is not the
+previously blocked ABCI transport. The new fixture imports no ABCI transport or
+consensus application. The complete node import remains partial.
+
+Final remote and local source commits, publication byte comparisons, and package
+checks are recorded in RELEASE.json and companion release evidence. Old reports
+are preserved in `docs/archive/v0.7/`. Old standalone process/fault-injection
+exercises were not rerun as standalone scripts in this checkpoint; inherited unit
+cases remain in the 449-case coverage.
+
+Fresh package checks must be reported separately from development runs, not counted
+as extra distinct tests. Checksums are integrity checks, not signatures or audits.
+See STATE_WALLET.md for static-validator, local-clock, backup rollback, same-device
+reservation and full-state-size limitations. No launch readiness is asserted.

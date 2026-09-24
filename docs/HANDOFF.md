@@ -1,17 +1,43 @@
-# 1soft handoff — v0.7
+# 1soft continuation — v0.8
 
-Owner direction: no GitHub Actions. GitHub is the source store; run installed local tooling. Do not substitute self-hosted Actions, provision paid compute or create public infrastructure without approval. Native independent Layer 1 and agent finance remain the objective; branding/monetary policy remain open.
+Owner target: private `xnuonux/1soft`. No GitHub Actions or self-hosted Actions;
+no paid/public compute without authorization. Preserve owner history, original
+placeholder, privacy and unrelated repositories. Branding/monetary policy remain
+open. Public dollar issuance, cash/cards and real-asset conversion are unbuilt.
 
-Read `LOCAL_FIRST.md`, `OFFLINE_WALLET.md` and `VERIFICATION.md`. All three workflows on remote main were archived out of `.github/workflows`. The full package's inherited fourth workflow was also archived. No Actions run was requested in this turn.
+Read STATE_WALLET.md and VERIFICATION.md. The original standalone offline signer
+remains available; the new state_wallet command integrates signed historical
+account evidence with a durable native-payment outbox. This is local development
+software, not a running Layer 1 or audited custody product.
 
-New files: `src/offline_signer.py`, `scripts/wallet.py`, `scripts/local_dev.py`, `tests/test_offline_signer.py`, `tests/test_local_dev.py`. The existing `scripts/verify_network.sh` now invokes local gates without automatic package installation. The full required-source inventory now has 48 entries.
+53 source files in the complete package; all 449 distinct Python tests passed
+across five bounded processes, plus the separate 30-test JS reference. The one-
+process full suite was interrupted by tool limits and is not reported passed.
+46 state/outbox and 8 terminal/CLI tests are new. The initial SQL placeholder bug
+and interrupted logs are retained. No real validator certificate was obtained.
 
-395 local Python tests, 30 separate JS tests and the 39/65-check scripted application exercises passed. The terminal signing tests create only disposable keys and sign real native envelopes accepted by the local ledger. These are not validator-network or production-custody results.
+The new native outbox shares local holds across agent grants, prevents competing
+same-nonce approvals, binds review to a pinned signed checkpoint and current local
+holds, persists signatures before export, and resolves against exact native
+receipts or an authenticated height beyond expiry. It does not reserve money on-
+chain, coordinate other devices or stop direct key use through another signer.
+Its AS-OF authority check does not prove the current latest state. Genesis and
+its exact digest are trusted separately. Catch-up requires signed predecessor
+links. Restoring an old entire database is outside rollback protection.
 
-The explicit local Go build failed at DNS before compiling; the offline official-codec gate has no cached dependencies. The network command correctly reports unassessed with no mock engine. The installed Go toolchain is 1.23.2. No claim is made that a real CometBFT process ran.
+Remote publication now includes the independent verifier required by this wallet
+subset, not the previously blocked ABCI transport. New code/tests have no ABCI
+transport dependency. The full node remains incomplete remotely. Do not use an
+alternate channel, renamed copy or encoded archive to evade the earlier transport
+upload restriction. Complete local source remains in the conversation package.
 
-New wallet/library review requires a trusted local genesis and exact public signer, shows all transaction fields, and binds them/role in a confirmation digest. It does not know current authority or nonce. Vaults are encrypted PKCS8 with private POSIX file/dir requirements. No password arguments, environment shortcut, network service or public-key-to-balance magic exists. External cards/payment journals remain separate.
+The pinned Go engine build still fails at dependency-host DNS before compilation.
+No GitHub Actions were used. Do not replace engine consensus with fixture signing.
+The next network gate is still real pinned upstream codec + actual validators and
+independent receipt validation. For further wallet development, prioritize bounded
+authenticated account queries and a safe transport/export boundary; do not deploy
+full-state synthetic fixtures or expose an owner's vault password to agents.
 
-The earlier ABCI upload safety-status block remains unresolved and was not rerouted. New wallet/local-runner source is separate work; remote import remains partial. Keep exact publication/source heads in RELEASE.json and the publication inventory. Do not force-push the full local history over the owner's remote history.
-
-Next substantial result: use a supported network-enabled local runtime or trusted prebuilt pinned engine, execute the official upstream codec and both actual four-validator tests. Do not fabricate that result, rewrite the consensus algorithm, or expand unit counts as a replacement. After consensus passes, integrate authenticated account-state retrieval and protected signing with the interface, and address full-state-snapshot/resource limits before any public testnet.
+Local and remote histories remain distinct. RELEASE.json identifies the exact
+commits. Never force-replace main with the complete local bundle. Preserve failed,
+unassessed and passed evidence distinctly. Test seeds are public and disposable.

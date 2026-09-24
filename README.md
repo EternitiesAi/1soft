@@ -1,46 +1,51 @@
 # 1soft — native money and persistent-agent accounts
 
 An independent native-coin development project for people and persistent agents.
-**Development only: no launched network, dollar backing, bank account, issued card or audited wallet.**
+**Development only: no launched network, dollar backing, bank account, issued card
+or audited wallet.** Branding and public monetary policy remain open.
 
-## Current checkpoint: v0.7
+## v0.8: account evidence, signing and continuity
 
-GitHub Actions have been retired at the owner's request. GitHub stores the source;
-installed local tools execute tests and preserve ordinary evidence files.
+The new offline workflow verifies a signed account-state witness under separately
+pinned static validators, prepares a native transfer, obtains encrypted-key
+approval and durably records the signed intention before export. It checks
+permissions and balances AS OF the certificate height; it does not claim the
+latest network balance. It never broadcasts a payment.
 
-New: an encrypted local Ed25519 vault, exact-intention review and offline signing,
-plus a local build/test runner with explicit scope and no automatic downloads.
-Account opening and key rotation still require separate incoming-key and current
-owner/sponsor consent. Nothing is broadcast by the wallet.
+A local outbox prevents competing same-nonce signatures and accounts for other
+native agent grants' pending debits. A crash or failed file export preserves the
+original signature. Exact attested receipts, or verified height beyond expiry,
+resolve pending intentions. This is one-workspace accounting, not on-chain locks,
+multi-device coordination, or a shared native/card/cash budget.
 
-```sh
-python scripts/local_dev.py doctor
-python scripts/local_dev.py test --scope core
-```
-
-These commands work with the published native/wallet subset when its declared
-files and pinned dependencies are present. Core tests are **90 tests**, not the
-complete application. The complete downloadable package has **395 Python tests**
-and 48 required source files; it also retains the separate 30-test JS reference.
-
-```sh
-python scripts/local_dev.py test --scope full
-python scripts/local_dev.py network --engine /absolute/path/to/cometbft
-```
-
-Full checks must fail on an incomplete import. Native consensus remains
-**unassessed**: the local build still cannot resolve the dependency host. There
-is no synthetic-consensus fallback. The prior blocked ABCI upload was not
-rerouted, so the remote node import remains partial; the full source package is
-in the project conversation. GitHub and complete local source histories differ.
-
-Read [local execution](docs/LOCAL_FIRST.md), [wallet boundaries](docs/OFFLINE_WALLET.md),
+Read [state-wallet usage and limitations](docs/STATE_WALLET.md),
 [verification](docs/VERIFICATION.md), and [handoff](docs/HANDOFF.md).
 
-The original native code enforces signed transfers, fees, supply conservation,
-recipient-constrained grants, revocation and authority epochs. Protocol 2 adds
-sponsored account creation and key rotation while preserving account identity.
-Public branding, issuance/economics, bank/card/cash integrations and licensing
-remain open or unbuilt. Private prompts and agent memories do not belong on a
-public ledger. No upstream provider endorsement or proprietary consensus
-invention is claimed. Read NOTICE.md before reuse.
+With the pinned dependencies installed, these new 54 wallet tests are runnable
+from the published subset without the missing node transport:
+
+```sh
+PYTHONPATH=src python -m unittest discover -s tests -p 'test_*wallet*.py' -v
+python scripts/state_wallet.py --help
+```
+
+The complete package contains 53 required source files. All 449 discovered Python
+cases passed across five bounded local processes, plus 30 separate JavaScript
+reference cases. The single-process combined run was interrupted by tool limits;
+it is not reported as passed. Synthetic certificates are NOT validator votes.
+
+## Local-first and incomplete-node boundary
+
+No GitHub Actions. Existing workflows remain archived; no paid runner is used.
+The prior 90-test core gate and local build/test tools remain available. Full
+checkout verification correctly fails on the still-partial remote node import.
+The complete development archive and full history are in the project conversation.
+
+The independent receipt verifier is now published for the wallet; the previously
+blocked ABCI transport has not been rerouted or replaced. Actual CometBFT consensus
+remains unassessed because its local dependency retrieval still fails before
+compilation. No mainnet/testnet, issuer agreement, exchange/card integration,
+production key custody or independent security review is implied.
+
+Publicly known fixture seeds must never hold real funds. Read NOTICE.md before
+reuse; no project-wide open-source license has been selected.
