@@ -1,0 +1,15 @@
+name: Hosted runner diagnostic
+on:
+  push:
+    paths:
+      - .github/workflows/runner-diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check whether a hosted job starts
+        run: echo 'Runner started. This is not a blockchain test.'
