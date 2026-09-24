@@ -1,0 +1,27 @@
+name: Complete checkout and local tests
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: checkout-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  local-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Reject missing or altered required source before installing dependencies
+        run: python3 scripts/verify_checkout.py
+      - name: Prepare local test environment
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+      - name: Run full application tests (not consensus)
+        run: .venv/bin/python scripts/run_tests.py
+      - name: Run separate JavaScript budget tests (not native integration)
+        run: node --test reference/kernel.test.mjs
+      - name: State this workflow's scope
+        run: echo 'Local application tests only. No distributed consensus, issuer, bank, card or public deployment is verified here.'
