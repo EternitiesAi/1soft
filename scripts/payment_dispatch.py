@@ -30,11 +30,12 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     queue = sub.add_parser('queue'); queue.add_argument('--envelope', type=Path, required=True)
     queue.add_argument('--signer-public-key', required=True)
-    for name in ('send','replay','status','events','prove','export'):
+    for name in ('send','replay','status','events','prove','export','refresh','export-proof'):
         cmd = sub.add_parser(name); cmd.add_argument('--txid', required=True)
         if name in ('send','replay'): cmd.add_argument('--confirm', required=True)
+        if name == 'refresh': cmd.add_argument('--read-attempts', type=int, choices=range(1,5), default=1)
         if name == 'prove': cmd.add_argument('--certificate', type=Path, required=True)
-        if name == 'export': cmd.add_argument('--output', type=Path, required=True)
+        if name in ('export','export-proof'): cmd.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         raw = read_bounded(args.genesis, 1024*1024)
@@ -47,16 +48,18 @@ def main(argv=None):
                 result = journal.queue(envelope, args.signer_public_key)
             elif args.command in ('send','replay'):
                 result = journal.dispatch(args.txid, args.confirm, replay=args.command == 'replay')
+            elif args.command == 'refresh':
+                result = journal.refresh_receipt(args.txid, read_attempts=args.read_attempts)
             elif args.command == 'prove':
                 result = journal.prove(args.txid, read_bounded(args.certificate, MAX_PACKET_BYTES))
             elif args.command == 'events':
                 result = {'native_txid': args.txid, 'events': journal.events(args.txid)}
-            elif args.command == 'export':
-                envelope = journal.export(args.txid)
+            elif args.command in ('export','export-proof'):
+                envelope = journal.export(args.txid) if args.command == 'export' else journal.export_receipt(args.txid)
                 fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
                 with os.fdopen(fd, 'wb') as target:
                     target.write(envelope+b'\n'); target.flush(); os.fsync(target.fileno())
-                result = {'status': 'exact-existing-envelope-exported', 'network_contacted': False}
+                result = {'status': 'exact-existing-envelope-exported' if args.command == 'export' else 'verified-existing-proof-exported', 'network_contacted': False}
             else:
                 result = journal.status(args.txid)
         print(json.dumps(result, indent=2, ensure_ascii=True))

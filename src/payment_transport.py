@@ -262,6 +262,39 @@ class DispatchJournal:
             self._event(txid, 'endpoint_observation_not_settlement', observed)
         return self.status(txid)
 
+    def export_receipt(self, txid: str) -> bytes:
+        """Return the existing reverified proof, never a new signature or query."""
+        row = self._row(txid)
+        require(row['status'] == 'receipt_verified', 'verified receipt is not available')
+        return bytes(row['proof'])
+
+    def refresh_receipt(self, txid: str, *, read_attempts: int = 1) -> dict:
+        """Read evidence only; never send, sign, replay, or clear a payment slot."""
+        from receipt_collector import attempts, fetch_packet
+        attempts(read_attempts)
+        with self._atomic():
+            self._time()
+            row = self._row(txid)
+            if row['status'] == 'receipt_verified':
+                return {**self.status(txid), 'collection_status':'already_verified', 'read_requests':0}
+            raw = bytes(row['raw'])
+            self._event(txid, 'receipt_collection_requested', {'read_attempts':read_attempts})
+        collected = fetch_packet(self.endpoint, raw, read_attempts=read_attempts)
+        outcome = collected['status']
+        if outcome == 'evidence_collected':
+            try:
+                # Recheck signatures, exact bytes, pinned trust and time in this
+                # process. A child claiming success cannot mark a payment paid.
+                self.prove(txid, encode(collected['packet']))
+                outcome = 'receipt_verified'
+            except ValueError:
+                outcome = 'evidence_rejected'
+        with self._atomic():
+            self._event(txid, 'receipt_collection_result',
+                        {'status':outcome, 'read_requests':collected['requests']})
+        return {**self.status(txid), 'collection_status':outcome,
+                'read_requests':collected['requests']}
+
     def prove(self, txid: str, certificate_bytes: bytes) -> dict:
         row = self._row(txid)
         packet = load_json(certificate_bytes, max_bytes=MAX_PACKET_BYTES)
