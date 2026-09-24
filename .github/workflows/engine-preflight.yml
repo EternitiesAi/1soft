@@ -1,0 +1,34 @@
+name: Pinned consensus engine preflight
+on:
+  push:
+    paths:
+      - '.github/workflows/engine-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Build the real pinned CometBFT engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bin evidence
+          go version | tee evidence/engine-build.txt
+          GOBIN="$PWD/bin" go install github.com/cometbft/cometbft/cmd/cometbft@v0.38.25 2>&1 | tee -a evidence/engine-build.txt
+          test "$(bin/cometbft version)" = "0.38.25"
+          bin/cometbft version | tee -a evidence/engine-build.txt
+          sha256sum bin/cometbft | tee -a evidence/engine-build.txt
+          go version -m bin/cometbft | tee -a evidence/engine-build.txt
+          echo 'Engine build only. No native application or consensus-network test has run.' | tee -a evidence/engine-build.txt
+      - name: Preserve binary and build evidence inside this repository
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pinned-cometbft-0.38.25
+          path: |
+            bin/cometbft
+            evidence/engine-build.txt
+          retention-days: 7
