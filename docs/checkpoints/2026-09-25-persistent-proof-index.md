@@ -1,9 +1,10 @@
 # 1soft v0.14 — cryptocurrency storage checkpoint
 
 This is a record of completed LOCAL work, not publication of its implementation.
-The native application still lacks a verified actual CometBFT run. This checkpoint
-does not change main, PR #2, the Resident PR, Luna/Psyche repos, DNS or the deployed
-website. No GitHub Actions, paid compute, production keys or real funds were used.
+The native application still lacks a verified actual CometBFT run. Only the name
+decision and this documentation are published on main. Its implementation, PR #2,
+the Resident PR, Luna/Psyche repos, DNS and deployed website are unchanged.
+No GitHub Actions, paid compute, production keys or real funds were used.
 
 ## What was developed
 
