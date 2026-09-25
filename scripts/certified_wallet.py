@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import sqlite3
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
@@ -24,11 +25,12 @@ def bounded_bytes(path: Path, limit: int) -> bytes:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('review','sign','export'))
+    parser.add_argument('command', choices=('review','sign','export','sync','pending'))
     parser.add_argument('--genesis', type=Path, required=True, help='Separately trusted engine genesis')
     parser.add_argument('--policy', type=Path, required=True, help='Separately trusted, expiring local policy')
     parser.add_argument('--journal', type=Path, required=True)
     parser.add_argument('--witness', type=Path)
+    parser.add_argument('--continuation', type=Path, help='Intermediate signed headers; bounded to 64')
     parser.add_argument('--body', type=Path)
     parser.add_argument('--signer-public-key')
     parser.add_argument('--mode', choices=('sign','accept'), default='sign')
@@ -41,6 +43,13 @@ def main(argv=None):
         genesis = bounded_bytes(args.genesis, 1024*1024)
         policy = load_json(bounded_bytes(args.policy, 16384), max_bytes=16384)
         wallet = CertifiedWallet(args.journal, genesis, policy)
+        links = load_json(bounded_bytes(args.continuation, MAX_EVIDENCE)) if args.continuation else None
+        if args.command == 'sync':
+            if args.witness is None: raise Reject('sync requires a signed full-state witness')
+            result = wallet.sync(load_json(bounded_bytes(args.witness, MAX_EVIDENCE)), continuation=links)
+            print(json.dumps(result, indent=2)); return 0
+        if args.command == 'pending':
+            print(json.dumps(wallet.pending(), indent=2)); return 0
         if args.command == 'export':
             result = wallet.export(args.decision_id)
         else:
@@ -48,7 +57,7 @@ def main(argv=None):
                 raise Reject('review and sign require witness, body and public signer')
             witness = load_json(bounded_bytes(args.witness, MAX_EVIDENCE))
             body = load_json(bounded_bytes(args.body, 16384), max_bytes=16384)
-            review = wallet.review(witness, body, args.signer_public_key, mode=args.mode)
+            review = wallet.review(witness, body, args.signer_public_key, mode=args.mode, continuation=links)
             print(json.dumps(review, indent=2, ensure_ascii=True), flush=True)
             if args.command == 'review':
                 return 0
@@ -73,7 +82,7 @@ def main(argv=None):
         else:
             print(json.dumps(result, indent=2))
         return 0
-    except (OSError, ValueError, EOFError) as exc:
+    except (OSError, ValueError, EOFError, sqlite3.Error) as exc:
         print('Certified wallet refused: '+str(exc), file=sys.stderr)
         print('After any committed signing decision, recover with export; do not replace the payment.', file=sys.stderr)
         return 2
