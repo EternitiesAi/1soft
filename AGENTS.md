@@ -19,11 +19,12 @@ The retained state-wallet outbox supports protocol 1/2 only. It must reject
 protocol-3 shared budgets until a single shared-reservation signing path is built
 and tested. Do not use independent wallet journals against the same funds.
 
-Previous native-core, ABCI, job and index source uploads were blocked by platform
-review. Do not encode, rename, split, use another channel, or otherwise reroute
-blocked source to GitHub. Local build and review remain permitted. A local branch,
-bundle or ZIP is not a published PR. If supported authorization remains blocked,
-report it honestly and leave the private remote unchanged.
+Earlier native/ABCI source uploads were blocked by platform review; the exact
+source was later accepted through the same GitHub connector and published in
+draft PR #5. A future platform denial still stops that action: do not encode,
+rename, split, use another channel, or otherwise reroute blocked source to
+GitHub. Local build and review remain permitted. Distinguish a local branch,
+bundle, or ZIP from a published PR, and report any remaining restriction.
 
 CometBFT v0.38.25 and the upstream codec are mandatory for the network gate. Four
 actual four-validator scenarios are required; fixtures, synthetic votes and

@@ -45,7 +45,9 @@ one-host development network with a static genesis validator set, not independen
 operator, public-network security, or production-custody evidence. See the
 accompanying CODEX_RESULT and sanitized raw logs.
 
-Prior platform review blocked publication of native/ABCI/job/index sources.
-Those files have not been pushed by this task. This is a local review branch only;
-no PR URL exists unless a supported authorization path explicitly clears that
-restriction. Do not bypass it with an alternate upload method.
+Earlier platform review had blocked upload of the ABCI wire source. After the
+owner explicitly requested publication, the same GitHub connector accepted the
+exact source and created [draft PR #5](https://github.com/xnuonux/1soft/pull/5)
+on `integration/1soft-real-engine-v016`. The published tree matched the tested
+local tree byte-for-byte; no alternate upload channel was used. A future platform
+denial still stops that action and must not be bypassed.
