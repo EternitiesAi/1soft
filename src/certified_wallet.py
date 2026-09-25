@@ -19,9 +19,10 @@ from typing import Callable
 
 from block_application import restore
 from commit_verifier import (encode, load_json, pinned_genesis, timestamp,
-                             verify_state_witness)
+                             verify_state_witness, verify_signed_header, block_id)
 from native_core import Reject, address, canonical, public, require, sign, accept_account_key
 from offline_signer import _load_vault, review_intent
+from wallet_obligations import inventory, constrain, checked_decision
 
 DOMAIN = b'1soft/certified-review/v1\x00'
 MAX_EVIDENCE = 16 * 1024 * 1024
@@ -104,6 +105,9 @@ class CertifiedWallet:
                         'unsafe journal sidecar')
         self.db = sqlite3.connect(journal, isolation_level=None, timeout=10)
         try:
+            tables = {row[0] for row in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            require(not tables.intersection({'anchor','outbox','configuration','payments','policy'}),
+                    'different wallet or dispatcher journal; export/reconcile it explicitly, never overwrite')
             self.db.execute('PRAGMA journal_mode=WAL')
             self.db.execute('PRAGMA synchronous=FULL')
             self.db.executescript('''
@@ -114,6 +118,9 @@ class CertifiedWallet:
                 CREATE TABLE IF NOT EXISTS decisions (
                     id TEXT PRIMARY KEY, slot TEXT UNIQUE NOT NULL, review TEXT NOT NULL,
                     result TEXT NOT NULL, result_hash TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS wallet_evidence (
+                    id INTEGER PRIMARY KEY CHECK(id=1), witness TEXT NOT NULL,
+                    witness_hash TEXT NOT NULL);
             ''')
             self.db.execute('BEGIN IMMEDIATE')
             row = self.db.execute('SELECT policy_id FROM checkpoint WHERE id=1').fetchone()
@@ -142,18 +149,40 @@ class CertifiedWallet:
                     'authenticated snapshot is too old')
         return now
 
-    def _checkpoint_check(self, cert: dict, header_ns: int, now: int, signed_header: dict):
+    def _checkpoint_check(self, cert: dict, header_ns: int, now: int, signed_header: dict,
+                          continuation: list | None = None):
         row = self.db.execute('SELECT height,block_hash,header_ns,clock_ns FROM checkpoint WHERE id=1').fetchone()
         require(now >= row[3], 'local clock moved backwards')
         require(cert['height'] >= row[0], 'certificate rolls back the local checkpoint')
+        links = [] if continuation is None else _bounded_copy(continuation)
+        require(type(links) is list and len(links) <= 64, 'invalid bounded header continuation')
         if cert['height'] == row[0]:
-            require(cert['block_hash'] == row[1], 'conflicting certificate at observed height')
-        if row[0] and cert['height'] == row[0] + 1:
-            require(signed_header['header']['last_block_id']['hash'].upper() == row[1],
-                    'adjacent certificate does not extend observed header')
+            require(not links and cert['block_hash'] == row[1], 'conflicting certificate at observed height')
+        elif row[0]:
+            require(len(links) == cert['height'] - row[0] - 1,
+                    'missing signed header continuation; cannot release holds across an unlinked checkpoint')
+            previous_hash, previous_height, previous_ns = row[1], row[0], row[2]
+            previous_id = None
+            stored = self.db.execute('SELECT witness,witness_hash FROM wallet_evidence WHERE id=1').fetchone()
+            if stored:
+                require(_hash(stored[0].encode()) == stored[1], 'stored witness integrity mismatch')
+                previous_id = load_json(stored[0].encode())['state_commit']['commit']['block_id']
+            for following in [*links, signed_header]:
+                next_info = verify_signed_header(following, self.trust, expected_height=previous_height+1)
+                require(following['header']['last_block_id']['hash'].upper() == previous_hash,
+                        'adjacent certificate does not extend observed header')
+                if previous_id is not None:
+                    require(block_id(following['header']['last_block_id']).SerializeToString() ==
+                            block_id(previous_id).SerializeToString(), 'header block-ID continuation differs')
+                next_ns = nanos(following['header']['time'])
+                require(next_ns >= previous_ns, 'certificate timestamp moved backwards')
+                previous_hash, previous_height, previous_ns = next_info['block_hash'], next_info['height'], next_ns
+                previous_id = following['commit']['block_id']
+        else:
+            require(not links, 'initial checkpoint does not take a continuation')
         require(header_ns >= row[2], 'certificate timestamp moved backwards')
 
-    def _prepare(self, witness: dict, body: dict, signer_pk: str, mode: str):
+    def _verified_snapshot(self, witness: dict, continuation: list | None = None):
         witness = _bounded_copy(witness)
         require(type(witness) is dict and set(witness) == {'schema','state','state_commit'}
                 and type(witness['schema']) is int and witness['schema'] == 1,
@@ -163,13 +192,25 @@ class CertifiedWallet:
         require(cert['height'] >= self.policy['minimum_header_height'], 'below locally required height')
         header_ns = nanos(witness['state_commit']['header']['time'])
         now = self._time_check(header_ns)
-        self._checkpoint_check(cert, header_ns, now, witness['state_commit'])
+        self._checkpoint_check(cert, header_ns, now, witness['state_commit'], continuation)
         for rows in state['native'].values():
             require(type(rows) is list and len(rows) <= MAX_ROWS, 'snapshot row limit exceeded')
-        base = review_intent(state['genesis'], body, signer_pk, mode=mode)
-        body = base['body']
         ledger = restore(state['genesis'], state['native'])
         try:
+            native_height = int(dict(ledger.db.execute('SELECT k,v FROM meta'))['height'])
+            require(native_height <= state['height'], 'native height exceeds certified application height')
+            return witness, ledger, cert, header_ns, now
+        except BaseException:
+            ledger.close()
+            raise
+
+    def _prepare(self, witness: dict, body: dict, signer_pk: str, mode: str,
+                 continuation: list | None = None):
+        witness, ledger, cert, header_ns, now = self._verified_snapshot(witness, continuation)
+        state = witness['state']
+        try:
+            base = review_intent(state['genesis'], body, signer_pk, mode=mode)
+            body = base['body']
             # ABCI empty blocks advance the application height, not necessarily
             # the native ledger's last-transaction height.
             native_height = int(dict(ledger.db.execute('SELECT k,v FROM meta'))['height'])
@@ -248,22 +289,27 @@ class CertifiedWallet:
             if ledger.protocol_version == 3:
                 review['shared_budget_id'] = None if budget is None else budget['id']
                 review['shared_budget_remaining_units'] = None if budget is None else budget['cap']-budget['spent']
+            summary = inventory(self.db, self.policy_id, ledger, state['height'])
+            review.update(constrain(review, summary, ledger, body, mode, signer_pk))
             decision_id = _hash(DOMAIN + encode(review))
             review['confirmation'] = decision_id
-            slot_key = _hash(encode([self.policy_id, slot]))
+            # Preserve old decisions; new uniqueness is per exact intention. Pending
+            # logical-nonce exclusivity is enforced from the verified inventory.
+            slot_key = _hash(encode([self.policy_id, slot, _hash(canonical(body))]))
             return review, slot_key, ledger, witness, header_ns, now
         except BaseException:
             ledger.close()
             raise
 
-    def review(self, witness: dict, body: dict, signer_pk: str, *, mode: str = 'sign') -> dict:
+    def review(self, witness: dict, body: dict, signer_pk: str, *, mode: str = 'sign',
+               continuation: list | None = None) -> dict:
         self.db.execute('BEGIN IMMEDIATE')
         ledger = None
         try:
-            review, slot, ledger, frozen, header_ns, now = self._prepare(witness, body, signer_pk, mode)
+            review, slot, ledger, frozen, header_ns, now = self._prepare(witness, body, signer_pk, mode, continuation)
             require(self.db.execute('SELECT 1 FROM decisions WHERE slot=?', (slot,)).fetchone() is None,
                     'this authority nonce already has a local signing decision; export it instead')
-            self._observe(review, header_ns, now)
+            self._observe(review, header_ns, now, frozen)
             self.db.execute('COMMIT')
             return review
         except BaseException:
@@ -272,16 +318,20 @@ class CertifiedWallet:
         finally:
             if ledger is not None: ledger.close()
 
-    def _observe(self, review: dict, header_ns: int, now: int):
+    def _observe(self, review: dict, header_ns: int, now: int, witness: dict):
+        data = encode(witness)
+        self.db.execute('INSERT OR REPLACE INTO wallet_evidence VALUES (1,?,?)',
+                        (data.decode(), _hash(data)))
         self.db.execute('UPDATE checkpoint SET height=?,block_hash=?,header_ns=?,clock_ns=? WHERE id=1',
             (review['header_height'], review['header_hash'], header_ns, now))
 
     def approve(self, witness: dict, body: dict, signer_pk: str, confirmation: str,
-                vault: Path, password: bytes, *, mode: str = 'sign') -> dict:
+                vault: Path, password: bytes, *, mode: str = 'sign',
+                continuation: list | None = None) -> dict:
         self.db.execute('BEGIN IMMEDIATE')
         ledger = None
         try:
-            review, slot, ledger, frozen, header_ns, now = self._prepare(witness, body, signer_pk, mode)
+            review, slot, ledger, frozen, header_ns, now = self._prepare(witness, body, signer_pk, mode, continuation)
             require(type(confirmation) is str and re.fullmatch('[0-9a-f]{64}', confirmation) is not None
                     and hmac.compare_digest(confirmation, review['confirmation']), 'certified review changed')
             require(self.db.execute('SELECT 1 FROM decisions WHERE slot=?', (slot,)).fetchone() is None,
@@ -298,7 +348,7 @@ class CertifiedWallet:
             result_wire = canonical(result)
             self.db.execute('INSERT INTO decisions VALUES (?,?,?,?,?)',
                 (review['confirmation'], slot, encode(review).decode(), result_wire.decode(), _hash(result_wire)))
-            self._observe(review, header_ns, now_after)
+            self._observe(review, header_ns, now_after, frozen)
             self.db.execute('COMMIT')
             return {'decision_id':review['confirmation'], 'status':'signed-locally-not-broadcast',
                     'result':result}
@@ -308,11 +358,65 @@ class CertifiedWallet:
         finally:
             if ledger is not None: ledger.close()
 
+    def sync(self, witness: dict, *, continuation: list | None = None) -> dict:
+        """Verify a full checkpoint and reconcile every existing signature.
+
+        No receipt/hold status is accepted from an RPC success flag. Decisions
+        remain immutable. Reconciliation and checkpoint advancement are atomic.
+        """
+        self.db.execute('BEGIN IMMEDIATE')
+        ledger = None
+        try:
+            frozen, ledger, cert, header_ns, now = self._verified_snapshot(witness, continuation)
+            summary = inventory(self.db, self.policy_id, ledger, frozen['state']['height'])
+            observation = {'header_height': cert['height'], 'header_hash': cert['block_hash']}
+            self._observe(observation, header_ns, now, frozen)
+            self.db.execute('COMMIT')
+            return self._inventory_view(summary, frozen['state']['height'])
+        except BaseException:
+            if self.db.in_transaction: self.db.execute('ROLLBACK')
+            raise
+        finally:
+            if ledger is not None: ledger.close()
+
+    @staticmethod
+    def _inventory_view(summary: dict, height: int) -> dict:
+        return {'schema': 1, 'state_height': height, 'decision_count': summary['decisions'],
+                'decisions': summary['entries'], 'pending_account_units': summary['accounts'],
+                'pending_grant_units': summary['grants'], 'pending_budget_units': summary['budgets'],
+                'inventory_digest': summary['digest'], 'broadcast': False,
+                'latest_state_guaranteed': False, 'scope': 'this local journal and the stated historical full snapshot'}
+
+    def pending(self) -> dict:
+        """Reverify saved historical evidence without requiring a live clock.
+
+        This is recoverable inspection, not fresh signing authority or permission
+        to broadcast. A trust expiry never prevents exporting a saved signature.
+        """
+        self.db.execute('BEGIN IMMEDIATE')
+        ledger = None
+        try:
+            row = self.db.execute('SELECT witness,witness_hash FROM wallet_evidence WHERE id=1').fetchone()
+            require(row is not None and _hash(row[0].encode()) == row[1], 'no intact saved account witness; sync first')
+            frozen = load_json(row[0].encode())
+            cert = verify_state_witness(frozen['state'], frozen['state_commit'], self.trust)
+            checkpoint = self.db.execute('SELECT height,block_hash FROM checkpoint WHERE id=1').fetchone()
+            require((cert['height'], cert['block_hash']) == tuple(checkpoint), 'saved witness differs from checkpoint')
+            ledger = restore(frozen['state']['genesis'], frozen['state']['native'])
+            summary = inventory(self.db, self.policy_id, ledger, frozen['state']['height'])
+            self.db.execute('COMMIT')
+            return {**self._inventory_view(summary, frozen['state']['height']), 'freshness_checked': False}
+        except BaseException:
+            if self.db.in_transaction: self.db.execute('ROLLBACK')
+            raise
+        finally:
+            if ledger is not None: ledger.close()
+
     def export(self, decision_id: str) -> dict:
         require(type(decision_id) is str and re.fullmatch('[0-9a-f]{64}', decision_id) is not None,
                 'invalid signing decision identifier')
-        row = self.db.execute('SELECT result,result_hash FROM decisions WHERE id=?', (decision_id,)).fetchone()
+        row = self.db.execute('SELECT id,slot,review,result,result_hash FROM decisions WHERE id=?', (decision_id,)).fetchone()
         require(row is not None, 'signing decision not found')
-        require(_hash(row[0].encode()) == row[1], 'stored decision integrity mismatch')
+        checked = checked_decision(row, self.engine_genesis['app_state'], self.policy_id)
         return {'decision_id':decision_id, 'status':'previously-signed-not-settlement-proof',
-                'result':load_json(row[0].encode())}
+                'result':checked['result']}
