@@ -18,7 +18,8 @@ sys.path.insert(0, str(ROOT/'scripts'))
 from verify_checkout import verify_checkout
 
 PIN = '0.38.25'
-CORE_FILES = {'src/native_core.py', 'src/offline_signer.py', 'scripts/wallet.py',
+ENGINE_NAME = 'cometbft.exe' if os.name == 'nt' else 'cometbft'
+CORE_FILES = {'src/native_core.py', 'src/native_budgets.py', 'src/offline_signer.py', 'scripts/wallet.py',
               'tests/test_native.py', 'tests/test_offline_signer.py', 'requirements.txt'}
 CORE_RUNNER = '''import json,sys,unittest
 from pathlib import Path
@@ -50,7 +51,16 @@ def run_step(command: list[str], cwd: Path, folder: Path, label: str,
                     try: os.killpg(proc.pid, signal.SIGTERM)
                     except ProcessLookupError: pass
                 else:
-                    proc.terminate()
+                    # Windows venv launchers may leave a Python child holding the
+                    # log open after their parent exits. Stop the owned tree.
+                    try:
+                        killed = subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            timeout=5, check=False)
+                        if killed.returncode != 0 and proc.poll() is None:
+                            proc.terminate()
+                    except (OSError, subprocess.TimeoutExpired):
+                        if proc.poll() is None: proc.terminate()
                 try: proc.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     if os.name == 'posix': os.killpg(proc.pid, signal.SIGKILL)
@@ -60,7 +70,7 @@ def run_step(command: list[str], cwd: Path, folder: Path, label: str,
                 if os.name == 'posix':
                     try: os.killpg(proc.pid, signal.SIGKILL)
                     except ProcessLookupError: pass
-                item['reason'] = 'command timed out; process group stopped'
+                item['reason'] = 'command timed out; owned process group/tree stopped'
                 return item
             item.update(returncode=code, status='passed' if code == 0 else 'failed')
         except OSError as exc:
@@ -94,7 +104,7 @@ def inspect(root: Path, engine: str | None) -> dict:
         try: actual = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError: actual = None
         deps[name] = {'expected': expected, 'installed': actual, 'matches': actual == expected}
-    binary = engine or str(root/'bin/cometbft')
+    binary = engine or str(root/'bin'/ENGINE_NAME)
     found = shutil.which(binary)
     return {'scope': 'environment-inspection-not-a-test', 'python': sys.version.split()[0],
             'platform': sys.platform, 'dependencies': deps, 'go': shutil.which('go'),
@@ -146,10 +156,10 @@ def main(argv=None) -> int:
                 report['steps'].append(step)
                 report['status'] = step['status']
                 if step['status'] == 'passed':
-                    report['engine_sha256'] = hashlib.sha256((target/'cometbft').read_bytes()).hexdigest()
+                    report['engine_sha256'] = hashlib.sha256((target/ENGINE_NAME).read_bytes()).hexdigest()
                     report['reason'] = 'binary built only; no native network has been verified'
         elif args.command == 'network':
-            binary = shutil.which(args.engine or str(ROOT/'bin/cometbft'))
+            binary = shutil.which(args.engine or str(ROOT/'bin'/ENGINE_NAME))
             if binary is None:
                 report['reason'] = 'pinned local engine absent; no synthetic replacement or automatic install'
             else:
@@ -165,18 +175,22 @@ def main(argv=None) -> int:
                     report['reason'] = 'upstream codec did not pass; validator runs not attempted'
                     report['status'] = 'unassessed' if codec.get('status') == 'unassessed' else 'failed'
                 else:
-                    for version in (1,2):
-                        target = folder/f'protocol-{version}'/'devnet.json'
-                        step = run_step([sys.executable,'scripts/run_devnet.py','--cometbft',binary,
-                            '--protocol-version',str(version),'--output',str(target)], ROOT, folder,
-                            f'network-{version}',env=env,timeout=300)
+                    for version, commitment in ((1,None),(2,None),(3,None),(3,'smt-v1')):
+                        label = str(version) + ('-smt' if commitment else '')
+                        target = folder/f'protocol-{label}'/'devnet.json'
+                        command = [sys.executable,'scripts/run_devnet.py','--cometbft',binary,
+                            '--protocol-version',str(version),'--output',str(target)]
+                        if commitment:
+                            command += ['--state-commitment',commitment]
+                        step = run_step(command, ROOT, folder,
+                            f'network-{label}',env=env,timeout=300)
                         report['steps'].append(step)
                         evidence = json.loads(target.read_text()) if target.exists() else {}
                         if step['status'] != 'passed' or not gate_passed(evidence):
                             report['status'] = 'failed'; report['reason'] = 'network gate did not pass'; break
                     else:
                         report.update(status='passed',consensus_verified=True,
-                                      scope='two four-validator local tests, one host, not independent operators')
+                                      scope='four four-validator local scenarios, one host, not independent operators')
     except (OSError, ValueError) as exc:
         report.update(status='failed',reason=str(exc))
     (folder/'result.json').write_text(json.dumps(report,indent=2)+'\n')

@@ -1,31 +1,31 @@
-# 1soft engineering contract — v0.8
+# 1soft engineering contract — local v0.16 integration
 
-Owner-authorized private repository: xnuonux/1soft. Preserve privacy, owner history,
-the original placeholder and unrelated repositories. Check current refs before
-writes. Do not force-replace remote main with the separate complete local history.
+1soft is the native cryptocurrency lane. Preserve the private owner's Git history,
+the original placeholder, parallel payment and Resident branches, and the remote
+wallet lineage. No Actions, paid/public compute, public deployment, DNS/site,
+Resident/Luna/Psyche, real funds, issuer/bank/card, production keys or force-pushes.
 
-No GitHub Actions, self-hosted Actions or paid/public compute without explicit
-authorization. Work locally and retain ordinary evidence files. No customer funds,
-production keys, public issuance, trading, bank or card deployment in this lane.
-Branding, public economics, issuer backing and project-wide licensing remain open.
+Read docs/SOURCE_RECONCILIATION.md, docs/HANDOFF.md, docs/NODE_ADMISSION.md,
+docs/STATE_WALLET.md and docs/VERIFICATION.md. The integrated local checkout has
+102 manifest-required files. A source inventory pass is not consensus validation.
+Keep historical, local-current, synthetic, and actual-engine claims distinct.
 
-Read docs/HANDOFF.md, docs/STATE_WALLET.md and docs/VERIFICATION.md. The full package
-has 53 required source files; the remote full-node import remains partial. The
-published wallet subset is independently runnable and does not use the blocked
-ABCI transport. Never encode, rename, split or reroute that blocked upload.
+The node's CheckTx cache binds exact signed bytes to committed genesis/height/hash;
+proposal and finalization still execute ordered native transactions. Preserve
+protocol-1/2/3 and smt-v1 bytes. Private Unix channels must be capped before
+thread creation; never weaken transport limits to make the validator run green.
 
-449 distinct Python cases passed across five bounded local processes; a single-
-process pass is not claimed. The new 54-case wallet subset uses SYNTHETIC validator
-attestations over real local native-ledger execution. No real consensus result,
-independent audit or production light-client security is established. Preserve
-failed, interrupted, unassessed and successful evidence with accurate scopes.
+The retained state-wallet outbox supports protocol 1/2 only. It must reject
+protocol-3 shared budgets until a single shared-reservation signing path is built
+and tested. Do not use independent wallet journals against the same funds.
 
-Wallet checks establish authority AS OF a signed state height, not latest state.
-Local holds are not on-chain locks or cross-card/cash budgets. Other devices,
-legacy signers and restoration of an old whole workspace are outside their
-protection. Never give an agent the owner's vault password or treat the review
-digest as user authentication. Keep existing protocol histories/monetary rules
-unchanged unless an explicit reviewed version migration is implemented.
+Previous native-core, ABCI, job and index source uploads were blocked by platform
+review. Do not encode, rename, split, use another channel, or otherwise reroute
+blocked source to GitHub. Local build and review remain permitted. A local branch,
+bundle or ZIP is not a published PR. If supported authorization remains blocked,
+report it honestly and leave the private remote unchanged.
 
-The next network gate remains actual upstream codec and validator execution.
-Do not replace it with fixture signatures, scripted requests or larger test counts.
+CometBFT v0.38.25 and the upstream codec are mandatory for the network gate. Four
+actual four-validator scenarios are required; fixtures, synthetic votes and
+scripted ABCI processes cannot substitute. Windows has no required POSIX controls;
+use a trusted local Linux/WSL environment for the real network and complete suite.

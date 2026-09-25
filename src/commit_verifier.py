@@ -323,9 +323,16 @@ def verify_state_witness(state: Any, signed_header: Any, trust: TrustAnchor) -> 
     cert=verify_signed_header(signed_header,trust,expected_height=height+1)
     genesis_hash=sha(encode(state['genesis'])).hex()
     ensure(genesis_hash==trust.native_genesis_hash,'state genesis mismatch')
-    native=state['native'];exact(native,{'meta','accounts','grants','receipts'},'native snapshot')
-    material={'domain':'ETERNITIES/ABCI-STATE/v1','genesis':genesis_hash,'height':height,'native':native}
-    computed=sha(encode(material)).hex()
+    version = state['genesis'].get('protocol_version', 1)
+    ensure(type(version) is int and version in (1, 2, 3), 'unsupported native snapshot version')
+    tables = {'meta','accounts','grants','receipts'} | ({'budgets','grant_budgets'} if version == 3 else set())
+    native=state['native'];exact(native,tables,'native snapshot')
+    from state_tree import enabled, StateTree, bind_root
+    if enabled(state['genesis']):
+        computed=bind_root(genesis_hash,height,StateTree(native).root)
+    else:
+        material={'domain':'ETERNITIES/ABCI-STATE/v1','genesis':genesis_hash,'height':height,'native':native}
+        computed=sha(encode(material)).hex()
     ensure(hexbytes(state['app_hash'],32).hex()==computed,'state witness hash mismatch')
     ensure(cert['app_hash']==computed,'state not committed by this header')
     return {**cert,'state_height':height,'state_app_hash':computed,
@@ -342,7 +349,7 @@ def verify_native_signatures(envelope: Any, signer_public_key: Any, *, protocol_
     exact(envelope, {'body', 'signature'}, 'native envelope')
     body = envelope['body']
     ensure(type(body) is dict, 'invalid native body')
-    ensure(type(protocol_version) is int and protocol_version in (1, 2), 'unsupported native protocol')
+    ensure(type(protocol_version) is int and protocol_version in (1, 2, 3), 'unsupported native protocol')
     ensure(type(body.get('version')) is int and body['version'] == protocol_version,
            'receipt protocol/genesis mismatch')
     try:
@@ -352,7 +359,7 @@ def verify_native_signatures(envelope: Any, signer_public_key: Any, *, protocol_
         raise VerificationError('invalid native receipt signature') from exc
     op = body.get('op')
     ensure(type(op) is dict, 'invalid native operation')
-    if protocol_version != 2 or op.get('type') not in ('open_account', 'rotate_key'):
+    if protocol_version not in (2, 3) or op.get('type') not in ('open_account', 'rotate_key'):
         return False
     exact(body, {'version','chain_id','genesis_hash','sender','nonce','op',
                  'grant_id','valid_until','max_fee'}, 'account-key body')

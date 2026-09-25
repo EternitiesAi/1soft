@@ -80,8 +80,8 @@ def key_acceptance_message(body: dict[str, Any]) -> bytes:
     The current owner/sponsor still signs the full body including acceptance.
     """
     fields(body, BODY_FIELDS)
-    require(type(body["version"]) is int and body["version"] == 2,
-            "account-key acceptance requires protocol 2")
+    require(type(body["version"]) is int and body["version"] in (2, 3),
+            "account-key acceptance requires protocol 2 or 3")
     require(body["grant_id"] == "", "delegated account-key acceptance forbidden")
     op = body["op"]
     require(type(op) is dict, "invalid account-key operation")
@@ -143,13 +143,17 @@ def parse_wire(raw: bytes) -> dict[str, Any]:
 class NativeLedger:
     def __init__(self, path: str | Path, genesis: dict[str, Any]):
         require(type(genesis) is dict and set(genesis) in
-                (GENESIS_FIELDS, GENESIS_FIELDS | {"protocol_version"}),
+                (GENESIS_FIELDS, GENESIS_FIELDS | {"protocol_version"},
+                 GENESIS_FIELDS | {"protocol_version", "state_commitment"}),
                 "unexpected or missing genesis fields")
         self.protocol_version = genesis.get("protocol_version", 1)
-        require(type(self.protocol_version) is int and self.protocol_version in (1, 2),
+        require(type(self.protocol_version) is int and self.protocol_version in (1, 2, 3),
                 "unsupported genesis protocol version")
+        if "state_commitment" in genesis:
+            require(self.protocol_version == 3 and genesis["state_commitment"] == "smt-v1",
+                    "unsupported state commitment; use an explicit fresh protocol-3 genesis")
         identifier(genesis["chain_id"]); identifier(genesis["asset"])
-        if self.protocol_version == 2:
+        if self.protocol_version >= 2:
             require(len(genesis["chain_id"]) <= 50, "engine chain identifier too long")
         integer(genesis["fee"])
         require(type(genesis["allocations"]) is list and 1 <= len(genesis["allocations"]) <= 128, "invalid genesis allocations")
@@ -178,6 +182,7 @@ class NativeLedger:
         CREATE TABLE IF NOT EXISTS receipts(txid TEXT PRIMARY KEY, sequence INTEGER UNIQUE NOT NULL,
           previous TEXT NOT NULL, record TEXT NOT NULL, hash TEXT NOT NULL);
         ''')
+        self.budgets = None
         self.db.execute("BEGIN IMMEDIATE")
         try:
             existing = self.db.execute("SELECT v FROM meta WHERE k='genesis'").fetchone()
@@ -188,6 +193,9 @@ class NativeLedger:
                 self.db.execute("INSERT INTO accounts VALUES (?,?,0,0,0)", (FEE_ACCOUNT,""))
                 for item in genesis["allocations"]:
                     self.db.execute("INSERT INTO accounts VALUES (?,?,0,0,?)", (address(item["public_key"]),item["public_key"],item["units"]))
+            if self.protocol_version == 3:
+                from native_budgets import BudgetRules
+                self.budgets = BudgetRules(self)
             self._invariants()
             self.db.execute("COMMIT")
         except Exception:
@@ -205,9 +213,12 @@ class NativeLedger:
         return row
 
     def state(self) -> dict[str, Any]:
-        return {"meta": [dict(r) for r in self.db.execute("SELECT * FROM meta ORDER BY k")],
+        state = {"meta": [dict(r) for r in self.db.execute("SELECT * FROM meta ORDER BY k")],
                 "accounts": [dict(r) for r in self.db.execute("SELECT * FROM accounts ORDER BY id")],
                 "grants": [dict(r) for r in self.db.execute("SELECT * FROM grants ORDER BY id")]}
+        if self.budgets is not None:
+            state.update(self.budgets.state())
+        return state
 
     def state_hash(self) -> str:
         # Full state can grow past the bounded transaction serializer.
@@ -220,6 +231,8 @@ class NativeLedger:
         supply = int(self.db.execute("SELECT v FROM meta WHERE k='supply'").fetchone()[0])
         require(sum(r[0] for r in rows) == supply, "supply not conserved")
         require(not self.db.execute("SELECT 1 FROM grants WHERE spent<0 OR spent>cap LIMIT 1").fetchone(), "grant not conserved")
+        if self.budgets is not None:
+            self.budgets.invariants()
 
     def grant_storage_id(self, owner: str, label: str) -> str:
         """Protocol 2 scopes human-readable grant labels to a stable account.
@@ -286,6 +299,7 @@ class NativeLedger:
             fee = self.genesis["fee"]
             require(fee <= body["max_fee"], "fee exceeds consent")
             required = fee
+            budget = None
             if op["type"] == "transfer":
                 fields(op, {"type","to","units"})
                 identifier(op["to"]); integer(op["units"], minimum=1)
@@ -295,10 +309,13 @@ class NativeLedger:
                 if grant:
                     require(op["to"] in json.loads(grant["recipients"]), "recipient not allowed")
                     require(grant["spent"]+required <= grant["cap"], "grant cap exceeded")
+                    if self.budgets is not None:
+                        budget = self.budgets.for_grant(owner, grant, height, op["to"], required)
                 require(owner["balance"] >= required, "insufficient funds")
                 self.db.execute("UPDATE accounts SET balance=balance+? WHERE id=?", (op["units"],op["to"]))
             elif op["type"] == "grant":
-                fields(op, {"type","id","public_key","cap","expires","recipients"})
+                fields(op, {"type","id","public_key","cap","expires","recipients"} |
+                       ({"budget_id"} if self.protocol_version == 3 else set()))
                 identifier(op["id"]); pubkey(op["public_key"]); integer(op["cap"], minimum=1); integer(op["expires"])
                 require(op["expires"] >= height, "grant already expired")
                 recipients = op["recipients"]
@@ -310,13 +327,19 @@ class NativeLedger:
                 grant_key = self.grant_storage_id(owner["id"], op["id"])
                 require(not self.db.execute("SELECT 1 FROM grants WHERE id=?", (grant_key,)).fetchone(), "grant already exists")
                 self.db.execute("INSERT INTO grants VALUES (?,?,?,?,0,?,0,?,?,0)", (grant_key,owner["id"],op["public_key"],owner["epoch"],op["cap"],op["expires"],json.dumps(sorted(recipients))))
+                if self.budgets is not None:
+                    self.budgets.bind(owner, grant_key, op, height)
+            elif self.protocol_version == 3 and op["type"] == "budget_create":
+                self.budgets.create(owner, op, height)
+            elif self.protocol_version == 3 and op["type"] == "budget_revoke":
+                self.budgets.revoke(owner, op)
             elif op["type"] == "revoke":
                 fields(op, {"type","id"}); identifier(op["id"])
                 target_id = self.grant_storage_id(owner["id"], op["id"])
                 target = self.db.execute("SELECT * FROM grants WHERE id=?", (target_id,)).fetchone()
                 require(target is not None and target["owner"] == owner["id"], "not grant owner")
                 self.db.execute("UPDATE grants SET revoked=1 WHERE id=?", (target_id,))
-            elif self.protocol_version == 2 and op["type"] == "open_account":
+            elif self.protocol_version >= 2 and op["type"] == "open_account":
                 verify_account_key_acceptance(body)
                 new_key = op["public_key"]
                 new_id = address(new_key)
@@ -327,7 +350,7 @@ class NativeLedger:
                 required += op["units"]; integer(required)
                 require(owner["balance"] >= required, "insufficient funds")
                 self.db.execute("INSERT INTO accounts VALUES (?,?,0,0,?)", (new_id, new_key, op["units"]))
-            elif self.protocol_version == 2 and op["type"] == "rotate_key":
+            elif self.protocol_version >= 2 and op["type"] == "rotate_key":
                 verify_account_key_acceptance(body)
                 new_key = op["public_key"]
                 require(new_key != owner["public_key"], "key is already active")
@@ -350,6 +373,8 @@ class NativeLedger:
             self.db.execute("UPDATE accounts SET balance=balance+? WHERE id=?", (fee,FEE_ACCOUNT))
             if grant:
                 self.db.execute("UPDATE grants SET nonce=nonce+1, spent=spent+? WHERE id=?", (required,grant["id"]))
+                if budget is not None:
+                    self.budgets.debit(budget, required)
             else:
                 self.db.execute("UPDATE accounts SET nonce=nonce+1 WHERE id=?", (owner["id"],))
             self.db.execute("UPDATE meta SET v=? WHERE k='height'", (str(height),))
@@ -361,6 +386,14 @@ class NativeLedger:
                       "state_hash":self.state_hash(),"fee_units":fee,"signer_public_key":signer["public_key"],
                       "envelope":json.loads(canonical(envelope))}
             self.db.execute("INSERT INTO receipts VALUES (?,?,?,?,?)", (txid,sequence,prev,canonical(record).decode(),digest(record)))
+            if self.genesis.get("state_commitment") == "smt-v1":
+                # Enforce the proof-mode resource bound BEFORE committing. A
+                # proposer must not accept a transaction whose eventual root
+                # cannot be built. Rejection rolls back debit, nonce and receipt.
+                from state_tree import COLUMNS, MAX_ROWS
+                total_rows = sum(self.db.execute("SELECT count(*) FROM " + table).fetchone()[0]
+                                 for table in COLUMNS)
+                require(total_rows <= MAX_ROWS, "compact-state record capacity reached")
             self.db.execute("COMMIT")
             return record
         except Exception:
@@ -380,7 +413,7 @@ class NativeLedger:
             try:
                 Ed25519PublicKey.from_public_bytes(bytes.fromhex(record["signer_public_key"])).verify(bytes.fromhex(envelope["signature"]), wire)
             except (InvalidSignature, ValueError) as exc: raise Reject("receipt signature mismatch") from exc
-            if self.protocol_version == 2 and envelope["body"]["op"]["type"] in ("open_account", "rotate_key"):
+            if self.protocol_version >= 2 and envelope["body"]["op"]["type"] in ("open_account", "rotate_key"):
                 verify_account_key_acceptance(envelope["body"])
             previous = row["hash"]
         last = self.db.execute("SELECT record FROM receipts ORDER BY sequence DESC LIMIT 1").fetchone()

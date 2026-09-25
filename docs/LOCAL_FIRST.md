@@ -1,42 +1,60 @@
-# Local-first development — v0.8
+# Local-first development — v0.12
 
-No GitHub Actions. The workflows remain archived outside .github/workflows.
-Do not register self-hosted Actions, provision paid compute, or publish a network
-without explicit approval. GitHub stores source; installed Linux/WSL tools run
-local tests and preserve ordinary evidence files. No automatic package installs.
+No GitHub Actions or hosted-runner minutes. No self-hosted Actions, paid compute,
+public endpoints or DNS changes without explicit authorization. GitHub stores
+source; installed local tools run tests. Linux/POSIX is the tested environment;
+Windows requires its own validation or an appropriate Linux environment.
 
 ```sh
 python scripts/local_dev.py doctor
 python scripts/local_dev.py test --scope core
 python scripts/local_dev.py test --scope full
-python scripts/local_dev.py network --engine /absolute/path/to/cometbft
 ```
 
-The existing core scope is 90 native/offline-signer tests. Full verification
-requires all 53 source files and therefore rejects the incomplete remote node
-checkout. The complete archive contains 449 discovered Python cases; they passed
-in five bounded processes. A single-process full-gate pass is not claimed here.
-The separate JavaScript reference contains 30 cases and remains unintegrated.
+`doctor` only inspects the environment. `core` checks seven declared files and
+runs the legacy 90 native/offline-wallet tests, not the new budget tests. `full`
+requires all 69 declared source files and discovers the complete 623-case Python
+suite. Tests needing the rest of the application must fail on an incomplete
+checkout rather than claim success. This release ran all cases in sixteen bounded
+processes, reconciled by exact unique test IDs; the standalone full runner is not
+claimed to have completed in one process here. The JS reference is separate.
 
-The newly published attested-wallet subset has no ABCI transport dependency:
+For the new native rules and integration specifically:
 
 ```sh
-PYTHONPATH=src python -m unittest discover -s tests -p 'test_*wallet*.py' -v
-python scripts/state_wallet.py --help
+PYTHONPATH=src:tests python -m unittest discover -s tests -p test_native_budgets.py -v
+PYTHONPATH=src:tests python -m unittest discover -s tests -p test_budget_integration.py -v
+node --test reference/kernel.test.mjs
 ```
 
-That subset has 54 cases, included within 449, not additional. See STATE_WALLET.md
-for separately pinned genesis, signed-state import, prepare/sign/pending/export,
-local age/continuity policy, and limitations. Its commands make no network calls.
+Do not mistake these 54 budget cases or the separate 30 JS cases for the full
+623-case suite. All are development tests, not independent security review.
 
-Engine installation requires an explicit local command and permitted downloads:
+Existing commands for explicit preparation and network execution remain:
 
 ```sh
 python scripts/local_dev.py build-engine --allow-downloads
+python scripts/local_dev.py network --engine /absolute/path/to/cometbft
 ```
 
-This only builds the pinned CometBFT 0.38.25; it never marks consensus verified.
-Network verification uses the official codec probe and both actual-validator
-runners, not a fixture replacement. In this runtime the build still fails at
-module-host DNS before compilation. No paid runner or alternate blocked-upload
-path was used. Keep failed and unassessed results distinct from passing tests.
+The build requires an installed Go toolchain and explicit download permission.
+It uses the pinned CometBFT 0.38.25 and the local cache, not Actions. Network mode
+requires complete source, official upstream codec compatibility, then genuine
+four-validator scenarios for protocol 1, 2 and 3. Each is a fresh disposable chain
+on one host, not evidence of independent operators. Missing prerequisites must
+remain unassessed; a synthetic fallback is forbidden. Downloads are off by default.
+
+Execution creates a new evidence folder and never overwrites an old one. Review
+`result.json`'s scope and detailed checks, not just the exit status. Timeouts stop
+child process groups. Private wallet keys, passwords, tokens and customer records
+must not be placed in the repository or release evidence.
+
+This environment still has no pinned engine and cannot resolve the normal module
+host. The actual network attempt executed zero engine steps. No Cloudflare/domain
+change is needed to perform the other local engineering. Domain ownership does
+not establish chain execution or access to a production deployment account.
+
+The full local archive and remote main's wallet are different lineages. Publication
+is incomplete, with the v0.12 native-core write blocked. Preserve existing refs,
+user files and tests; do not reroute blocked content or force-push local history.
+See HANDOFF.md and VERIFICATION.md for exact observed refs and evidence.
