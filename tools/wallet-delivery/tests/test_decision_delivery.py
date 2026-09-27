@@ -74,6 +74,43 @@ class DeliveryTests(unittest.TestCase):
     def test_status_cannot_create_missing_delivery_journal(self):
         with self.assertRaises(ValueError):self.open(create=False)
         self.assertFalse(self.c.delivery_path.exists())
+    def test_wallet_sqlite_sidecar_paths_are_rejected_before_creation(self):
+        for suffix in ('-wal','-shm','-journal'):
+            with self.subTest(suffix=suffix):
+                wallet=self.c.root/f'wallet-{suffix[1:]}.sqlite'
+                copied=sqlite3.connect(wallet)
+                self.c.wallet.db.backup(copied)
+                copied.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+                copied.execute('PRAGMA journal_mode=DELETE')
+                copied.close()
+                wallet.chmod(0o600)
+                sidecar=Path(str(wallet)+suffix)
+                self.assertFalse(sidecar.exists(),'sidecar target must be absent for this regression case')
+                lock=Path(str(sidecar)+'.dispatch-lock')
+                with self.assertRaises(ValueError):
+                    self.open(wallet_journal=wallet,delivery_journal=sidecar)
+                self.assertFalse(sidecar.exists(),'rejected alias must not create a delivery database')
+                self.assertFalse(lock.exists(),'sidecar validation must happen before dispatcher initialization')
+    def test_status_cannot_adopt_missing_empty_or_mismatched_dispatch_configuration(self):
+        for label, value in [('missing',None),('empty',''),('mismatched','{}')]:
+            with self.subTest(configuration=label):
+                path=self.c.root/f'delivery-{label}.sqlite'
+                self.open(delivery_journal=path)
+                self.d.close();self.d=None
+                lock=Path(str(path)+'.dispatch-lock')
+                lock.unlink()
+                db=sqlite3.connect(path)
+                if value is None:
+                    db.execute('DELETE FROM configuration WHERE id=1')
+                else:
+                    db.execute('UPDATE configuration SET value=? WHERE id=1',(value,))
+                db.commit();before=list(db.iterdump());db.close()
+                with self.assertRaises(ValueError):
+                    self.open(delivery_journal=path,create=False)
+                self.assertFalse(lock.exists(),'status validation must happen before dispatcher initialization')
+                db=sqlite3.connect(path)
+                self.assertEqual(list(db.iterdump()),before)
+                db.close()
     def test_nonloopback_refused(self):
         with self.assertRaises(ValueError):self.open(url='https://example.com/')
         self.assertFalse(self.c.delivery_path.exists())

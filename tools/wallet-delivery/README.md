@@ -70,7 +70,11 @@ python tools/wallet-delivery/scripts/deliver.py "${base[@]}" export-proof \
 
 Only `queue` can initialize a new dedicated delivery journal. Existing wallets,
 legacy outboxes, payment-job databases and unrelated SQLite stores are rejected
-rather than converted. Wallet and delivery files must differ. Private owned
+rather than converted. Wallet and delivery files must differ. Delivery paths may not name or alias the wallet's `-wal`, `-shm`, or
+`-journal` sidecars, even before those files exist. Existing complete dispatch
+journals must already carry the matching endpoint, genesis and trust-expiry
+configuration; missing, empty or different rows are refused for status as well,
+without repair. Private owned
 paths and normal WAL coordination are required. Existing exports are not overwritten.
 
 `queue` does not contact RPC. Repeating it cannot reset a previous dispatch attempt.

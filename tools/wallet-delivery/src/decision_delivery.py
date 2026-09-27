@@ -51,7 +51,13 @@ def _selection(account: str, grant_id: str) -> None:
         identifier(grant_id)
 
 
-def _dispatch_file(path: Path, *, create: bool) -> None:
+def _same_path_or_file(left: Path, right: Path) -> bool:
+    if left.resolve(strict=False) == right.resolve(strict=False):
+        return True
+    return left.exists() and right.exists() and os.path.samefile(left, right)
+
+
+def _dispatch_file(path: Path, *, create: bool, expected_config: str) -> None:
     """Refuse wrong stores BEFORE the legacy dispatcher can run schema creation."""
     if not path.exists() and not path.is_symlink():
         require(create, 'delivery journal absent; queue explicitly to create it')
@@ -66,7 +72,11 @@ def _dispatch_file(path: Path, *, create: bool) -> None:
         for name in tables:
             actual = tuple(r[1] for r in db.execute('PRAGMA table_info("' + name + '")'))
             require(actual == DISPATCH_TABLES[name], 'dispatch journal columns differ')
-        if not tables:
+        if tables:
+            row = db.execute('SELECT value FROM configuration WHERE id=1').fetchone()
+            require(row is not None and type(row[0]) is str and row[0] == expected_config,
+                    'dispatch configuration is missing or differs')
+        else:
             require(create, 'empty delivery journal; queue explicitly to initialize it')
     finally:
         db.close()
@@ -89,6 +99,9 @@ class DecisionDelivery:
         self.wallet_path = Path(os.path.abspath(wallet_journal))
         self.delivery_path = Path(os.path.abspath(delivery_journal))
         require(self.wallet_path != self.delivery_path, 'wallet and delivery journals must be different')
+        sidecars = (Path(str(self.wallet_path) + suffix) for suffix in ('-wal', '-shm', '-journal'))
+        require(not any(_same_path_or_file(self.delivery_path, sidecar) for sidecar in sidecars),
+                'delivery journal cannot alias a wallet SQLite sidecar')
         if self.wallet_path.exists() and self.delivery_path.exists():
             require(not os.path.samefile(self.wallet_path, self.delivery_path),
                     'wallet and delivery journals refer to the same file')
@@ -108,7 +121,10 @@ class DecisionDelivery:
         finally:
             if db.in_transaction: db.execute('ROLLBACK')
             db.close()
-        _dispatch_file(self.delivery_path, create=create)
+        dispatch_config = encode({'schema': 1, 'genesis_sha256': self.policy['genesis_sha256'],
+                                  'endpoint': endpoint,
+                                  'trust_expires_utc': self.policy['trust_expires_utc']}).decode()
+        _dispatch_file(self.delivery_path, create=create, expected_config=dispatch_config)
         self.dispatch = DispatchJournal(self.delivery_path, self.genesis_bytes,
             self.policy['genesis_sha256'], endpoint, self.policy['trust_expires_utc'], clock=clock)
         # Path binding is local routing consent, not an uncopyable wallet identity.
