@@ -205,7 +205,8 @@ class DeliveryTests(unittest.TestCase):
         self.c.mode='decline'
         with self.c.rpc() as url:
             first=self.sent(url);self.assertEqual(first['transport_status'],'endpoint_declined')
-            second=self.call('send',first['delivery_confirmation'],replay=True)
+            review=self.call('review',replay=True)
+            second=self.call('send',review['delivery_confirmation'],replay=True)
             self.assertEqual(second['submission_attempts'],2);self.assertEqual(self.c.seen,[canonical(self.signed['result'])]*2)
             self.assertEqual(self.c.holds(),60)
     def test_admission_reply_does_not_mark_wallet_paid(self):

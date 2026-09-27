@@ -49,7 +49,7 @@ class Scenario:
                        'maximum_age_seconds':300,'future_skew_seconds':5}
         self.app = BlockApplication(self.root/'app.sqlite'); self.app.init_chain(self.genesis['chain_id'], self.genesis)
         self.headers = {}; self.blocks = {}; self.snapshots = {}; self.exposed = None
-        self.lock = threading.RLock(); self.seen=[]; self.mode='drop_after_execution'; self.requests=[]
+        self.lock = threading.RLock(); self.seen=[]; self.mode='drop_after_execution'; self.requests=[]; self.native_results=[]
         model = NativeLedger(':memory:', self.genesis)
         try:
             ops=[]
@@ -135,12 +135,16 @@ class Scenario:
                 method=request['method'];params=request['params']
                 if method=='broadcast_tx_sync':
                     raw=base64.b64decode(params['tx'],validate=True);c.seen.append(raw)
+                    code=7
                     if c.mode!='decline':
                         result=c.latest_after(raw)
-                        assert result['tx_results'][0]['code']==0, result
-                    if c.mode=='drop_after_execution':
+                        code=result['tx_results'][0]['code']
+                    c.native_results.append(code)
+                    # A duplicate is a normal native rejection, not a fixture
+                    # thread assertion hidden from the unittest result.
+                    if c.mode=='drop_after_execution' and code==0:
                         self.connection.shutdown(socket.SHUT_RDWR);self.connection.close();return
-                    result={'code':7 if c.mode=='decline' else 0,
+                    result={'code':code,
                             'hash':hashlib.sha256(raw).hexdigest().upper()}
                 elif method=='abci_query':
                     assert params['path']=='/state'

@@ -482,7 +482,34 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                     checked(name+' uses exact wallet-signed bytes',raw==decision['raw'])
                     if decision_delivery:
                         expected_hold=100 if name=='first worker payment' else 40
-                        sent=wallet_delivery.send(decision['decision_id'],decision['confirmation'],
+                        # Exact payment bytes were signed earlier. Review only the
+                        # next submission attempt under the current wallet state.
+                        attempt=wallet_delivery.review(decision['decision_id'],
+                            account=decision['account'],grant_id=decision['grant_id'])
+                        plan=attempt['submission_review']
+                        checked(name+' delivery review binds current state and one first-send attempt',
+                            plan['schema']==2 and plan['operation']=='send' and plan['next_attempt']==1 and
+                            plan['decision_id']==decision['decision_id'] and
+                            plan['wire_sha256']==hashlib.sha256(raw).hexdigest() and
+                            plan['wallet_state_height']==wallet_observed['state']['height'])
+                        if name=='second worker boundary payment':
+                            before=decision_proxy.snapshot()['forwarded_payment_submissions']
+                            stale_refused=False
+                            try:
+                                wallet_delivery.send(decision['decision_id'],decision['confirmation'],
+                                    account=decision['account'],grant_id=decision['grant_id'])
+                            except ValueError:
+                                stale_refused=True
+                            checked('old Atlas approval is refused after Raven reconciliation without another RPC',
+                                stale_refused and before==1 and
+                                decision_proxy.snapshot()['forwarded_payment_submissions']==before and
+                                decision['confirmation']!=attempt['delivery_confirmation'])
+                        decision['evidence']['submission_review']={
+                            'schema':plan['schema'],'operation':plan['operation'],
+                            'next_attempt':plan['next_attempt'],'wallet_state_height':plan['wallet_state_height'],
+                            'wire_sha256':plan['wire_sha256'],
+                            'review_confirmation':attempt['delivery_confirmation']}
+                        sent=wallet_delivery.send(decision['decision_id'],attempt['delivery_confirmation'],
                             account=decision['account'],grant_id=decision['grant_id'])
                         current_proxy=decision_proxy.snapshot()
                         proxy_record=current_proxy['payments'][-1] if current_proxy['payments'] else {}
