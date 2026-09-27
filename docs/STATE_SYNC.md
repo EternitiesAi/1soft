@@ -153,8 +153,9 @@ runner retains the ten source/target app and engine logs plus a runner log in
 databases or key files. Its manifest records hashes, sizes, truncation and run
 status. Reusing the same report path replaces that report's prior log bundle.
 
-This new gate has not been executed in the current runtime because the pinned
-CometBFT binary is unavailable here.
+The original handoff author's runtime lacked the pinned engine, so its saved
+state-sync gate was unassessed. For later runs, use the acceptance receipt bound
+to the exact source commit and engine binary; this design note is not a run report.
 
 ## Evidence so far
 
@@ -171,7 +172,7 @@ post-restore AppHash mismatch.
 The Python ABCI tests exercise all four snapshot calls through the application
 wire dispatcher. The official-Go wire probe has also been extended with upstream
 v0.38.25 snapshot request/response fixtures. Its new fixture run requires Go
-module availability and remains a separate gate in this runtime.
+module availability and remains a separate exact-revision gate.
 
 The existing PR #12 four-validator delivery evidence remains valid for its exact
 `dd096` source. It does **not** validate these new state-sync changes because this
@@ -181,7 +182,7 @@ checkpoint changes ABCI and application persistence code.
 
 This implementation deliberately leaves several larger jobs open:
 
-- execute the new real-engine state-sync gate and retain its raw logs,
+- retain exact-source real-engine state-sync reports and raw logs for each candidate,
 - run state sync between independently operated machines, not five processes on
   one host,
 - define snapshot availability/pruning/history policy,

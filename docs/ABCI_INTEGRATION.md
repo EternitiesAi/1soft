@@ -42,7 +42,7 @@ Transaction consent remains bound to the native chain ID and genesis hash. Expir
 
 ## Recovery
 
-Before commit, a process restart discards the pending copy and reports the previous committed height. The engine must replay the decided block. After commit, a restart reports the new height. Application and engine databases are deliberately separate; their reconciliation is the engine's handshake responsibility and **has not yet been tested against a real engine here**.
+Before commit, a process restart discards the pending copy and reports the previous committed height. The engine must replay the decided block. After commit, a restart reports the new height. Application and engine databases are deliberately separate; their reconciliation requires a real-engine acceptance receipt for the exact source revision.
 
 The node application database has an exclusive process lock. Reopening with another genesis fails. A mismatched stored hash or incomplete latest block record fails validation. These checks do not protect against a privileged operator rewriting all state and verification data together.
 
@@ -60,7 +60,7 @@ Proof queries and unsupported historical queries explicitly fail rather than ret
 
 1. Unit tests establish selected local application and wire behaviors.
 2. Four OS application processes receiving scripted ABCI delivery establish transport/process consistency and selected recovery behavior. **They do not establish BFT consensus.**
-3. The official-Go wire probe is a separate unassessed compatibility gate.
+3. The official-Go wire probe is a separate compatibility gate whose result must be bound to the exact source revision.
 4. Independent certificate tests check signatures, header hashes, transaction inclusion and full-state witnesses against a static pinned genesis. Delivered packets are synthetic; those tests are not consensus evidence. The production-facing development CLI requires expected transaction IDs.
 5. The real four-validator CometBFT runner has passed multiple pinned one-host scenarios in later checkpoints, including protocol-3 wallet/delivery flows. Those results apply only to their exact tested source revisions. The new ABCI state-sync changes require their own opt-in `run_state_sync.py` real-engine gate; old network results are not reused as state-sync evidence.
 6. Public deployment requires substantially more: independent operators, economic/security design, threat-driven testing, audits, operational controls and applicable issuer/custody arrangements.
@@ -81,4 +81,4 @@ The original full-state proof/rebuild bottlenecks have since gained a persistent
 
 The new application-process exercise records 65 checks across four scripted application processes. It executes account funding, same-named grants for different owners, rotation, explicit new authority and stale-key/grant rejections, including process loss before/after commit. This supplements, not replaces, the legacy 39-check process exercise. Neither uses validator voting.
 
-Later source checkpoints executed the pinned engine on one-host four-validator protocol-1/2/3 networks and independently verified signed receipts. Those historical results do not automatically qualify modified ABCI code. The new state-sync implementation therefore has a separate real-engine acceptance runner whose current-runtime status is unassessed until the pinned binary is executed against this exact source.
+Later source checkpoints executed the pinned engine on one-host four-validator protocol-1/2/3 networks and independently verified signed receipts. Those historical results do not automatically qualify modified ABCI code. The state-sync implementation has a separate real-engine acceptance runner; its result is valid only for the exact source and pinned binary recorded in that run.

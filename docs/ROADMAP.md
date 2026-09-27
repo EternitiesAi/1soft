@@ -10,7 +10,7 @@
 | Certified wallet, decision delivery and receipt reconciliation | Implemented development flow | Consolidate one source lineage; hardware/hostile-host custody and cross-device operation remain open. |
 | Actual multi-validator chain | **Passed on one-host development networks** | Repeat on independently operated hosts and retain operator/network fault evidence. |
 | Authenticated compact state/proofs | Implemented development path | Continue scale, pruning and adversarial proof testing. |
-| Bounded ABCI state sync | **Implemented locally; new real-engine gate pending** | Run `run_state_sync.py` against pinned CometBFT, then repeat across independent machines. |
+| Bounded ABCI state sync | Implemented development path; qualify each revision with its own engine receipt | Run `run_state_sync.py` against pinned CometBFT for each candidate, then repeat across independent machines. |
 | Crash/recovery and application checkpoints | Implemented development tooling | Coordinate validator consensus DB/signing-state recovery; power-loss and operator drills remain. |
 | Real network fault/security tests | Partial one-host evidence | Multi-host partitions, restarts, hostile peers, resource exhaustion and incident drills. |
 | Final engine/protocol decision | CometBFT 0.38.25 pinned for current development | Upgrade/licensing/security lifecycle and validator-set evolution policy. |

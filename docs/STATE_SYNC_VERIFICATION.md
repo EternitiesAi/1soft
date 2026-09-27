@@ -72,11 +72,11 @@ The Python protobuf mapping was checked against the pinned upstream
 extended with OfferSnapshot, LoadSnapshotChunk, ApplySnapshotChunk, ListSnapshots
 and corresponding response fixtures.
 
-The current runtime has Go but not the pinned CometBFT module cache. Running the
-wire gate with module lookup disabled stops at dependency resolution and reports
-UNASSESSED with zero checks. The pinned CometBFT executable is also absent; both
-flat and SMT `run_state_sync.py` invocations return UNASSESSED with zero engine
-checks. No simulated engine substitutes for those gates.
+At original handoff authoring, offline Go module resolution failed and the pinned
+CometBFT binary was absent. Those attempts were UNASSESSED with zero engine
+checks. This file records that handoff; later Codex results must be read from a
+validation receipt tied to the exact source commit and engine hash. No simulated
+engine substitutes for a real-engine gate.
 
 PR #12's saved 22/39/62/67 real-validator results were independently reviewed from
 the supplied archive, but they apply to dd096. They do **not** qualify these new
@@ -84,7 +84,7 @@ ABCI/state-persistence bytes.
 
 ## Remaining acceptance
 
-Before calling this state-sync source engine-qualified:
+For each source revision called engine-qualified:
 
 1. run the extended official-Go wire probe on the exact checkout;
 2. run `scripts/run_state_sync.py` with CometBFT v0.38.25 for protocol 1/flat;
