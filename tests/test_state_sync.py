@@ -217,6 +217,58 @@ class StateSyncTests(unittest.TestCase):
                 server.server_close()
             source.close();target.close()
 
+    def test_apphash_mismatch_closes_restored_native_ledger(self):
+        source,target,genesis,tx=self.apps()
+        owner,merchant,_=fixture()
+        alternate=BlockApplication(self.root/'alternate.sqlite',expected_genesis=genesis)
+        try:
+            alternate.init_chain(genesis['chain_id'],genesis)
+            alternate_tx=payment(genesis,owner,merchant,units=50)
+            alternate.finalize_block([alternate_tx],1,hashlib.sha256(b'1').digest())
+            alternate.commit()
+            alternate.finalize_block([],2,hashlib.sha256(b'2').digest())
+            alternate.commit()
+
+            desc=alternate.list_snapshots()[0]
+            raw=b''.join(alternate.load_snapshot_chunk(desc['height'],desc['format'],i)
+                         for i in range(desc['chunks']))
+            payload=json.loads(raw)
+            # A different but ledger-valid branch shares the genesis/height while
+            # its native state does not match the trusted source branch AppHash.
+            payload['app_hash']=source.app_hash
+            raw=encode(payload)
+            desc=state_sync._descriptor(payload['height'],raw,genesis,source.app_hash)
+            chunks=[raw[i:i+CHUNK_BYTES] for i in range(0,len(raw),CHUNK_BYTES)]
+            self.assertEqual(target.offer_snapshot(desc,bytes.fromhex(source.app_hash)),OFFER_ACCEPT)
+
+            import block_application
+            original_restore=block_application.restore
+            tracked=[]
+
+            class TrackedLedger:
+                def __init__(self,ledger):
+                    self.ledger=ledger
+                    self.closed=False
+                def close(self):
+                    self.closed=True
+                    self.ledger.close()
+
+            def tracked_restore(restore_genesis,state):
+                ledger=TrackedLedger(original_restore(restore_genesis,state))
+                tracked.append(ledger)
+                return ledger
+
+            with patch('block_application.restore',side_effect=tracked_restore):
+                result=None
+                for index,chunk in enumerate(chunks):
+                    result=target.apply_snapshot_chunk(index,chunk,'alternate-peer')
+            self.assertEqual(result['result'],APPLY_REJECT_SNAPSHOT)
+            self.assertEqual(len(tracked),1)
+            self.assertTrue(tracked[0].closed)
+            self.assertFalse(target.info()['initialized'])
+        finally:
+            source.close();target.close();alternate.close()
+
     def test_tampered_final_payload_never_commits(self):
         source,target,genesis,tx=self.apps()
         try:
@@ -273,6 +325,106 @@ class StateSyncTests(unittest.TestCase):
             self.assertFalse(target.info()['initialized'])
             self.transfer_snapshot(source,target);self.assertEqual(target.height,source.height)
         finally:source.close();target.close()
+
+    def test_checkpoint_only_recovery_accepts_same_snapshot_after_lost_reply(self):
+        source,target,genesis,tx=self.apps()
+        target_path=self.root/'target.sqlite'
+        try:
+            desc=source.list_snapshots()[0]
+            app_hash=source.app_hash
+            chunks=[source.load_snapshot_chunk(desc['height'],desc['format'],i)
+                    for i in range(desc['chunks'])]
+            self.assertEqual(target.offer_snapshot(desc,bytes.fromhex(app_hash)),OFFER_ACCEPT)
+            real_install=target.state_sync._install
+
+            def install_then_lose_reply(payload, checked, **kwargs):
+                real_install(payload,checked,**kwargs)
+                raise RuntimeError('simulated process death before APPLY_ACCEPT')
+
+            with patch.object(target.state_sync,'_install',side_effect=install_then_lose_reply):
+                for index,chunk in enumerate(chunks[:-1]):
+                    self.assertEqual(target.apply_snapshot_chunk(index,chunk,'peer')['result'],APPLY_ACCEPT)
+                with self.assertRaisesRegex(RuntimeError,'before APPLY_ACCEPT'):
+                    target.apply_snapshot_chunk(len(chunks)-1,chunks[-1],'peer')
+
+            target.close()
+            target=BlockApplication(target_path,expected_genesis=genesis)
+            self.assertEqual(target.offer_snapshot(desc,bytes.fromhex(app_hash)),OFFER_ACCEPT)
+            for index,chunk in enumerate(chunks):
+                self.assertEqual(target.apply_snapshot_chunk(index,chunk,'peer')['result'],APPLY_ACCEPT)
+            self.assertEqual(target.height,2)
+            self.assertEqual(target.app_hash,app_hash)
+            self.assertEqual(target.query('/state')['value'],source.query('/state')['value'])
+            self.assertEqual(target.db.execute(
+                'SELECT height,app_hash FROM state_sync_marker WHERE id=1').fetchone(),
+                (2,app_hash))
+        finally:
+            source.close();target.close()
+
+    def test_checkpoint_only_recovery_accepts_newer_snapshot_after_source_restart(self):
+        source,target,genesis,tx=self.apps(smt=True)
+        source_path=self.root/'source-smt.sqlite'
+        target_path=self.root/'target-smt.sqlite'
+        try:
+            first_desc=source.list_snapshots()[0]
+            first_hash=source.app_hash
+            first_chunks=[source.load_snapshot_chunk(first_desc['height'],FORMAT,i)
+                          for i in range(first_desc['chunks'])]
+            self.assertEqual(target.offer_snapshot(first_desc,bytes.fromhex(first_hash)),OFFER_ACCEPT)
+            real_install=target.state_sync._install
+
+            def install_then_lose_reply(payload, checked, **kwargs):
+                real_install(payload,checked)
+                raise RuntimeError('simulated process death before APPLY_ACCEPT')
+
+            with patch.object(target.state_sync,'_install',side_effect=install_then_lose_reply):
+                for index,chunk in enumerate(first_chunks[:-1]):
+                    self.assertEqual(target.apply_snapshot_chunk(index,chunk,'peer')['result'],APPLY_ACCEPT)
+                with self.assertRaisesRegex(RuntimeError,'before APPLY_ACCEPT'):
+                    target.apply_snapshot_chunk(len(first_chunks)-1,first_chunks[-1],'peer')
+
+            target.close()
+            target=BlockApplication(target_path,expected_genesis=genesis)
+            self.assertEqual(target.db.execute(
+                'SELECT height,app_hash FROM state_sync_marker WHERE id=1').fetchone(),
+                (2,first_hash))
+
+            # A source restart clears its process-local old-snapshot cache.
+            source.close()
+            source=BlockApplication(source_path,expected_genesis=genesis)
+            source.finalize_block([],3,hashlib.sha256(b'3').digest());source.commit()
+            snapshots=source.list_snapshots()
+            self.assertEqual([item['height'] for item in snapshots],[3])
+            self.assertEqual(source.load_snapshot_chunk(2,FORMAT,0),b'')
+            newer=snapshots[0]
+            newer_chunks=[source.load_snapshot_chunk(newer['height'],newer['format'],i)
+                          for i in range(newer['chunks'])]
+
+            self.assertEqual(target.offer_snapshot(newer,bytes.fromhex(source.app_hash)),OFFER_ACCEPT)
+            for index,chunk in enumerate(newer_chunks):
+                self.assertEqual(target.apply_snapshot_chunk(index,chunk,'peer')['result'],APPLY_ACCEPT)
+            self.assertEqual(target.height,3)
+            self.assertEqual(target.app_hash,source.app_hash)
+            self.assertEqual(target.query('/state')['value'],source.query('/state')['value'])
+            marker=(3,target.app_hash)
+            self.assertEqual(target.db.execute(
+                'SELECT height,app_hash FROM state_sync_marker WHERE id=1').fetchone(),marker)
+            from native_core import digest
+            self.assertEqual(target.proof_index.audit(
+                digest(genesis),target.height,target.app_hash)['height'],3)
+
+            # Recovery cannot roll the checkpoint backward.
+            self.assertEqual(target.offer_snapshot(first_desc,bytes.fromhex(first_hash)),OFFER_REJECT)
+            # Once a normal block commits, this is no longer a checkpoint-only recovery state.
+            block4=hashlib.sha256(b'4').digest()
+            source.finalize_block([],4,block4);source.commit()
+            target.finalize_block([],4,block4);target.commit()
+            newer_again=source.list_snapshots()[0]
+            before=target.query('/state')['value']
+            self.assertEqual(target.offer_snapshot(newer_again,bytes.fromhex(source.app_hash)),OFFER_ABORT)
+            self.assertEqual(target.query('/state')['value'],before)
+        finally:
+            source.close();target.close()
 
     def test_state_sync_marker_tamper_is_detected_on_reopen(self):
         source,target,genesis,tx=self.apps()

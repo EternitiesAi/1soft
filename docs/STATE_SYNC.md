@@ -56,14 +56,20 @@ returning no chunk.
 
 ## Restoration trust boundary
 
-A snapshot can be offered only to an application that:
+A snapshot can be offered to either:
 
-1. has no committed application state, and
-2. was started with an explicit expected native genesis.
+1. an uninitialized application started with an explicit expected native genesis,
+   or
+2. an untouched installed checkpoint whose state-sync marker and committed
+   height/AppHash match and whose local block table is empty.
 
-An already initialized application aborts state sync. A fresh application without
-an expected genesis also aborts; peers never choose the chain identity.
-
+The second case recovers the narrow crash window where the application committed
+a complete snapshot but CometBFT stopped before bootstrapping its own state store.
+Recovery accepts only a same-height or newer snapshot, still pinned to the expected
+genesis and CometBFT's trusted AppHash. A valid but lower-height offer is rejected
+so CometBFT can try another snapshot; it must not roll the application backward.
+A fresh application without an expected genesis aborts, and an initialized
+application with ordinary block history remains ineligible.
 Before accepting an offer, the application requires exact descriptor/metadata
 agreement, its expected genesis digest, and the light-client AppHash supplied in
 `RequestOfferSnapshot`. Chunk application then enforces the declared ordering,
@@ -78,8 +84,9 @@ After the last chunk the application:
 4. restores the native ledger and validates receipts/invariants,
 5. recomputes the application commitment at the offered height,
 6. requires equality with the trusted AppHash,
-7. initializes the compact proof index atomically when `smt-v1` is enabled,
-8. commits the restored state and a local state-sync marker in one SQLite
+7. initializes the compact proof index, or rebuilds it from the newly validated
+   state during checkpoint recovery, atomically when SMT mode is enabled,
+8. commits the restored/recovered state and local state-sync marker in one SQLite
    transaction,
 9. only then exposes the restored state to the running application.
 
@@ -101,6 +108,11 @@ was not executed locally. Later normally executed blocks are recorded as usual,
 and the marker remains as a local provenance/recovery receipt. A restart at the
 snapshot height requires the marker to match the committed checkpoint if no local
 block record exists.
+
+While the committed height/AppHash still exactly match this marker and no block
+rows exist, it also identifies the narrow checkpoint-only recovery case above.
+Once ordinary blocks are committed, recovery is closed; the marker stays only as
+provenance.
 
 The marker is not a remote proof, a validator vote, or an authority source.
 
@@ -147,10 +159,14 @@ CometBFT binary is unavailable here.
 ## Evidence so far
 
 Local application tests cover flat and SMT restore, exact proof-index restoration,
-continuation into another block, process restart, wrong genesis/AppHash/format,
+continuation into another block, process restart, crash after durable snapshot
+install but before the apply response, same-height retry, recovery from a newer
+snapshot after the source restarts/advances, lower-height rejection, and refusal
+after local block history exists. They also cover wrong genesis/AppHash/format,
 noncanonical/oversized metadata, corrupted final payload, duplicate/out-of-order
 chunks, retained served snapshots, process-local partial chunks, local marker
-integrity and transactional database failure.
+integrity, transactional database failure, and closing restored ledgers on
+post-restore AppHash mismatch.
 
 The Python ABCI tests exercise all four snapshot calls through the application
 wire dispatcher. The official-Go wire probe has also been extended with upstream

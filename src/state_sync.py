@@ -3,8 +3,9 @@
 Only CometBFT's light-client-verified AppHash is authoritative. Snapshot metadata,
 peer senders and chunk contents are untrusted until the complete payload is
 reconstructed, hashed, re-executed through native snapshot validation, and matched
-against the offered AppHash. Restores are accepted only into an uninitialized
-application that was started with an explicitly expected native genesis.
+against the offered AppHash. Restores are accepted only into an uninitialized application or its untouched
+state-sync checkpoint after an interrupted CometBFT bootstrap. Both require an
+explicitly expected native genesis.
 
 This remains a development state-sync design: snapshots contain the complete
 native state including receipts, so size grows with history. No pruning, remote
@@ -117,6 +118,20 @@ class StateSyncManager:
     def clear(self) -> None:
         self._served.clear(); self._offer = None
 
+    def _checkpoint_only(self) -> bool:
+        """Whether only a prior snapshot install, not block sync, changed the app."""
+        app = self.app
+        if app.genesis is None or app.expected_genesis is None or app.height <= 0:
+            return False
+        committed = app.db.execute(
+            'SELECT height,app_hash FROM committed WHERE id=1').fetchone()
+        marker = app.db.execute(
+            'SELECT height,app_hash FROM state_sync_marker WHERE id=1').fetchone()
+        return (committed == (app.height, app.app_hash) and
+                marker == (app.height, app.app_hash) and
+                digest(app.genesis) == digest(app.expected_genesis) and
+                app.db.execute('SELECT 1 FROM blocks LIMIT 1').fetchone() is None)
+
     def _payload(self) -> bytes:
         app = self.app
         require(app.genesis is not None and app.native is not None and app.height > 0,
@@ -167,7 +182,9 @@ class StateSyncManager:
     def offer(self, snapshot: dict, app_hash: bytes) -> int:
         self._offer = None
         app = self.app
-        if app.genesis is not None or app.db.execute('SELECT 1 FROM committed').fetchone() is not None:
+        checkpoint_recovery = self._checkpoint_only()
+        has_committed = app.db.execute('SELECT 1 FROM committed').fetchone() is not None
+        if (app.genesis is not None or has_committed) and not checkpoint_recovery:
             return OFFER_ABORT
         if app.expected_genesis is None:
             return OFFER_ABORT
@@ -180,6 +197,8 @@ class StateSyncManager:
             height = snapshot.get('height'); chunks = snapshot.get('chunks')
             hash_ = snapshot.get('hash'); metadata_raw = snapshot.get('metadata')
             require(type(height) is int and 1 <= height <= 2**63-2, 'invalid offered height')
+            if checkpoint_recovery and height < app.height:
+                return OFFER_REJECT
             require(type(chunks) is int and 1 <= chunks <= MAX_CHUNKS, 'invalid offered chunk count')
             require(type(hash_) is bytes and len(hash_) == 32, 'invalid offered snapshot hash')
             require(type(app_hash) is bytes and len(app_hash) == 32, 'invalid trusted app hash')
@@ -192,7 +211,7 @@ class StateSyncManager:
                     'snapshot metadata differs from trusted app hash')
             self._offer = {'height':height, 'format':format_, 'chunks':chunks,
                            'hash':hash_, 'app_hash':app_hash.hex(), 'metadata':metadata,
-                           'parts':[], 'bytes':0}
+                           'parts':[], 'bytes':0, 'checkpoint_recovery':checkpoint_recovery}
             return OFFER_ACCEPT
         except Reject:
             self._offer = None
@@ -240,11 +259,15 @@ class StateSyncManager:
             # in-memory ledger reject that candidate. _install() runs later on
             # the application database and remains fail-stop on local faults.
             raise Reject('snapshot native rows violate ledger constraints') from exc
-        require(application_hash(genesis, payload['height'], state) == offer['app_hash'],
-                'snapshot state does not match trusted AppHash')
+        try:
+            require(application_hash(genesis, payload['height'], state) == offer['app_hash'],
+                    'snapshot state does not match trusted AppHash')
+        except BaseException:
+            checked.close()
+            raise
         return payload, checked
 
-    def _install(self, payload: dict, checked) -> None:
+    def _install(self, payload: dict, checked, *, checkpoint_recovery: bool = False) -> None:
         from block_application import encode
         from state_tree import enabled
         app = self.app
@@ -256,8 +279,14 @@ class StateSyncManager:
                     checked, payload['height'], payload['app_hash'])
             app.db.execute('BEGIN IMMEDIATE')
             try:
-                require(app.db.execute('SELECT 1 FROM committed').fetchone() is None,
-                        'application initialized during state sync')
+                if checkpoint_recovery:
+                    require(self._checkpoint_only() and payload['height'] >= app.height,
+                            'state-sync checkpoint changed before recovery install')
+                    app.db.execute('DELETE FROM committed')
+                else:
+                    require(app.genesis is None and
+                            app.db.execute('SELECT 1 FROM committed').fetchone() is None,
+                            'application initialized during state sync')
                 app.db.execute('DELETE FROM blocks')
                 app.db.execute('DELETE FROM state_sync_marker')
                 app.db.execute('INSERT INTO committed VALUES (1,?,?,?,?)',
@@ -268,6 +297,9 @@ class StateSyncManager:
                 if app.use_proof_index and enabled(payload['genesis']):
                     from state_index import StateIndex
                     index = StateIndex(app.db)
+                    if checkpoint_recovery:
+                        app.db.execute('DELETE FROM proof_checkpoint')
+                        app.db.execute('DELETE FROM proof_nodes')
                     index.initialize(digest(payload['genesis']), payload['height'],
                                      payload['native'], payload['app_hash'])
                 app.db.execute('COMMIT')
@@ -319,7 +351,8 @@ class StateSyncManager:
             require(_snapshot_hash(raw) == offer['hash'], 'snapshot hash mismatch')
             payload, checked = self._validate_payload(raw, offer)
             try:
-                self._install(payload, checked)
+                self._install(payload, checked,
+                              checkpoint_recovery=offer['checkpoint_recovery'])
             finally:
                 checked.close()
             self._offer = None

@@ -26,12 +26,16 @@ Legacy state-wallet/stateless signing paths remain restricted. Do not operate
 independent journals or raw signing paths against the same funds and then describe
 local reservations as globally coordinated.
 
-ABCI state sync now has a bounded format-1 implementation. A restore must be to an
-uninitialized application pinned to the expected native genesis, and the complete
-restored native state must recompute to CometBFT's light-client-verified AppHash.
-Peer metadata/chunks are not authority. A local state-sync marker is provenance,
-not consensus state. The new `scripts/run_state_sync.py` gate must run against the
-real pinned CometBFT v0.38.25 binary before this modified source is described as
+ABCI state sync now has a bounded format-1 implementation. A restore may target
+an uninitialized application pinned to the expected native genesis, or recover an
+untouched installed checkpoint when its local marker matches the committed
+height/AppHash and no block rows exist. That recovery can replace only the same or
+a newer trusted snapshot; ordinary initialized apps with block history remain
+ineligible. Every restored native state must recompute to CometBFT's
+light-client-verified AppHash. Peer metadata/chunks are not authority. A local
+state-sync marker is provenance, not consensus state. The new
+scripts/run_state_sync.py gate must run against the real pinned CometBFT v0.38.25
+binary after these recovery changes before this modified source is described as
 engine-qualified for state sync.
 
 Independent operators, public peer/RPC hardening, pruning/history policy,
