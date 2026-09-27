@@ -2,7 +2,7 @@
 
 The endpoint is a source of untrusted bytes only. Genesis and policy are already
 pinned in CertifiedWallet. A successful full-state sync may reconcile holds;
-header-only progress cannot. No vault, signing, broadcast, automatic retry, policy
+header-only progress cannot. No vault, signing, broadcast, payment retry, policy
 renewal, database replacement or cross-device authority is offered here.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from commit_verifier import block_id, encode, load_json, verify_state_witness
 from native_core import require
 from payment_rpc import endpoint_port
 from wallet_catchup import MAX_HEADERS, _snapshot_anchor, progress_anchor
-from wallet_refresh_rpc import fetch, MAX_OUTPUT
+from wallet_refresh_rpc import fetch, MAX_OUTPUT, SNAPSHOT_COMMIT_ATTEMPTS
 
 
 def _anchor(wallet):
@@ -73,7 +73,8 @@ def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
 
     Capture a target ONCE. Resume from committed header progress on the next call,
     even when a previous call stopped after a successful batch. At most four
-    batches (256 headers) and two target reads per call. A still-producing node is
+    batches (256 headers), one state query, and at most four fixed-height
+    commitment reads per call. A still-producing node is
     not chased within the call. If the target ages out, header progress stays but
     only a later fresh full-state sync may reconcile funds.
     """
@@ -84,7 +85,8 @@ def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
             'headers_per_batch must be 1 through 64')
     report = {'schema':1, 'status':'unavailable', 'state_synced':False,
               'headers_accepted':0, 'batches_committed':0, 'rpc_attempts':0,
-              'request_bound':2 + max_batches*headers_per_batch, 'target_header_height':None,
+              'request_bound':1 + SNAPSHOT_COMMIT_ATTEMPTS + max_batches*headers_per_batch,
+              'target_header_height':None,
               'broadcast':False, 'signed':False, 'latest_state_guaranteed':False,
               'scope':'one explicitly requested read-only loopback refresh'}
     def collect(request):
@@ -95,10 +97,12 @@ def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
         require(set(result) == ({'status','rpc_attempts','payload'} if result['status']=='collected'
                                 else {'status','rpc_attempts'}), 'unexpected worker fields')
         reads = result.get('rpc_attempts')
-        require(reads is None or type(reads) is int and 0 <= reads <=
-                (2 if request['mode']=='snapshot' else request['count']), 'invalid worker counts')
+        bound = 1 + SNAPSHOT_COMMIT_ATTEMPTS if request['mode']=='snapshot' else request['count']
+        require(reads is None or type(reads) is int and 0 <= reads <= bound,
+                'invalid worker counts')
         if result['status']=='collected':
-            require(reads == (2 if request['mode']=='snapshot' else request['count']), 'incomplete worker counts')
+            require((type(reads) is int and 2 <= reads <= bound) if request['mode']=='snapshot'
+                    else reads == bound, 'incomplete worker counts')
         report['rpc_attempts'] = None if reads is None or report['rpc_attempts'] is None else report['rpc_attempts'] + reads
         return result
     try:

@@ -1,8 +1,9 @@
 """One bounded, read-only local RPC collection job. Never sees wallet keys or DB.
 
 Reuses the existing strict HTTP reader. Every requested height is selected by the
-parent; the endpoint cannot supply another URL, method, validator set or retry.
-Output is untrusted until the wallet re-verifies it. No broadcast or auto-retry.
+parent; the endpoint cannot supply another URL, method or validator set.
+Output is untrusted until the wallet re-verifies it. No broadcast or payment retry.
+Only the captured next signed commitment may have bounded read retries.
 """
 from __future__ import annotations
 import http.client
@@ -10,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 from commit_verifier import b64, encode, exact, load_json, number
 from native_core import require
@@ -19,6 +21,8 @@ from wallet_catchup import MAX_HEADERS, MAX_BATCH_BYTES, MAX_HEADER_BYTES
 
 WORKER_TIMEOUT = 15.0
 MAX_OUTPUT = 5 * 1024 * 1024
+SNAPSHOT_COMMIT_ATTEMPTS = 4
+SNAPSHOT_COMMIT_PAUSE = 0.25
 
 
 def request_fields(request: dict) -> None:
@@ -61,7 +65,17 @@ def collect(request: dict) -> dict:
             require(type(state['height']) is int, 'invalid application height')
             height = number(state['height'], maximum=2**53-2)
             require(number(result.get('height')) == height, 'query/state height mismatch')
-            signed = call('commit', height + 1).get('signed_header')
+            # The state query may reach the current tip before its h+1 signed
+            # header exists. Keep the captured state and retry only that fixed
+            # height; never chase a later state or accept an unsigned snapshot.
+            for attempt in range(SNAPSHOT_COMMIT_ATTEMPTS):
+                try:
+                    signed = call('commit', height + 1).get('signed_header')
+                    break
+                except Unavailable:
+                    if attempt + 1 == SNAPSHOT_COMMIT_ATTEMPTS:
+                        raise
+                    time.sleep(SNAPSHOT_COMMIT_PAUSE)
             require(type(signed) is dict and len(encode(signed)) <= MAX_HEADER_BYTES,
                     'invalid state commitment')
             payload = {'schema': 1, 'state': state, 'state_commit': signed}
@@ -102,11 +116,12 @@ def fetch(request: dict) -> dict:
                     'invalid collector result')
             exact(result, {'status','rpc_attempts'} | ({'payload'} if result['status']=='collected' else set()),
                   'collector result')
-            bound = 2 if request['mode']=='snapshot' else request['count']
+            bound = 1 + SNAPSHOT_COMMIT_ATTEMPTS if request['mode']=='snapshot' else request['count']
             require(type(result['rpc_attempts']) is int and 0 <= result['rpc_attempts'] <= bound,
                     'invalid request accounting')
             if result['status']=='collected':
-                require(result['rpc_attempts']==bound, 'incomplete collection')
+                require((2 <= result['rpc_attempts'] <= bound) if request['mode']=='snapshot'
+                        else result['rpc_attempts']==bound, 'incomplete collection')
             return result
         except (OSError, ValueError, subprocess.TimeoutExpired):
             # The parent cannot know how many reads a terminated child completed.

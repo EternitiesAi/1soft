@@ -15,8 +15,10 @@ from wallet_refresh import refresh_wallet
 
 
 @contextmanager
-def rpc(witness, headers):
+def rpc(witness, headers, *, target_commit_failures=0):
     reads = []
+    remaining = [target_commit_failures]
+    target = witness['state']['height'] + 1
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_): pass
         def do_POST(self):
@@ -26,7 +28,17 @@ def rpc(witness, headers):
                 result = {'response': {'code': 0, 'height': str(witness['state']['height']),
                           'value': base64.b64encode(encode(witness['state'])).decode()}}
             elif request['method'] == 'commit':
-                result = {'signed_header': headers[int(request['params']['height'])]}
+                height = int(request['params']['height'])
+                if height == target and remaining[0]:
+                    remaining[0] -= 1
+                    raw = encode({'jsonrpc': '2.0', 'id': request['id'],
+                                  'error': {'code': -32603, 'message': 'commit unavailable'}})
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(raw)))
+                    self.end_headers(); self.wfile.write(raw)
+                    return
+                result = {'signed_header': headers[height]}
             else:
                 self.send_error(400); return
             raw = encode({'jsonrpc': '2.0', 'id': request['id'], 'result': result})
@@ -84,3 +96,24 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(self.c.wallet.export(self.signed['decision_id'])['result'], self.signed['result'])
     def test_public_endpoint_is_not_supported(self):
         with self.assertRaises(ValueError): refresh_wallet(self.c.wallet, 'https://example.com/')
+    def test_retries_only_captured_commit_then_syncs(self):
+        target = self.c.witness['state']['height'] + 1
+        with rpc(self.c.witness, self.headers, target_commit_failures=2) as (url, reads):
+            out = refresh_wallet(self.c.wallet, url)
+        self.assertEqual(out['status'], 'synced')
+        self.assertEqual(out['rpc_attempts'], 4 + out['headers_accepted'])
+        self.assertEqual(sum(r['method'] == 'abci_query' for r in reads), 1)
+        self.assertEqual([int(r['params']['height']) for r in reads[1:4]], [target] * 3)
+        self.assertEqual(self.held(), 0)
+    def test_missing_target_commit_leaves_wallet_held(self):
+        target = self.c.witness['state']['height'] + 1
+        before = self.c.wallet.header_status()
+        with rpc(self.c.witness, self.headers, target_commit_failures=4) as (url, reads):
+            out = refresh_wallet(self.c.wallet, url)
+        self.assertEqual(out['status'], 'unavailable')
+        self.assertEqual(out['rpc_attempts'], 5)
+        self.assertEqual(out['headers_accepted'], 0)
+        self.assertEqual(sum(r['method'] == 'abci_query' for r in reads), 1)
+        self.assertEqual([int(r['params']['height']) for r in reads[1:]], [target] * 4)
+        self.assertEqual(self.c.wallet.header_status(), before)
+        self.assertEqual(self.held(), 60)

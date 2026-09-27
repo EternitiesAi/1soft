@@ -27,8 +27,10 @@ but spending authority is not refreshed. Changes by another wallet connection ar
 rechecked before each commit; no database lock is held during HTTP.
 
 Only a literal `http://127.0.0.1:PORT/` endpoint is supported. One explicit call
-requests at most two snapshot reads plus four batches of at most 64 headers. The
-default is two batches. Collection jobs have a 15-second process deadline, header
+requests one state query, up to four attempts for its fixed next signed
+commitment, and up to four batches of at most 64 headers. The client never
+chases a newer state during those retries. The default is two batches. Collection
+jobs have a 15-second process deadline, header
 batches a 2 MiB limit, and snapshots a 4 MiB limit. The existing HTTP reader rejects
 redirects, proxies, compressed responses and ambiguous framing. No background
 polling, public endpoint or automatic dependency download is provided.
@@ -46,27 +48,34 @@ With installed pinned dependencies and the complete returned native source:
 python tools/wallet-refresh/tools/verify.py --native-root /absolute/path/to/returned/source
 ```
 
-Both source inventories are checked first. Eight isolated add-on integration tests
-passed against the unmodified returned core. For the CLI, set `PYTHONPATH` to the
+Both source inventories are checked first. Ten isolated add-on integration tests
+passed against the complete local catch-up core, including transient and permanent
+failure of the captured commitment. For the CLI, set `PYTHONPATH` to the
 returned source's `src` directory before calling `scripts/refresh_wallet.py --help`
 inside this add-on. Genesis, policy, journal and endpoint are explicit inputs. No
 password, vault or broadcast option exists.
 
 ## Evidence scope
 
-The full integrated conversation package passed 1,061 Python cases, zero skips,
-failures or errors, in 45 isolated groups; 42 new refresh cases are included in
-that total. These include a 130-header HTTP catch-up with 64/64/2 batching, restart,
-actual process exit after a batch, pending-hold preservation and final native
-reconciliation. Four deliberate guard regressions were detected by assertions.
-The separate JavaScript reference passed 30 cases.
+The earlier integrated conversation package passed 1,061 Python cases and
+recorded-state replay, but its optional engine acceptance gate was unexecuted.
+Codex applied that package to the exact local catch-up tree, then ran the new
+`run_devnet.py --protocol-version 3 --wallet-refresh` gate against actual pinned
+CometBFT v0.38.25 processes. The first flat-state attempt failed at the refresh
+assertion after the manual 130-header catch-up. Its runner did not retain the
+client's partial result, so the exact status from that attempt is unknown.
+Inspection revealed a timing race between the state query and its next signed
+commitment. After the bounded fixed-height retry repair, the flat-state scenario
+passed 61/61 checks and compact SMT passed 66/66. Both runs exercised the
+64-header partial refresh, preserved holds, reopened the wallet, collected the
+remaining four headers, and reconciled the full state without signing or
+broadcasting through this client.
 
-All four saved real-validator states from Codex's return also passed through the
-new HTTP client using a disclosed historical test clock. This is recorded-state
-replay, NOT another validator run. The full package contains an optional
-`run_devnet.py --protocol-version 3 --wallet-refresh` acceptance path, but this
-new gate has not run against an engine. That runner change is not part of this
-isolated add-on PR.
+The final complete local source passed 1,062/1,062 Python cases with zero skips,
+failures or errors, 30/30 JavaScript reference tests, and 110/110 required-source
+checks. The real-validator runner repair, integrated package source manifest,
+and full catch-up core remain outside this isolated add-on PR. Raw network and
+test logs are in Codex's separate return ZIP.
 
 The complete package and the repository add-on are distinct artifacts. No full
 repository suite is claimed for this add-on branch; its integration requires the
