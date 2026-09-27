@@ -354,11 +354,15 @@ def build_native_case(chain: str, protocol_version: int = 1, *, state_commitment
 
 
 def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitment=None,
-        decision_delivery: bool = False):
+        decision_delivery: bool = False, receipt_convergence: bool = False):
     if type(protocol_version) is not int or protocol_version not in (1, 2, 3):
         raise ValueError('unsupported fixture protocol version')
     if type(decision_delivery) is not bool:
         raise ValueError('decision_delivery must be an explicit boolean')
+    if type(receipt_convergence) is not bool:
+        raise ValueError('receipt_convergence must be an explicit boolean')
+    if receipt_convergence and not decision_delivery:
+        raise ValueError('receipt convergence requires decision delivery')
     if decision_delivery and protocol_version != 3:
         raise ValueError('decision delivery requires protocol 3')
     run_started_at=datetime.now(timezone.utc)
@@ -376,7 +380,8 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
     if decision_delivery:
         report['decision_delivery']={'enabled':True,'status':'unassessed',
             'scope':'two exact CertifiedWallet decisions sent only to the local four-validator network',
-            'adapter_signing_performed':False,'wallet':{'reopened_original_journals':False},
+            'adapter_signing_performed':False,'receipt_convergence_requested':receipt_convergence,
+            'wallet':{'reopened_original_journals':False},
             'payments':[]}
     binary=shutil.which(engine) if '/' not in engine else str(Path(engine).resolve())
     if not binary or not Path(binary).is_file():
@@ -870,6 +875,33 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             if protocol_version==3:
                 checked('certified wallet integration completed against local validators',
                         report['wallet_integration_verified'])
+            if receipt_convergence:
+                # The first saved receipt is older than the second reconciled
+                # payment. Cold reopening must confirm history, not roll back
+                # or reimport that older witness. This is an opt-in NEW gate.
+                before_wallet=list(wallet.db.iterdump())
+                before_dispatch=list(wallet_delivery.dispatch.db.iterdump())
+                before_proxy=decision_proxy.snapshot()
+                wallet_delivery.close();wallet_delivery=None
+                wallet.close();wallet=None
+                wallet=CertifiedWallet(wallet_dir/'decisions.sqlite',public_genesis,policy)
+                wallet_delivery=DecisionDelivery(wallet_dir/'decisions.sqlite',
+                    wallet_dir/'delivery.sqlite',public_genesis,policy,decision_proxy.endpoint)
+                first=wallet_decisions['first worker payment']
+                again=wallet_delivery.reconcile(first['decision_id'],
+                    account=first['account'],grant_id=first['grant_id'])
+                checked('older first receipt is already recorded after cold reopen',
+                    again['reconciliation_outcome']=='already_recorded' and
+                    again['wallet_sync_performed'] is False and
+                    again['state_witness_imported'] is False and
+                    again['receipt_state_height']<again['wallet_state_height'] and
+                    again['wallet_obligation_status']=='recorded',again)
+                checked('revisiting receipt preserves wallet transport and RPC counts',
+                    list(wallet.db.iterdump())==before_wallet and
+                    list(wallet_delivery.dispatch.db.iterdump())==before_dispatch and
+                    decision_proxy.snapshot()==before_proxy and
+                    sum(wallet.pending()['pending_budget_units'].values())==0)
+                report['decision_delivery']['receipt_convergence']=again
             if decision_delivery:
                 proxy_final=decision_proxy.snapshot()
                 checked('two exact worker payments were forwarded once with no unexpected HTTP methods or RPC requests',
@@ -913,10 +945,15 @@ if __name__=='__main__':
     p.add_argument('--state-commitment',choices=('smt-v1',),default=None)
     p.add_argument('--decision-delivery',action='store_true',
                    help='run the real-validator DecisionDelivery acceptance path (protocol 3 only)')
+    p.add_argument('--receipt-convergence',action='store_true',
+                   help='also confirm older receipts after cold reopen; requires decision delivery')
     args=p.parse_args()
+    if args.receipt_convergence and not args.decision_delivery:
+        p.error('--receipt-convergence requires --decision-delivery')
     if args.decision_delivery and args.protocol_version!=3:
         p.error('--decision-delivery requires --protocol-version 3')
     report=run(args.cometbft,args.output,args.protocol_version,
-        state_commitment=args.state_commitment,decision_delivery=args.decision_delivery)
+        state_commitment=args.state_commitment,decision_delivery=args.decision_delivery,
+        receipt_convergence=args.receipt_convergence)
     print(json.dumps(report,indent=2))
     raise SystemExit(0 if report['status']=='passed' else 2)

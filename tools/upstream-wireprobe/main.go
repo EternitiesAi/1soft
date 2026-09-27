@@ -28,9 +28,20 @@ func main() {
 		"request_info":     abci.ToRequestInfo(&abci.RequestInfo{}),
 		"request_commit":   abci.ToRequestCommit(),
 		"request_finalize": abci.ToRequestFinalizeBlock(&abci.RequestFinalizeBlock{Height: 7}),
+		"request_offer_snapshot": abci.ToRequestOfferSnapshot(&abci.RequestOfferSnapshot{
+			Snapshot: &abci.Snapshot{Height: 9, Format: 1, Chunks: 2, Hash: bytes.Repeat([]byte{3}, 32), Metadata: []byte("meta")},
+			AppHash: bytes.Repeat([]byte{4}, 32),
+		}),
+		"request_load_snapshot": abci.ToRequestLoadSnapshotChunk(&abci.RequestLoadSnapshotChunk{Height: 9, Format: 1, Chunk: 1}),
+		"request_apply_snapshot": abci.ToRequestApplySnapshotChunk(&abci.RequestApplySnapshotChunk{Index: 1, Chunk: []byte("chunk"), Sender: "peer"}),
 		"response_finalize": &abci.Response{Value: &abci.Response_FinalizeBlock{
 			FinalizeBlock: &abci.ResponseFinalizeBlock{AppHash: []byte("abc")},
 		}},
+		"response_list_snapshots": abci.ToResponseListSnapshots(&abci.ResponseListSnapshots{Snapshots: []*abci.Snapshot{
+			{Height: 9, Format: 1, Chunks: 2, Hash: bytes.Repeat([]byte{3}, 32), Metadata: []byte("meta")},
+		}}),
+		"response_load_snapshot": abci.ToResponseLoadSnapshotChunk(&abci.ResponseLoadSnapshotChunk{Chunk: []byte("chunk")}),
+		"response_apply_snapshot": abci.ToResponseApplySnapshotChunk(&abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_RETRY, RefetchChunks: []uint32{0, 1}, RejectSenders: []string{"bad-peer"}}),
 	}
 	out := map[string]string{}
 	for name, value := range fixtures {

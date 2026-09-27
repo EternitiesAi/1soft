@@ -117,6 +117,24 @@ class RunnerTests(unittest.TestCase):
         finally:
             proxy.close()
 
+    def test_receipt_convergence_requires_explicit_delivery_gate(self):
+        with tempfile.TemporaryDirectory() as d:
+            for invalid in (1, 'yes', None):
+                with self.subTest(value=invalid),self.assertRaises(ValueError):
+                    runner.run('missing',Path(d)/'out.json',3,decision_delivery=True,receipt_convergence=invalid)
+            with self.assertRaises(ValueError):
+                runner.run('missing',Path(d)/'out.json',3,receipt_convergence=True)
+
+    def test_receipt_convergence_without_engine_is_not_a_pass(self):
+        with tempfile.TemporaryDirectory() as d:
+            result=runner.run(str(Path(d)/'missing'),Path(d)/'out.json',3,
+                decision_delivery=True,receipt_convergence=True)
+            self.assertEqual(result['status'],'unassessed')
+            self.assertEqual(result['checks'],[])
+            self.assertTrue(result['decision_delivery']['receipt_convergence_requested'])
+            self.assertNotIn('receipt_convergence',result['decision_delivery'])
+
+
 class NativeCaseTests(unittest.TestCase):
     """Test transaction plans. These are NOT network tests."""
     def check_case(self,version):

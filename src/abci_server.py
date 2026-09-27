@@ -54,10 +54,20 @@ def dispatch(app: BlockApplication, request):
                 result=app.query(req.path,req.height,req.prove)
                 out.code=result['code']; out.log=result['log']; out.value=result['value']; out.height=result['height']
             if out.code: out.codespace='eternities-native'
-        elif method == 'list_snapshots': pass
-        elif method == 'offer_snapshot': out.result=3  # REJECT: no snapshot support claimed
-        elif method == 'load_snapshot_chunk': pass
-        elif method == 'apply_snapshot_chunk': out.result=2  # ABORT
+        elif method == 'list_snapshots':
+            for item in app.list_snapshots():
+                snap=out.snapshots.add(); snap.height=item['height']; snap.format=item['format']
+                snap.chunks=item['chunks']; snap.hash=item['hash']; snap.metadata=item['metadata']
+        elif method == 'offer_snapshot':
+            offered={'height':req.snapshot.height,'format':req.snapshot.format,'chunks':req.snapshot.chunks,
+                     'hash':bytes(req.snapshot.hash),'metadata':bytes(req.snapshot.metadata)}
+            out.result=app.offer_snapshot(offered,bytes(req.app_hash))
+        elif method == 'load_snapshot_chunk':
+            out.chunk=app.load_snapshot_chunk(req.height,req.format,req.chunk)
+        elif method == 'apply_snapshot_chunk':
+            result=app.apply_snapshot_chunk(req.index,bytes(req.chunk),req.sender)
+            out.result=result['result']; out.refetch_chunks.extend(result['refetch_chunks'])
+            out.reject_senders.extend(result['reject_senders'])
         elif method == 'extend_vote': pass  # application adds no vote extensions
         elif method == 'verify_vote_extension': out.status=1 if not req.vote_extension else 2
         else: raise Reject('unsupported request')
