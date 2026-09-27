@@ -48,8 +48,10 @@ def main(argv=None) -> int:
     p.add_argument('--grant-id', default='', help='Explicit grant role; omitted means owner')
     p.add_argument('--decision-id', required=True)
     sub = p.add_subparsers(dest='command', required=True)
-    for name in ('queue','status','send','replay','refresh','reconcile','export-proof'):
+    for name in ('queue','status','review','send','replay','refresh','reconcile','export-proof'):
         cmd = sub.add_parser(name)
+        if name == 'review':
+            cmd.add_argument('--replay', action='store_true', help='Explicitly review one exact-byte repeat attempt')
         if name in ('send','replay'):
             cmd.add_argument('--confirm', required=True)
         if name == 'refresh':
@@ -66,6 +68,8 @@ def main(argv=None) -> int:
             selection = {'account': a.account, 'grant_id': a.grant_id}
             if a.command in ('send','replay'):
                 result = delivery.send(a.decision_id, a.confirm, replay=a.command=='replay', **selection)
+            elif a.command == 'review':
+                result = delivery.review(a.decision_id, replay=a.replay, **selection)
             elif a.command == 'refresh':
                 result = delivery.refresh(a.decision_id, read_attempts=a.read_attempts, **selection)
             elif a.command == 'reconcile':

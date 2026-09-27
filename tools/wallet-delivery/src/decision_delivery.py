@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import hmac
 import os
 from pathlib import Path
 import sqlite3
@@ -21,10 +22,10 @@ from certified_wallet import CertifiedWallet, MAX_EVIDENCE, nanos
 from commit_verifier import encode, load_json
 from native_core import FEE_ACCOUNT, canonical, identifier, require
 from payment_rpc import endpoint_port
-from payment_transport import DispatchJournal
-from wallet_obligations import checked_decision
+from payment_transport import DispatchJournal, MAX_ATTEMPTS
+from wallet_obligations import checked_decision, inventory
 
-CONFIRM_DOMAIN = b'1soft/decision-delivery/v1\x00'
+CONFIRM_DOMAIN = b'1soft/decision-delivery/v2\x00'
 DISPATCH_TABLES = {
     'configuration': ('id', 'value', 'clock_ns'),
     'payments': ('txid', 'slot', 'raw', 'signer', 'wire_hash', 'confirmation',
@@ -173,6 +174,9 @@ class DecisionDelivery:
                 recorded = ledger.db.execute('SELECT 1 FROM receipts WHERE txid=?',
                                              (item['native_txid'],)).fetchone() is not None
                 status = 'recorded' if recorded else ('expired_absent' if height > body['valid_until'] else 'pending')
+                # Same read transaction and pre-execution snapshot as the view.
+                # Include ALL verified decisions, not a truncated display list.
+                obligations = inventory(db, self.policy_id, ledger, height)
                 if fresh:
                     require(view['observation']['within_local_time_and_frontier_policy'],
                             'wallet evidence is outside local time/frontier policy; sync before sending')
@@ -188,7 +192,8 @@ class DecisionDelivery:
                             self.policy['maximum_age_seconds'] * 10**9,
                             'wallet evidence expired during delivery verification')
                 selected = {**item, 'wire': canonical(item['result']),
-                            'wallet_status': status, 'view': view}
+                            'wallet_status': status, 'view': view,
+                            'inventory_digest': obligations['digest']}
             finally:
                 ledger.close()
             db.execute('ROLLBACK')
@@ -207,12 +212,38 @@ class DecisionDelivery:
                 'transport bytes differ from selected wallet signature')
         return report
 
-    def _confirmation(self, selected: dict, transport: dict) -> str:
-        return _hash(CONFIRM_DOMAIN + encode({'route': self.route,
-            'decision_id': selected['decision_id'], 'account': selected['body']['sender'],
-            'grant_id': selected['body']['grant_id'], 'native_txid': selected['native_txid'],
-            'wire_sha256': _hash(selected['wire']),
-            'dispatch_confirmation': transport['dispatch_confirmation']}))
+    def _attempt_review(self, selected: dict, transport: dict, *, replay: bool) -> dict:
+        """Bind one reviewed submission attempt, not a new payment authorization.
+
+        Existing signatures/holds remain unchanged. The native dispatcher's
+        durable attempt counter consumes the scope even when no reply returns.
+        The digest authenticates no person and is not a secret bearer credential.
+        """
+        require(type(replay) is bool, 'replay must be an explicit boolean')
+        require(not transport['receipt_verified'], 'receipt already verified; reconcile instead of replaying')
+        require((transport['status'] == 'queued') != replay,
+                'first send and replay require different explicit reviews')
+        require(transport['attempts'] < MAX_ATTEMPTS, 'existing dispatch retry limit reached')
+        body = selected['body']
+        state = selected['view']['state']
+        material = {'schema': 2, 'kind': '1soft-delivery-attempt-review',
+            'route': self.route, 'decision_id': selected['decision_id'],
+            'native_txid': selected['native_txid'], 'wire_sha256': _hash(selected['wire']),
+            'account': body['sender'], 'grant_id': body['grant_id'],
+            'signer_public_key': selected['signer'], 'recipient': body['op']['to'],
+            'asset': self.genesis['asset'], 'chain_id': self.trust.chain_id,
+            'amount_units': body['op']['units'], 'fee_units': self.genesis['fee'],
+            'total_debit_units': selected['debit'], 'nonce': body['nonce'],
+            'valid_until_height': body['valid_until'],
+            'operation': 'replay' if replay else 'send',
+            'next_attempt': transport['attempts'] + 1,
+            'transport_status_before_attempt': transport['status'],
+            'dispatch_confirmation': transport['dispatch_confirmation'],
+            'wallet_state_height': state['application_height'],
+            'wallet_header_height': state['witness_header_height'],
+            'wallet_header_hash': state['header_hash'], 'wallet_app_hash': state['app_hash'],
+            'local_obligations_digest': selected['inventory_digest']}
+        return {**material, 'confirmation': _hash(CONFIRM_DOMAIN + encode(material))}
 
     def _report(self, selected: dict, transport: dict | None) -> dict:
         verified = transport is not None and transport['receipt_verified']
@@ -227,14 +258,35 @@ class DecisionDelivery:
             'submission_attempts': 0 if transport is None else transport['attempts'],
             'exact_transport_receipt_verified': verified,
             'wallet_reconciliation_needed': verified and selected['wallet_status'] != 'recorded',
-            'delivery_confirmation': None if transport is None else self._confirmation(selected, transport),
+            'delivery_confirmation': None, 'submission_review': None,
             'signing_performed': False, 'latest_state_guaranteed': False,
             'scope': 'selected wallet decision and one local dispatch journal; not global idempotency'}
 
     def queue(self, decision_id: str, *, account: str, grant_id: str = '') -> dict:
         with self._source(decision_id, account, grant_id, fresh=True) as selected:
             self.dispatch.queue(selected['wire'], selected['signer'])
-            return self._report(selected, self._transport(selected))
+            transport = self._transport(selected)
+            report = self._report(selected, transport)
+            # Re-queueing an existing attempt is inspection, never replay consent.
+            if transport['status'] == 'queued':
+                review = self._attempt_review(selected, transport, replay=False)
+                report.update(delivery_confirmation=review['confirmation'], submission_review=review)
+            return report
+
+    def review(self, decision_id: str, *, account: str, grant_id: str = '',
+               replay: bool = False) -> dict:
+        """Read a fresh, explicit send/replay review for an already queued decision.
+
+        Does not create a database, reserve money, sign, append dispatch events or
+        contact RPC. Existing local-state freshness and permission checks apply.
+        """
+        require(type(replay) is bool, 'replay must be an explicit boolean')
+        with self._source(decision_id, account, grant_id, fresh=True) as selected:
+            transport = self._transport(selected)
+            require(transport is not None, 'queue the selected decision before reviewing delivery')
+            review = self._attempt_review(selected, transport, replay=replay)
+            return {**self._report(selected, transport),
+                    'delivery_confirmation': review['confirmation'], 'submission_review': review}
 
     def status(self, decision_id: str, *, account: str, grant_id: str = '') -> dict:
         with self._source(decision_id, account, grant_id) as selected:
@@ -242,11 +294,15 @@ class DecisionDelivery:
 
     def send(self, decision_id: str, confirmation: str, *, account: str,
              grant_id: str = '', replay: bool = False) -> dict:
+        require(type(replay) is bool, 'replay must be an explicit boolean')
         with self._source(decision_id, account, grant_id, fresh=True) as selected:
             transport = self._transport(selected)
             require(transport is not None, 'queue the selected decision before sending')
-            require(type(confirmation) is str and confirmation == self._confirmation(selected, transport),
-                    'exact decision/role/route confirmation required')
+            review = self._attempt_review(selected, transport, replay=replay)
+            require(type(confirmation) is str and len(confirmation) == 64 and
+                    all(c in '0123456789abcdef' for c in confirmation) and
+                    hmac.compare_digest(confirmation, review['confirmation']),
+                    'delivery review changed or confirmation differs; review the exact attempt again')
             self.dispatch.dispatch(selected['native_txid'], transport['dispatch_confirmation'], replay=replay)
         # Re-read the wallet because another process may have synced during HTTP.
         return self.status(decision_id, account=account, grant_id=grant_id)
