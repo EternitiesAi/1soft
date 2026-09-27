@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 import hashlib
+import sqlite3
 from typing import Any
 
 from commit_verifier import load_json
@@ -206,7 +207,11 @@ class StateSyncManager:
         require(type(payload) is dict and set(payload) ==
                 {'schema','domain','genesis','height','app_hash','native'},
                 'invalid snapshot payload fields')
-        require(_encoded(payload) == raw, 'snapshot payload must use canonical JSON')
+        try:
+            canonical_payload = _encoded(payload)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise Reject('invalid snapshot payload values') from exc
+        require(canonical_payload == raw, 'snapshot payload must use canonical JSON')
         require(payload['schema'] == 1 and type(payload['schema']) is int and payload['domain'] == DOMAIN,
                 'unsupported snapshot payload')
         require(payload['height'] == offer['height'] and type(payload['height']) is int,
@@ -216,9 +221,25 @@ class StateSyncManager:
         genesis = payload['genesis']; state = payload['native']
         require(type(genesis) is dict and digest(genesis) == digest(self.app.expected_genesis),
                 'snapshot payload genesis mismatch')
-        require(type(state) is dict and set(state) == set(tables_for(genesis)),
+        tables = tables_for(genesis)
+        require(type(state) is dict and set(state) == set(tables),
                 'snapshot payload native tables mismatch')
-        checked = restore(genesis, state)
+        for name, columns in tables.items():
+            rows = state[name]
+            require(type(rows) is list and
+                    all(type(row) is list and len(row) == len(columns) for row in rows),
+                    'invalid snapshot native rows')
+            require(all(type(value) is str or
+                        (type(value) is int and -(2**63) <= value < 2**63)
+                        for row in rows for value in row),
+                    'invalid snapshot native row value')
+        try:
+            checked = restore(genesis, state)
+        except sqlite3.IntegrityError as exc:
+            # Constraints raised while loading peer rows into restore()'s fresh
+            # in-memory ledger reject that candidate. _install() runs later on
+            # the application database and remains fail-stop on local faults.
+            raise Reject('snapshot native rows violate ledger constraints') from exc
         require(application_hash(genesis, payload['height'], state) == offer['app_hash'],
                 'snapshot state does not match trusted AppHash')
         return payload, checked

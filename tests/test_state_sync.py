@@ -4,13 +4,17 @@ import json
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from block_application import BlockApplication
+from abci_server import Server
+from abci_wire import Client
+from block_application import BlockApplication, encode
 from native_core import NativeLedger, address, canonical, public, sign
+import state_sync
 from state_sync import (APPLY_ACCEPT, APPLY_REJECT_SNAPSHOT, APPLY_RETRY,
                         OFFER_ABORT, OFFER_ACCEPT, OFFER_REJECT, OFFER_REJECT_FORMAT,
                         CHUNK_BYTES, FORMAT, MAX_METADATA_BYTES)
@@ -35,6 +39,18 @@ def payment(genesis, owner, merchant, nonce=0, units=40):
                          valid_until=100)
         return canonical(sign(owner,body))
     finally: ledger.close()
+
+
+def duplicate_account_snapshot(source, genesis):
+    desc=source.list_snapshots()[0]
+    raw=b''.join(source.load_snapshot_chunk(desc['height'],desc['format'],i)
+                 for i in range(desc['chunks']))
+    payload=json.loads(raw)
+    payload['native']['accounts'].append(list(payload['native']['accounts'][0]))
+    raw=encode(payload)
+    desc=state_sync._descriptor(payload['height'],raw,genesis,payload['app_hash'])
+    chunks=[raw[i:i+CHUNK_BYTES] for i in range(0,len(raw),CHUNK_BYTES)]
+    return desc,chunks
 
 
 class StateSyncTests(unittest.TestCase):
@@ -168,6 +184,38 @@ class StateSyncTests(unittest.TestCase):
             self.assertIsNone(target.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='proof_checkpoint'").fetchone())
             self.assertFalse(target.info()['initialized'])
         finally:source.close();target.close()
+
+    def test_duplicate_account_row_rejects_and_keeps_abci_endpoint_healthy(self):
+        source,target,genesis,tx=self.apps()
+        private=self.root/'abci'
+        private.mkdir(mode=0o700)
+        server=None;thread=None
+        try:
+            desc,chunks=duplicate_account_snapshot(source,genesis)
+            server=Server(str(private/'app.sock'),target)
+            thread=threading.Thread(target=server.serve_forever,
+                                    kwargs={'poll_interval':.01},daemon=True)
+            thread.start()
+            with Client(str(server.owned_path)) as peer:
+                offered=peer.call('offer_snapshot',snapshot=desc,
+                                  app_hash=bytes.fromhex(source.app_hash))
+                self.assertEqual(offered.result,OFFER_ACCEPT)
+                for index,chunk in enumerate(chunks):
+                    applied=peer.call('apply_snapshot_chunk',index=index,chunk=chunk,
+                                      sender='malformed-peer')
+                    self.assertEqual(applied.result,APPLY_REJECT_SNAPSHOT)
+                self.assertEqual(peer.call('echo',message='still serving').message,
+                                 'still serving')
+            self.assertFalse(server.failed.is_set())
+            self.assertEqual(server.metrics()['internal_faults'],0)
+            self.assertFalse(target.info()['initialized'])
+            self.assertIsNone(target.db.execute('SELECT 1 FROM committed').fetchone())
+        finally:
+            if server is not None:
+                server.shutdown()
+                if thread is not None:thread.join(2)
+                server.server_close()
+            source.close();target.close()
 
     def test_tampered_final_payload_never_commits(self):
         source,target,genesis,tx=self.apps()
