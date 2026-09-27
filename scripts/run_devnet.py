@@ -20,13 +20,17 @@ import time
 import urllib.request
 import re
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from native_core import NativeLedger, canonical, public, address, sign, DOMAIN, parse_wire, accept_account_key
+from native_core import NativeLedger, Reject, canonical, public, address, sign, DOMAIN, parse_wire, accept_account_key
 from commit_verifier import trust_from_genesis, verify_block_transactions, verify_signed_header, verify_packet
+from certified_wallet import CertifiedWallet
 from payment_transport import DispatchJournal
+import payment_transport
 
 PIN='0.38.25'
 
@@ -78,10 +82,13 @@ def free_ports(count):
         for s in held:s.close()
 
 
-def build_native_case(chain: str, protocol_version: int = 1, *, state_commitment=None) -> dict:
-    """Build public signed fixtures, never return or export private keys.
+def build_native_case(chain: str, protocol_version: int = 1, *, state_commitment=None,
+                      wallet_key_sink: dict | None = None) -> dict:
+    """Build public signed fixtures without returning or exporting private keys.
 
     Executing this helper does not start validators or prove consensus. The
+    optional sink receives only ephemeral signing-key handles in memory for a
+    protocol-3 local integration run; it is never included in the public case.
     fixture plan is also replay-tested locally before the network gate uses it.
     """
     if type(protocol_version) is not int or protocol_version not in (1, 2, 3):
@@ -90,7 +97,7 @@ def build_native_case(chain: str, protocol_version: int = 1, *, state_commitment
         raise ValueError('compact commitments require fresh protocol-3 genesis')
     if protocol_version == 3:
         from budget_network_case import build_budget_case
-        return build_budget_case(chain, state_commitment=state_commitment)
+        return build_budget_case(chain, state_commitment=state_commitment, key_sink=wallet_key_sink)
     owner, merchant, agent, newcomer, replacement, second_agent = (
         Ed25519PrivateKey.generate() for _ in range(6))
     owner_id, merchant_id = address(public(owner)), address(public(merchant))
@@ -147,7 +154,7 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
     output.parent.mkdir(parents=True,exist_ok=True)
     report={'state_commitment':state_commitment or 'legacy-flat-v1','schema':3,'status':'unassessed','engine_required':PIN,'native_protocol_version':protocol_version,
             'test_scope':'four local equal-power validators on one host; not independent operators',
-            'checks':[],'public_network':False,'real_funds':False}
+            'checks':[],'wallet_integration_verified':False,'public_network':False,'real_funds':False}
     binary=shutil.which(engine) if '/' not in engine else str(Path(engine).resolve())
     if not binary or not Path(binary).is_file():
         report['reason']='Pinned CometBFT executable is not installed. No consensus run occurred.'
@@ -165,6 +172,7 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
     report['engine_version']=version
     report['engine_sha256']=hashlib.sha256(Path(binary).read_bytes()).hexdigest()
     engine_processes={};app_processes={};handles=[];runtime=None
+    wallet_keys={};wallet=None;wallet_dispatch=None;wallet_observed=None
     def checked(name,condition,details=None):
         report['checks'].append({'name':name,'passed':bool(condition),'details':details})
         if not condition:raise AssertionError(name)
@@ -184,7 +192,8 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                 if p.is_dir():os.chmod(p,0o700)
                 elif p.is_file():os.chmod(p,0o600)
             chain='eternities-dev-'+os.urandom(6).hex()
-            case=build_native_case(chain,protocol_version,state_commitment=state_commitment)
+            case=build_native_case(chain,protocol_version,state_commitment=state_commitment,
+                                   wallet_key_sink=wallet_keys if protocol_version == 3 else None)
             genesis=case['genesis']
             gfile=runtime/'app-genesis.json';gfile.write_bytes(canonical(genesis))
             ports=free_ports(8);p2p=ports[:4];http=ports[4:]
@@ -220,22 +229,128 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                 engine_processes[i]=subprocess.Popen([binary,'start','--home',str(homes/f'node{i}')],stdout=log,stderr=log)
             for i in range(4):start_engine(i)
             def height(i):return int(rpc(http[i],'status')['sync_info']['latest_block_height'])
+            def live_wallet_witness():
+                response=rpc(http[0],'abci_query',{'path':'/state','prove':False})['response']
+                if int(response['code']) != 0:
+                    raise AssertionError('live full-state query failed')
+                state=json.loads(base64.b64decode(response['value']))
+                next_height=int(state['height'])+1
+                wait_until(lambda:height(0)>=next_height)
+                signed=rpc(http[0],'commit',{'height':str(next_height)})['signed_header']
+                return {'schema':1,'state':state,'state_commit':signed}
+            def wallet_continuation(previous, following):
+                start=int(previous['state_commit']['header']['height'])
+                end=int(following['state_commit']['header']['height'])
+                if not start < end <= start+65:
+                    raise AssertionError('wallet checkpoint gap exceeds bounded continuation')
+                return [rpc(http[0],'commit',{'height':str(h)})['signed_header']
+                        for h in range(start+1,end)]
             wait_until(lambda:all(height(i)>=2 for i in range(4)))
             checked('four actual CometBFT processes',len({p.pid for p in engine_processes.values()})==4)
             checked('fresh chain producing blocks',all(height(i)>=2 for i in range(4)))
+            wallet_decisions={}
             for name,raw in case['accepted']:
                 for reason,bad in case.get('rejections_before',{}).get(name,[]):
                     observed=rpc(http[0],'broadcast_tx_sync',{'tx':base64.b64encode(bad).decode()})
                     checked(reason, int(observed['code'])!=0)
-                result=rpc(http[0],'broadcast_tx_commit',{'tx':base64.b64encode(raw).decode()})
-                checked(name,int(result['check_tx']['code'])==0 and int(result['tx_result']['code'])==0,
-                        {'height':result.get('height'),'hash':result.get('hash')})
-                included_height=int(result['height'])
-                commitment=rpc(http[0],'commit',{'height':str(included_height)})['signed_header']
-                block=rpc(http[0],'block',{'height':str(included_height)})
+                if name in wallet_decisions:
+                    decision=wallet_decisions[name]
+                    checked(name+' uses exact wallet-signed bytes',raw==decision['raw'])
+                    if name=='first worker payment':
+                        # The real worker sends to CometBFT. This test discards its
+                        # successful reply at the client boundary, preserving a
+                        # durable unresolved dispatch attempt without pretending
+                        # that a TCP disconnect itself was observed.
+                        actual=[];real_worker=payment_transport._worker
+                        def lose_reply(endpoint,transaction,request_id):
+                            actual.append(real_worker(endpoint,transaction,request_id))
+                            return {'observation':'unresolved','reason':'injected reply loss after real RPC'}
+                        with patch.object(payment_transport,'_worker',side_effect=lose_reply):
+                            sent=wallet_dispatch.dispatch(decision['txid'],decision['confirmation'])
+                        checked('real endpoint admitted payment before injected client reply loss',
+                                len(actual)==1 and actual[0]['observation']=='endpoint_admitted')
+                        checked('injected client-boundary reply loss remains unresolved without resending or resigning',
+                                sent['status']=='unresolved' and sent['attempts']==1)
+                        wallet.close()
+                        wallet=CertifiedWallet(wallet_dir/'decisions.sqlite',public_genesis,policy)
+                        recovered=wallet.export(decision['decision_id'])
+                        checked('reopened wallet exports original signed transaction',
+                                canonical(recovered['result'])==raw)
+                        checked('unresolved dispatch does not release local budget',
+                                sum(wallet.pending()['pending_budget_units'].values())==100)
+                    else:
+                        sent=wallet_dispatch.dispatch(decision['txid'],decision['confirmation'])
+                        checked('second worker submitted exact reserved signature',
+                                sent['status']=='endpoint_admitted' and sent['attempts']==1)
+                    def collected():
+                        item=wallet_dispatch.refresh_receipt(decision['txid'],read_attempts=4)
+                        if item['collection_status']=='evidence_rejected':
+                            raise AssertionError('actual RPC receipt evidence was rejected')
+                        return item if item['receipt_verified'] else None
+                    receipt=wait_until(collected,20)
+                    checked(name+' recovered exact live receipt without another send',
+                            receipt['receipt_verified'] and receipt['attempts']==1)
+                    packet=json.loads(wallet_dispatch.export_receipt(decision['txid']))
+                    transaction=packet['transactions'][0]
+                    block=transaction['block'];commitment=transaction['commit']
+                    included_height=int(block['block']['header']['height'])
+                    newer=live_wallet_witness()
+                    summary=wallet.sync(newer,continuation=wallet_continuation(wallet_observed,newer))
+                    wallet_observed=newer
+                    expected=40 if name=='first worker payment' else 0
+                    checked(name+' reconciles signed holds against real certified state',
+                            sum(summary['pending_budget_units'].values())==expected and
+                            sum(row[4] for row in newer['state']['native']['budgets'])==100-expected,
+                            {'pending_budget_units':expected,'on_chain_budget_spent':100-expected})
+                    if name=='second worker boundary payment':
+                        report['wallet_integration_verified']=True
+                else:
+                    result=rpc(http[0],'broadcast_tx_commit',{'tx':base64.b64encode(raw).decode()})
+                    checked(name,int(result['check_tx']['code'])==0 and int(result['tx_result']['code'])==0,
+                            {'height':result.get('height'),'hash':result.get('hash')})
+                    included_height=int(result['height'])
+                    commitment=rpc(http[0],'commit',{'height':str(included_height)})['signed_header']
+                    block=rpc(http[0],'block',{'height':str(included_height)})
                 verified=verify_block_transactions(block,commitment,trust,expected_tx=raw)
                 checked(name+' independently signature/inclusion verified',True,verified)
                 witnesses.append({'tx':base64.b64encode(raw).decode(),'block':block,'commit':commitment})
+                if protocol_version==3 and name=='atlas budget membership':
+                    wallet_dir=runtime/'wallet';wallet_dir.mkdir(mode=0o700)
+                    password=os.urandom(32)
+                    deadline=(datetime.now(timezone.utc)+timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    policy={'schema':1,'genesis_sha256':report['genesis_file_sha256'],
+                            'trust_expires_utc':deadline,'minimum_header_height':1,
+                            'maximum_age_seconds':300,'future_skew_seconds':5}
+                    wallet=CertifiedWallet(wallet_dir/'decisions.sqlite',public_genesis,policy)
+                    wallet_dispatch=DispatchJournal(wallet_dir/'dispatch.sqlite',public_genesis,
+                        report['genesis_file_sha256'],f'http://127.0.0.1:{http[0]}/',deadline)
+                    wallet_observed=live_wallet_witness()
+                    for label,worker in (('first worker payment','raven'),
+                                         ('second worker boundary payment','atlas')):
+                        worker_raw=next(value for title,value in case['accepted'] if title==label)
+                        key=wallet_keys[worker]
+                        vault=wallet_dir/(worker+'.pem')
+                        vault.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                            serialization.PrivateFormat.PKCS8,
+                            serialization.BestAvailableEncryption(password)))
+                        vault.chmod(0o600)
+                        body=parse_wire(worker_raw)['body'];signer=public(key)
+                        if worker=='atlas':
+                            refused=case['rejections_before'][label][0][1]
+                            try:wallet.review(wallet_observed,parse_wire(refused)['body'],signer)
+                            except Reject as exc:denied='shared budget insufficient' in str(exc)
+                            else:denied=False
+                            checked('second worker overcommit refused before vault unlock',denied)
+                        review=wallet.review(wallet_observed,body,signer)
+                        approved=wallet.approve(wallet_observed,body,signer,review['confirmation'],vault,password)
+                        signed=canonical(approved['result'])
+                        checked(label+' signed by certified wallet against real validator state',
+                                signed==worker_raw)
+                        queued=wallet_dispatch.queue(signed,signer)
+                        wallet_decisions[label]={'raw':signed,'decision_id':approved['decision_id'],
+                            'txid':queued['native_txid'],'confirmation':queued['dispatch_confirmation']}
+                    checked('two signed unsettled workers reserve the full shared budget',
+                            sum(wallet.pending()['pending_budget_units'].values())==100)
             for name,raw in case['rejected']:
                 rejected=rpc(http[0],'broadcast_tx_sync',{'tx':base64.b64encode(raw).decode()})
                 checked(name,int(rejected['code'])!=0)
@@ -326,10 +441,16 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             checked('four committed block records agree',all(r==records[0] for r in records))
             checked('block record matches signed next-header state commitment',
                     records[0]['app_hash']==verification['state']['state_app_hash'])
+            if protocol_version==3:
+                checked('certified wallet integration completed against local validators',
+                        report['wallet_integration_verified'])
             report['final_state']=final;report['certificate']=verification;report['status']='passed'
         except Exception as exc:
             report['status']='failed';report['reason']=f'{type(exc).__name__}: {exc}'
         finally:
+            if wallet_dispatch is not None:wallet_dispatch.close()
+            if wallet is not None:wallet.close()
+            wallet_keys.clear()
             for i in list(engine_processes):stop(engine_processes,i)
             for i in list(app_processes):stop(app_processes,i)
             for f in handles:f.close()

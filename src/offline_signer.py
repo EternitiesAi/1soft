@@ -183,6 +183,9 @@ def review_intent(genesis: dict, body: dict, signer_public_key: str, *, mode: st
 
 def approve_intent(path: Path, password: bytes, genesis: dict, body: dict,
                    signer_public_key: str, confirmation: str, *, mode: str = 'sign') -> dict:
+    if (type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int
+            and genesis.get('protocol_version', 1) == 3):
+        raise Reject('protocol 3 shared-budget signing requires scripts/certified_wallet.py with one shared journal')
     review = review_intent(genesis, body, signer_public_key, mode=mode)
     require(type(confirmation) is str and re.fullmatch('[0-9a-f]{64}', confirmation) is not None
             and hmac.compare_digest(review['confirmation'], confirmation),

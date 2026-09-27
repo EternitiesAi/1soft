@@ -1,13 +1,18 @@
 """Public native-v3 transactions for the actual-engine acceptance runner.
 
-No validator, signing custody, consensus claim or generated secret leaves this
-fixture builder. Its output is also applied to the real local state machine.
+No validator, signing custody, consensus claim or generated secret is included
+in the returned case. An explicit key sink may receive only the ephemeral
+Raven/Atlas signing-key handles in memory for a local integration test; no key
+is serialized. The public transaction output is also applied to the real local
+state machine.
 """
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from native_core import NativeLedger, address, public, sign, canonical
 
 
-def build_budget_case(chain, *, state_commitment=None):
+def build_budget_case(chain, *, state_commitment=None, key_sink: dict | None = None):
+    if key_sink is not None and type(key_sink) is not dict:
+        raise TypeError('key_sink must be a dict or None')
     owner, merchant, raven, atlas = (Ed25519PrivateKey.generate() for _ in range(4))
     a, b = address(public(owner)), address(public(merchant))
     g = {'chain_id':chain,'asset':'DEV','fee':2,'protocol_version':3,
@@ -38,4 +43,6 @@ def build_budget_case(chain, *, state_commitment=None):
                   ('budget name cannot reset spent history',tx(owner,5,{'type':'budget_create','id':'project','cap':100,'expires':10000,'recipients':[b]}))],
               'budget_id':m.grant_storage_id(a,'project')}
     m.close()
+    if key_sink is not None:
+        key_sink.update({'raven': raven, 'atlas': atlas})
     return result
