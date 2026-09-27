@@ -84,3 +84,14 @@ remain unchanged. Static validators, a trusted local clock/filesystem, a shared
 journal and unpruned full-state receipts remain assumptions. No independent audit,
 production custody, cross-device reservation, public deployment, real funds,
 Actions, paid compute, DNS/site changes or Resident/Luna changes are claimed.
+
+## Durable diagnostic records (optional follow-up)
+
+Add `--report-dir /absolute/path/to/a-new-run-directory` to the refresh CLI,
+or call `recorded_refresh` from `refresh_trace`. Outcome, phase and bounded counts
+are flushed before control returns to a caller's assertion or terminal output.
+An interrupted record is not a failed payment, completed sync or rollback claim.
+No balances, account identifiers, keys, signatures or response bodies are recorded.
+Use `scripts/inspect_refresh.py DIRECTORY` for offline inspection without the
+native dependency. This inspector reports log completeness, NOT wallet freshness.
+See `DIAGNOSTICS.md` for limits, exact source/evidence distinctions and tests.

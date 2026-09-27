@@ -7,6 +7,12 @@ renewal, database replacement or cross-device authority is offered here.
 """
 from __future__ import annotations
 import sqlite3
+from typing import Callable
+
+
+class RefreshObserverError(RuntimeError):
+    """Diagnostics failed; earlier wallet commits may still exist."""
+
 
 from block_application import restore
 from certified_wallet import MAX_ROWS, nanos
@@ -68,7 +74,8 @@ def _target(wallet, payload):
 
 
 def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
-                   headers_per_batch: int = MAX_HEADERS) -> dict:
+                   headers_per_batch: int = MAX_HEADERS,
+                   observer: Callable[[str, dict], None] | None = None) -> dict:
     """One explicit finite refresh, not a background follower.
 
     Capture a target ONCE. Resume from committed header progress on the next call,
@@ -89,7 +96,16 @@ def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
               'target_header_height':None,
               'broadcast':False, 'signed':False, 'latest_state_guaranteed':False,
               'scope':'one explicitly requested read-only loopback refresh'}
+    stage = 'preflight'
+    def emit(event, **data):
+        if observer is not None:
+            try:
+                observer(event, data)
+            except Exception as exc:
+                # Never turn failed diagnostics into a normal rejected payment.
+                raise RefreshObserverError('refresh observation could not be retained') from exc
     def collect(request):
+        emit('collection_started', kind=request['mode'], start=request.get('start'), count=request.get('count'))
         result = fetch(request)
         # Defensive parent validation; no child success label is financial proof.
         require(type(result) is dict and result.get('status') in ('collected','unavailable','rejected'),
@@ -103,30 +119,41 @@ def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
         if result['status']=='collected':
             require((type(reads) is int and 2 <= reads <= bound) if request['mode']=='snapshot'
                     else reads == bound, 'incomplete worker counts')
+        emit('collection_finished', kind=request['mode'], status=result['status'], rpc_attempts=reads)
         report['rpc_attempts'] = None if reads is None or report['rpc_attempts'] is None else report['rpc_attempts'] + reads
         return result
     try:
-        _anchor(wallet)  # An expired policy or corrupt local frontier forbids I/O.
+        initial = _anchor(wallet)  # An expired policy or corrupt local frontier forbids I/O.
+        emit('local_ready', height=initial['height'] if initial is not None else 0)
+        stage = 'snapshot_read'
         found = collect({'mode':'snapshot','endpoint':endpoint})
         if found['status']!='collected':
             report['status'] = found['status']; return report
+        stage = 'target_validation'
         witness, target = _target(wallet, found['payload'])
+        emit('target_verified', height=target)
         report['target_header_height'] = target
+        stage = 'frontier_check'
         current = _anchor(wallet)
         if current is not None and current['height'] > target:
             report['status']='target_behind_wallet'; return report
         if current is None:
             # Initial trust comes from supplied genesis/policy, never discovery.
             # As for the existing offline sync, initial state requires all proofs.
+            stage = 'state_sync'
+            emit('state_sync_started', height=target)
             summary = wallet.sync(witness)
         else:
             for _ in range(max_batches):
+                stage = 'frontier_check'
                 start = _anchor(wallet)
                 if start['height'] >= target: break
                 count = min(headers_per_batch, target - start['height'])
+                stage = 'headers_read'
                 chunk = collect({'mode':'headers','endpoint':endpoint,'start':start['height']+1,'count':count})
                 if chunk['status']!='collected':
                     report['status']=chunk['status']; return report
+                stage = 'headers_validation'
                 require(type(chunk.get('payload')) is list and len(chunk['payload'])==count,
                         'worker omitted requested headers')
                 if not _same(start, _anchor(wallet)):
@@ -138,16 +165,23 @@ def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
                             'last header differs from captured target block ID')
                 # Existing method rechecks EACH signature, height, exact previous
                 # block ID, policy/clock and commits only the complete batch.
+                stage = 'header_commit'
+                emit('batch_commit_started', start=start['height'] + 1, count=count)
                 wallet.advance_headers(headers)
+                emit('batch_committed', height=start['height'] + count, count=count)
                 report['headers_accepted'] += count
                 report['batches_committed'] += 1
+            stage = 'frontier_check'
             last = _anchor(wallet)
             report['verified_header_height'] = last['height']
             if last['height'] < target:
                 report['status']='headers_only'; return report
             if last['height'] > target:
                 report['status']='concurrent_progress'; return report
+            stage = 'state_sync'
+            emit('state_sync_started', height=target)
             summary = wallet.sync(witness)  # Rechecks freshness, evidence and ALL holds.
+        emit('state_synced', height=summary['state_height'] + 1)
         report.update(status='synced', state_synced=True,
                       state_header_height=summary['state_height']+1,
                       inventory_digest=summary['inventory_digest'],
@@ -158,5 +192,6 @@ def refresh_wallet(wallet, endpoint: str, *, max_batches: int = 2,
     except (ValueError, KeyError, TypeError, sqlite3.Error):
         # Do not interpolate endpoint-controlled logs into the terminal. Previously
         # committed header batches survive; existing decisions never get deleted.
+        emit('rejected', stage=stage)
         report['status']='rejected'
         return report
