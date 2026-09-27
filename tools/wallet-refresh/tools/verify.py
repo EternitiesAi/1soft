@@ -27,7 +27,7 @@ def main():
     paths = [str(ROOT/'src'), str(native/'src'), str(native/'tests')]
     sys.path[:0] = paths
     os.environ['PYTHONPATH'] = os.pathsep.join(paths)
-    suite = unittest.defaultTestLoader.discover(str(ROOT/'tests'), pattern='test_client.py')
+    suite = unittest.defaultTestLoader.discover(str(ROOT/'tests'), pattern='test_*.py')
     expected = suite.countTestCases()
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     passed = expected > 0 and result.testsRun == expected and result.wasSuccessful() and not result.skipped
