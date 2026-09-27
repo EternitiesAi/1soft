@@ -1,5 +1,7 @@
 """Disposable keys only. These tests establish neither custody nor consensus."""
 import copy
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -7,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization as ser
@@ -115,6 +118,13 @@ class SignerTests(unittest.TestCase):
     def test_bad_confirmation_before_key_access(self):
         with patch('offline_signer._load_vault', side_effect=AssertionError('must not unlock')):
             with self.assertRaises(Reject): approve_intent(self.path, PASSWORD, self.g, self.body, self.pk, '0'*64)
+    def test_protocol_three_library_sign_refuses_before_vault_unlock(self):
+        _,genesis,body,_,_=self.protocol3_wallet_case()
+        confirmation=review_intent(genesis,body,self.pk)['confirmation']
+        with patch('offline_signer._load_vault', side_effect=AssertionError('must not unlock')) as unlock:
+            with self.assertRaisesRegex(Reject,'scripts/certified_wallet.py'):
+                approve_intent(self.path,PASSWORD,genesis,body,self.pk,confirmation)
+        unlock.assert_not_called()
     def test_changed_amount_rejected(self):
         reviewed = self.review()['confirmation']; self.body['op']['units'] = 21
         with self.assertRaises(Reject): approve_intent(self.path, PASSWORD, self.g, self.body, self.pk, reviewed)
@@ -210,6 +220,49 @@ class SignerTests(unittest.TestCase):
             '--body',str(b),'--signer-public-key',self.pk],capture_output=True,text=True,timeout=10)
         self.assertEqual(p.returncode,0,p.stderr)
         self.assertEqual(json.loads(p.stdout)['confirmation'],self.review()['confirmation'])
+    def protocol3_wallet_case(self):
+        genesis=copy.deepcopy(self.g);genesis['protocol_version']=3
+        ledger=NativeLedger(':memory:',genesis)
+        try:
+            body=ledger.body(self.owner,0,{'type':'transfer','to':self.to,'units':20})
+        finally:
+            ledger.close()
+        genesis_path=self.root/'protocol3-genesis.json';genesis_path.write_bytes(canonical(genesis))
+        body_path=self.root/'protocol3-body.json';body_path.write_bytes(canonical(body))
+        spec=importlib.util.spec_from_file_location('stateless_wallet_cli',ROOT/'scripts/wallet.py')
+        cli=importlib.util.module_from_spec(spec);spec.loader.exec_module(cli)
+        return cli,genesis,body,genesis_path,body_path
+    def test_protocol_three_stateless_review_refuses_before_display(self):
+        cli,_,_,genesis_path,body_path=self.protocol3_wallet_case()
+        stdout=io.StringIO();stderr=io.StringIO()
+        with redirect_stdout(stdout),redirect_stderr(stderr):
+            result=cli.main(['review','--genesis',str(genesis_path),'--body',str(body_path),
+                             '--signer-public-key',self.pk])
+        self.assertEqual(result,2)
+        self.assertEqual(stdout.getvalue(),'')
+        self.assertIn('scripts/certified_wallet.py',stderr.getvalue())
+        self.assertIn('one shared journal',stderr.getvalue())
+    def test_protocol_three_stateless_sign_refuses_before_unlock_or_output(self):
+        cli,genesis,body,genesis_path,body_path=self.protocol3_wallet_case()
+        output=self.root/'protocol3-signed.json';unlock_prompts=[]
+        confirmation=review_intent(genesis,body,self.pk)['confirmation']
+        class InteractiveInput:
+            @staticmethod
+            def isatty(): return True
+        stdout=io.StringIO();stderr=io.StringIO()
+        with patch.object(cli.sys,'stdin',InteractiveInput()), \
+             patch('builtins.input',return_value=confirmation) as confirm, \
+             patch.object(cli.getpass,'getpass',side_effect=lambda prompt:unlock_prompts.append(prompt) or PASSWORD.decode()), \
+             redirect_stdout(stdout),redirect_stderr(stderr):
+            result=cli.main(['sign','--genesis',str(genesis_path),'--body',str(body_path),
+                '--signer-public-key',self.pk,'--vault',str(self.path),'--output',str(output)])
+        self.assertEqual(result,2)
+        self.assertEqual(stdout.getvalue(),'')
+        self.assertIn('scripts/certified_wallet.py',stderr.getvalue())
+        self.assertIn('one shared journal',stderr.getvalue())
+        confirm.assert_not_called()
+        self.assertEqual(unlock_prompts,[])
+        self.assertFalse(output.exists())
     def test_noninteractive_key_creation_refused(self):
         p=subprocess.run([sys.executable,str(ROOT/'scripts/wallet.py'),'create-key','--vault',str(self.root/'no.pem')],
             input='',capture_output=True,text=True,timeout=10)

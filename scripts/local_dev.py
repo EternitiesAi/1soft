@@ -186,7 +186,8 @@ def main(argv=None) -> int:
                             f'network-{label}',env=env,timeout=300)
                         report['steps'].append(step)
                         evidence = json.loads(target.read_text()) if target.exists() else {}
-                        if step['status'] != 'passed' or not gate_passed(evidence):
+                        wallet_gate = version != 3 or evidence.get('wallet_integration_verified') is True
+                        if step['status'] != 'passed' or not gate_passed(evidence) or not wallet_gate:
                             report['status'] = 'failed'; report['reason'] = 'network gate did not pass'; break
                     else:
                         report.update(status='passed',consensus_verified=True,
