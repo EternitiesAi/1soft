@@ -14,12 +14,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -30,6 +32,250 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from native_core import NativeLedger, address, canonical, public, sign
 from run_devnet import PIN, free_ports, patch_toml, rpc, wait_until
+from block_application import transaction_id
+from state_tree import MAX_WITNESS_BYTES, StateTree, bind_root, enabled, encoded, hash32, verify_proof
+
+MAX_EXECUTION_LOG_BYTES = 1_048_576
+_LOG_KINDS = ('app', 'engine')
+_PRIVATE_OBJECT_VALUE = re.compile(
+    r"""(?is)((?:["']?)(?:priv(?:ate)?[_ -]?validator[_ -]?key|priv[_ -]?key|node[_ -]?key)(?:["']?)\s*:\s*\{[^}]{0,2048}?["']value["']\s*:\s*["'])([^"']+)(["'])"""
+)
+_SECRET_VALUE = re.compile(
+    r"""(?i)(\b(?:private[_ -]?key|priv(?:ate)?[_ -]?validator[_ -]?key|priv[_ -]?key|privkey|node[_ -]?key|mnemonic|seed|secret|token)\b\s*[:=]\s*["']?)([^"'\s,;}]+)"""
+)
+
+
+def _sanitize_log(raw: bytes) -> bytes:
+    text = raw.decode('utf-8', errors='replace')
+    text = _PRIVATE_OBJECT_VALUE.sub(r'\g<1>[REDACTED]\g<3>', text)
+    text = _SECRET_VALUE.sub(r'\g<1>[REDACTED]', text)
+    return text.encode('utf-8')
+
+
+class _BoundedLogCapture:
+    def __init__(self, stream, path: Path, max_bytes: int):
+        self.stream = stream
+        self.path = path
+        self.max_bytes = max_bytes
+        self.buffer = bytearray()
+        self.total_bytes = 0
+        self.error = None
+        self._thread = threading.Thread(target=self._drain, name='state-sync-log-drain', daemon=True)
+        self._thread.start()
+
+    def _drain(self):
+        try:
+            while True:
+                chunk = self.stream.read(65536)
+                if not chunk:
+                    break
+                self.total_bytes += len(chunk)
+                remaining = self.max_bytes - len(self.buffer)
+                if remaining > 0:
+                    self.buffer.extend(chunk[:remaining])
+        except OSError as exc:
+            self.error = str(exc)
+        finally:
+            try:
+                self.stream.close()
+            except OSError:
+                pass
+
+    def finish(self) -> dict:
+        self._thread.join()
+        sanitized = _sanitize_log(bytes(self.buffer))
+        truncated = self.total_bytes > len(self.buffer)
+        if truncated:
+            marker = f'\n[TRUNCATED: observed {self.total_bytes} bytes; cap={self.max_bytes}]\n'.encode()
+            marker = marker[-self.max_bytes:]
+            sanitized = sanitized[:max(0, self.max_bytes - len(marker))] + marker
+        else:
+            sanitized = sanitized[:self.max_bytes]
+        self.path.write_bytes(sanitized)
+        os.chmod(self.path, 0o600)
+        return {'bytes': len(sanitized), 'max_bytes': self.max_bytes,
+                'truncated': truncated, 'observed_bytes': self.total_bytes,
+                'capture_error': self.error}
+
+
+class ExecutionLogBundle:
+    """Retain only sanitized, capped process output beside one runner report."""
+    def __init__(self, output: Path, max_log_bytes: int = MAX_EXECUTION_LOG_BYTES):
+        if type(max_log_bytes) is not int or max_log_bytes < 1:
+            raise ValueError('log bound must be a positive integer')
+        output = Path(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        self.log_dir = output.parent / f'{output.name}.logs'
+        if self.log_dir.is_symlink():
+            raise ValueError('refusing a symlinked execution-log directory')
+        self.log_dir.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(self.log_dir, 0o700)
+        self.max_log_bytes = max_log_bytes
+        self.manifest_path = self.log_dir / 'manifest.json'
+        self.runner_log = self.log_dir / 'runner.log'
+        self.paths = {}
+        self.captures = {}
+        self.started = set()
+        self.runner_bytes = bytearray()
+        self.runner_total_bytes = 0
+        self._finished = False
+
+        for index in range(5):
+            role = 'source' if index < 4 else 'target'
+            for kind in _LOG_KINDS:
+                name = f'{role}-node{index}-{kind}.log'
+                path = self.log_dir / name
+                if path.is_symlink():
+                    raise ValueError(f'refusing a symlinked log file: {name}')
+                self.paths[(role, index, kind)] = path
+        allowed = {path.name for path in self.paths.values()} | {'runner.log', 'manifest.json'}
+        unexpected = {path.name for path in self.log_dir.iterdir()} - allowed
+        if unexpected:
+            raise ValueError('execution-log directory contains unmanaged entries')
+        for path in (*self.paths.values(), self.runner_log):
+            path.write_bytes(b'')
+            os.chmod(path, 0o600)
+
+    def start(self, role: str, node: int, kind: str, argv: list[str]):
+        key = (role, node, kind)
+        if key not in self.paths:
+            raise ValueError('invalid source/target process log identity')
+        if key in self.started:
+            raise ValueError('process log already started')
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        self.started.add(key)
+        self.captures[key] = _BoundedLogCapture(proc.stdout, self.paths[key], self.max_log_bytes)
+        return proc
+
+    def record_runner(self, message):
+        raw = message if isinstance(message, bytes) else str(message).encode('utf-8', errors='replace')
+        if not raw:
+            return
+        self.runner_total_bytes += len(raw)
+        remaining = self.max_log_bytes - len(self.runner_bytes)
+        if remaining > 0:
+            self.runner_bytes.extend(raw[:remaining])
+
+    def finish(self, status: str):
+        if self._finished:
+            return
+        details = {key: capture.finish() for key, capture in self.captures.items()}
+        runner = _sanitize_log(bytes(self.runner_bytes))
+        runner_truncated = self.runner_total_bytes > len(self.runner_bytes)
+        if runner_truncated:
+            marker = f'\n[TRUNCATED: observed {self.runner_total_bytes} bytes; cap={self.max_log_bytes}]\n'.encode()
+            marker = marker[-self.max_log_bytes:]
+            runner = runner[:max(0, self.max_log_bytes-len(marker))] + marker
+        else:
+            runner = runner[:self.max_log_bytes]
+        self.runner_log.write_bytes(runner)
+        os.chmod(self.runner_log, 0o600)
+
+        entries = []
+        for key, path in sorted(self.paths.items()):
+            data = path.read_bytes()
+            capture = details.get(key, {})
+            role, node, kind = key
+            entries.append({'path': path.name, 'role': role, 'node': node, 'process': kind,
+                'started': key in self.started, 'bytes': len(data),
+                'sha256': hashlib.sha256(data).hexdigest(),
+                'max_bytes': self.max_log_bytes, 'truncated': capture.get('truncated', False),
+                'observed_bytes': capture.get('observed_bytes', 0),
+                'capture_error': capture.get('capture_error')})
+        runner_entry = {'path': self.runner_log.name, 'bytes': len(runner),
+            'sha256': hashlib.sha256(runner).hexdigest(), 'max_bytes': self.max_log_bytes,
+            'truncated': runner_truncated, 'observed_bytes': self.runner_total_bytes}
+        manifest = {'schema': 1, 'status': status, 'sanitized': True,
+            'retained_content': 'bounded engine/application stdout and stderr only; no node homes, databases, or key files',
+            'max_bytes_per_log': self.max_log_bytes, 'log_files': len(entries),
+            'logs': entries, 'runner_log': runner_entry}
+        self.manifest_path.write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+        os.chmod(self.manifest_path, 0o600)
+        self._summary = {'directory': self.log_dir.name,
+            'manifest': str(self.manifest_path.relative_to(self.log_dir.parent)),
+            'log_files': len(entries), 'max_bytes_per_log': self.max_log_bytes,
+            'max_total_log_bytes': self.max_log_bytes * (len(entries) + 1)}
+        self._finished = True
+
+    def summary(self):
+        if not self._finished:
+            raise RuntimeError('execution log bundle is not finalized')
+        return dict(self._summary)
+
+
+def receipt_history_contains(state: dict, expected_txid: str) -> bool:
+    if type(state) is not dict or type(expected_txid) is not str:
+        return False
+    native = state.get('native')
+    if type(native) is not dict:
+        return False
+    receipts = native.get('receipts')
+    if type(receipts) is not list:
+        return False
+    return any(type(row) is list and bool(row) and row[0] == expected_txid for row in receipts)
+
+
+def verify_compact_proof_response(response: dict, state: dict, table: str, key: str) -> dict:
+    """Verify an ABCI compact proof against the recomputed matched full-state root."""
+    if type(response) is not dict or type(response.get('code')) is not int or response['code'] != 0:
+        raise ValueError('compact ABCI query did not succeed')
+    if type(state) is not dict or set(state) != {'genesis', 'height', 'app_hash', 'native'}:
+        raise ValueError('invalid matched application state')
+    height = state['height']
+    genesis = state['genesis']
+    native = state['native']
+    if type(height) is not int or height < 0 or not enabled(genesis):
+        raise ValueError('matched state is not an SMT snapshot')
+    response_height = response.get('height')
+    if type(response_height) is int:
+        decoded_height = response_height
+    elif type(response_height) is str and response_height.isascii() and response_height.isdecimal():
+        decoded_height = int(response_height)
+        if str(decoded_height) != response_height:
+            raise ValueError('noncanonical compact query height')
+    else:
+        raise ValueError('compact query did not return a canonical height')
+    if decoded_height != height:
+        raise ValueError('compact proof response height differs from matched state')
+
+    root = StateTree(native).root
+    app_hash = bind_root(hash32(encoded(genesis)).hex(), height, root)
+    if state['app_hash'] != app_hash:
+        raise ValueError('matched full state does not recompute to its AppHash')
+
+    encoded_value = response.get('value')
+    if type(encoded_value) is not str or not encoded_value:
+        raise ValueError('compact query returned an empty proof')
+    try:
+        raw = base64.b64decode(encoded_value, validate=True)
+        if len(raw) > MAX_WITNESS_BYTES:
+            raise ValueError('compact proof exceeds its byte bound')
+        witness = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise ValueError('compact query returned an invalid proof encoding') from exc
+    if type(witness) is not dict or set(witness) != {
+        'schema', 'commitment', 'genesis', 'height', 'root', 'app_hash', 'entries'
+    }:
+        raise ValueError('compact witness fields are incomplete or unexpected')
+    if witness['schema'] != 1 or type(witness['schema']) is not int or witness['commitment'] != 'smt-v1':
+        raise ValueError('unsupported compact witness version')
+    if witness['genesis'] != genesis or witness['height'] != height or type(witness['height']) is not int:
+        raise ValueError('compact witness is not bound to the matched state')
+    if witness['root'] != root.hex() or witness['app_hash'] != app_hash:
+        raise ValueError('compact witness root or AppHash differs from matched state')
+    entries = witness['entries']
+    if type(entries) is not list or len(entries) != 1:
+        raise ValueError('compact witness does not contain exactly one requested proof')
+    proof = entries[0]
+    value = verify_proof(root, table, key, proof)
+    rows = native.get(table)
+    if type(rows) is not list:
+        raise ValueError('requested compact state table is missing')
+    matches = [row for row in rows if type(row) is list and bool(row) and row[0] == key]
+    if len(matches) > 1 or value != (matches[0] if matches else None):
+        raise ValueError('compact proof value differs from matched full state')
+    return {'height': height, 'app_hash': app_hash, 'root': root.hex(),
+            'table': table, 'key': key, 'record': value}
 
 
 def _git_bytes(*args):
@@ -154,33 +400,57 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
     if not binary or not Path(binary).is_file():
         report['reason'] = 'Pinned CometBFT executable is not installed. No state-sync engine step occurred.'
         output.write_text(json.dumps(report, indent=2) + '\n'); return report
+    logs = ExecutionLogBundle(output)
     try:
         version = subprocess.check_output([binary, 'version'], text=True, timeout=10).strip()
+        logs.record_runner(f'CometBFT version command returned: {version}\n')
         if version.lstrip('v') != PIN:
             raise ValueError(f'requires CometBFT {PIN}; found {version!r}')
     except (OSError, subprocess.SubprocessError, ValueError) as exc:
         report.update(status='failed', reason=f'Engine version check failed: {exc}')
+        if isinstance(exc, subprocess.CalledProcessError) and exc.output:
+            logs.record_runner(exc.output)
+        logs.record_runner(report['reason'])
+        logs.finish('failed')
+        report['execution_logs'] = logs.summary()
         output.write_text(json.dumps(report, indent=2) + '\n'); return report
     report['engine_version'] = version
     report['engine_sha256'] = hashlib.sha256(Path(binary).read_bytes()).hexdigest()
+    logs.record_runner('Pinned engine version accepted; starting disposable state-sync run.\n')
 
-    engine_processes = {}; app_processes = {}; handles = []
+    engine_processes = {}; app_processes = {}
     def checked(name, condition, details=None):
         report['checks'].append({'name': name, 'passed': bool(condition), 'details': details})
         if not condition:
             raise AssertionError(name)
     def stop(table, index):
         proc = table.pop(index, None)
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try: proc.wait(10)
-            except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+        if proc is None:
+            return
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except ProcessLookupError:
+                pass
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            proc.wait()
 
     with tempfile.TemporaryDirectory(prefix='1soft-state-sync-') as raw:
         runtime = Path(raw); homes = runtime / 'nodes'
         try:
-            subprocess.run([binary, 'testnet', '--v', '4', '--n', '1', '--o', str(homes),
-                            '--initial-height', '1'], check=True, capture_output=True, text=True, timeout=30)
+            setup = subprocess.run([binary, 'testnet', '--v', '4', '--n', '1', '--o', str(homes),
+                                    '--initial-height', '1'], check=False, capture_output=True, text=True, timeout=30)
+            logs.record_runner(setup.stdout or '')
+            logs.record_runner(setup.stderr or '')
+            if setup.returncode != 0:
+                raise subprocess.CalledProcessError(setup.returncode, setup.args,
+                                                    output=setup.stdout, stderr=setup.stderr)
             for path in homes.rglob('*'):
                 if path.is_dir(): os.chmod(path, 0o700)
                 elif path.is_file(): os.chmod(path, 0o600)
@@ -212,16 +482,15 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                            'p2p.addr_book_strict': False, 'p2p.allow_duplicate_ip': True, 'p2p.pex': False,
                            'consensus.timeout_commit': '500ms', 'mempool.max_tx_bytes': 16384}
                 conf = home/'config/config.toml'; conf.write_text(patch_toml(conf.read_text(), updates))
-                log = open(runtime/f'app{i}.log', 'ab'); handles.append(log)
-                app_processes[i] = subprocess.Popen([sys.executable, str(ROOT/'scripts/serve_abci.py'),
-                    '--db', str(app_db[i]), '--socket', str(sockets[i]), '--genesis', str(app_genesis)],
-                    stdout=log, stderr=log)
+                role = 'target' if i == 4 else 'source'
+                app_processes[i] = logs.start(role, i, 'app', [sys.executable, str(ROOT/'scripts/serve_abci.py'),
+                    '--db', str(app_db[i]), '--socket', str(sockets[i]), '--genesis', str(app_genesis)])
                 wait_until(lambda i=i: sockets[i].exists() and app_processes[i].poll() is None, 10)
 
             def start_engine(i):
-                log = open(runtime/f'engine{i}.log', 'ab'); handles.append(log)
-                engine_processes[i] = subprocess.Popen([binary, 'start', '--home', str(homes/f'node{i}')],
-                                                        stdout=log, stderr=log)
+                role = 'target' if i == 4 else 'source'
+                engine_processes[i] = logs.start(role, i, 'engine',
+                                                  [binary, 'start', '--home', str(homes/f'node{i}')])
             for i in range(4): start_engine(i)
             def height(i): return int(rpc(http[i], 'status')['sync_info']['latest_block_height'])
             wait_until(lambda: all(height(i) >= 2 for i in range(4)), 45)
@@ -295,8 +564,11 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             source_state = state(0); target_state = state(4)
             checked('source and state-synced applications agree at frozen head', source_state == target_state,
                     {'height': source_state['height'], 'app_hash': source_state['app_hash']})
+            post_snapshot_txid = transaction_id(case['post_snapshot_tx'])
+            receipt_rows = target_state['native']['receipts']
             checked('post-snapshot transaction exists in target native receipt history',
-                    len(target_state['native']['receipts']) == 2)
+                    len(receipt_rows) == 2 and receipt_history_contains(target_state, post_snapshot_txid),
+                    {'transaction_id': post_snapshot_txid, 'receipt_count': len(receipt_rows)})
             persisted_marker = marker(app_db[4])
             checked('state-sync provenance marker survives later block execution', persisted_marker == restored,
                     persisted_marker)
@@ -310,7 +582,9 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             if state_commitment == 'smt-v1':
                 response = rpc(http[4], 'abci_query', {'path': '/proof/accounts/' + case['owner'].encode().hex(),
                                                        'prove': False})['response']
-                checked('state-synced SMT node serves compact proof after continuation', int(response['code']) == 0)
+                proof = verify_compact_proof_response(response, target_state, 'accounts', case['owner'])
+                checked('state-synced SMT node serves a verified compact account proof after continuation',
+                        proof['record'] is not None, proof)
 
             report.update(status='passed', state_sync_verified=True, continued_execution_verified=True,
                           snapshot_height=marker_height, final_height=final_height,
@@ -318,10 +592,12 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                           state_sync_marker=restored)
         except Exception as exc:
             report.update(status='failed', reason=f'{type(exc).__name__}: {exc}')
+            logs.record_runner(report['reason'])
         finally:
             for i in list(engine_processes): stop(engine_processes, i)
             for i in list(app_processes): stop(app_processes, i)
-            for handle in handles: handle.close()
+            logs.finish(report['status'])
+            report['execution_logs'] = logs.summary()
     output.write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
     return report

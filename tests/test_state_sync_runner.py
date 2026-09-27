@@ -1,12 +1,20 @@
+import base64
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import unittest
 
 from native_core import NativeLedger, parse_wire
 from run_devnet import patch_toml
-from run_state_sync import build_case, committed, marker, min_block_height, run
+from run_state_sync import (
+    ExecutionLogBundle, build_case, committed, marker, min_block_height, receipt_history_contains,
+    run, verify_compact_proof_response,
+)
+from state_tree import make_witness
 
 
 class StateSyncRunnerTests(unittest.TestCase):
@@ -71,5 +79,85 @@ class StateSyncRunnerTests(unittest.TestCase):
         self.assertEqual(committed(path)['height'],9)
         self.assertEqual(min_block_height(path),8)
 
+
+    def test_failed_runner_child_keeps_bounded_sanitized_source_and_target_logs(self):
+        bundle=ExecutionLogBundle(self.root/'result.json',max_log_bytes=160)
+        self.assertEqual(len([p for p in bundle.log_dir.glob('*.log') if p.name != 'runner.log']),10)
+        try:
+            process=bundle.start('source',0,'engine',[
+                sys.executable,'-c',
+                'import sys; print(\"startup private_key=do-not-retain\"); '
+                'print(\'"priv_key":{"type":"ed25519","value":"object-secret"}\'); '
+                'print(\'x\'*4000); sys.exit(7)'])
+            self.assertEqual(process.wait(timeout=10),7)
+        finally:
+            bundle.finish(status='failed')
+        names={p.name for p in bundle.log_dir.glob('*.log')}
+        self.assertEqual(len([name for name in names if name != 'runner.log']),10)
+        log=(bundle.log_dir/'source-node0-engine.log').read_text()
+        self.assertIn('startup',log)
+        self.assertNotIn('do-not-retain',log)
+        self.assertNotIn('object-secret',log)
+        self.assertLessEqual((bundle.log_dir/'source-node0-engine.log').stat().st_size,160)
+        manifest=json.loads(bundle.manifest_path.read_text())
+        self.assertEqual(manifest['status'],'failed')
+        entry=next(row for row in manifest['logs'] if row['path']=='source-node0-engine.log')
+        self.assertTrue(entry['truncated'])
+        self.assertEqual(entry['max_bytes'],160)
+        self.assertFalse(any('priv_validator_key.json' in p.name for p in bundle.log_dir.iterdir()))
+
+    def test_runner_failure_preserves_process_log_bundle_and_setup_diagnostics(self):
+        engine=self.root/'fake-cometbft'
+        engine.write_text("""#!/usr/bin/env python3
+import sys
+if sys.argv[1:] == ['version']:
+    print('v0.38.25')
+    raise SystemExit(0)
+if len(sys.argv) > 1 and sys.argv[1] == 'testnet':
+    print('synthetic testnet setup failure', file=sys.stderr)
+    raise SystemExit(9)
+raise SystemExit(8)
+""")
+        engine.chmod(0o700)
+        output=self.root/'failed-run.json'
+        with redirect_stdout(io.StringIO()):
+            report=run(str(engine),output,1)
+        self.assertEqual(report['status'],'failed')
+        self.assertEqual(report['execution_logs']['log_files'],10)
+        logs=report['execution_logs']['manifest']
+        manifest=json.loads((output.parent/logs).read_text())
+        self.assertEqual(manifest['status'],'failed')
+        self.assertEqual(manifest['log_files'],10)
+        self.assertIn('synthetic testnet setup failure',
+                      (output.parent/'failed-run.json.logs'/'runner.log').read_text())
+        self.assertEqual(len([path for path in (output.parent/'failed-run.json.logs').glob('*.log')
+                              if path.name != 'runner.log']),10)
+
+    def test_post_snapshot_receipt_gate_requires_exact_transaction_id(self):
+        state={'native':{'receipts':[['older-txid',1,'','{}',''],['other-txid',2,'','{}','']]}}
+        self.assertFalse(receipt_history_contains(state,'post-snapshot-txid'))
+        state['native']['receipts'][1][0]='post-snapshot-txid'
+        self.assertTrue(receipt_history_contains(state,'post-snapshot-txid'))
+
+    def test_compact_proof_gate_verifies_decoded_proof_and_bound_state(self):
+        case=build_case('runner-proof-test',3,state_commitment='smt-v1')
+        owner=case['owner']
+        native={'meta':[],'accounts':[[owner,case['genesis']['allocations'][0]['public_key'],0,0,123]],
+                'grants':[],'receipts':[],'budgets':[],'grant_budgets':[]}
+        witness=make_witness(case['genesis'],3,native,[('accounts',owner)])
+        state={'genesis':case['genesis'],'height':3,'app_hash':witness['app_hash'],'native':native}
+        response={'code':0,'height':'3',
+                  'value':base64.b64encode(json.dumps(witness).encode()).decode()}
+        result=verify_compact_proof_response(response,state,'accounts',owner)
+        self.assertEqual(result['record'],native['accounts'][0])
+        empty={'code':0,'height':'3','value':''}
+        with self.assertRaises((ValueError,KeyError,TypeError)):
+            verify_compact_proof_response(empty,state,'accounts',owner)
+        malformed={'code':0,'height':'3','value':base64.b64encode(b'{').decode()}
+        with self.assertRaises((ValueError,KeyError,TypeError)):
+            verify_compact_proof_response(malformed,state,'accounts',owner)
+        wrong_height={**response,'height':'4'}
+        with self.assertRaises((ValueError,KeyError,TypeError)):
+            verify_compact_proof_response(wrong_height,state,'accounts',owner)
 
 if __name__=='__main__':unittest.main()

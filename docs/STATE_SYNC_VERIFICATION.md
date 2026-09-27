@@ -57,8 +57,11 @@ served snapshot bytes as the source advances, process-local partial chunks and
 restart, local marker tamper detection, and atomic rollback on an injected database
 install failure.
 
-The real-engine state-sync runner has five local unit tests. It authors a five-node
-acceptance: four source validators plus one fresh non-validator. The target must
+The real-engine state-sync runner has nine local unit tests, including bounded
+sanitized log retention on child failure, exact post-snapshot transaction-ID
+matching, and SMT proof verification against the matched recomputed state root.
+The five-node acceptance has four source validators plus one fresh non-validator.
+The target must
 state-sync, retain its exact marker, then execute a transaction committed *after*
 the snapshot through normal block sync and converge with the frozen source head.
 
@@ -86,7 +89,7 @@ Before calling this state-sync source engine-qualified:
 1. run the extended official-Go wire probe on the exact checkout;
 2. run `scripts/run_state_sync.py` with CometBFT v0.38.25 for protocol 1/flat;
 3. run it again for protocol 3/`smt-v1`;
-4. retain raw app/engine logs and exact source/binary hashes;
+4. retain the runner-owned capped app/engine log bundle and exact source/binary hashes;
 5. repeat bootstrap between independently operated machines before public testnet.
 
 Complete receipt history still grows with chain history and snapshots are capped at

@@ -127,15 +127,22 @@ Acceptance requires:
   height,
 - no local block metadata is invented at the restored height,
 - target block metadata begins strictly after the snapshot,
-- the post-snapshot native transaction appears in target receipts,
+- the exact post-snapshot native transaction ID appears in target receipts,
 - target and source full application states/checkpoints agree at the frozen head,
 - the original state-sync marker survives later block execution,
-- the SMT variant can serve a compact account proof after continuation.
+- the SMT variant can serve an account proof whose witness, requested account,
+  height and AppHash verify against the recomputed matched full-state root.
 
 The runner supports protocol 1/flat state and protocol 3/`smt-v1`. Missing engine
-is **UNASSESSED**, never replaced by a fixture. This new gate is authored but has
-not been executed in the current ChatGPT runtime because the pinned CometBFT
-binary is unavailable here.
+is **UNASSESSED**, never replaced by a fixture. For a report named `run.json`, the
+runner retains the ten source/target app and engine logs plus a runner log in
+`run.json.logs/` beside the report on pass and failure. Each log is capped at
+1 MiB; named secret values are redacted, and the bundle contains no node homes,
+databases or key files. Its manifest records hashes, sizes, truncation and run
+status. Reusing the same report path replaces that report's prior log bundle.
+
+This new gate has not been executed in the current runtime because the pinned
+CometBFT binary is unavailable here.
 
 ## Evidence so far
 
