@@ -19,7 +19,7 @@ from account_view import open_readonly, _policy, _schema, _limits, _project
 from block_application import restore
 from certified_wallet import CertifiedWallet, MAX_EVIDENCE, nanos
 from commit_verifier import encode, load_json
-from native_core import FEE_ACCOUNT, canonical, identifier, require
+from native_core import FEE_ACCOUNT, Reject, canonical, identifier, require
 from payment_rpc import endpoint_port
 from payment_transport import DispatchJournal
 from wallet_obligations import checked_decision
@@ -170,8 +170,10 @@ class DecisionDelivery:
             ledger = restore(witness['state']['genesis'], witness['state']['native'])
             try:
                 height = witness['state']['height']
-                recorded = ledger.db.execute('SELECT 1 FROM receipts WHERE txid=?',
-                                             (item['native_txid'],)).fetchone() is not None
+                recorded_row = ledger.db.execute(
+                    'SELECT txid,sequence,previous,record,hash FROM receipts WHERE txid=?',
+                    (item['native_txid'],)).fetchone()
+                recorded = recorded_row is not None
                 status = 'recorded' if recorded else ('expired_absent' if height > body['valid_until'] else 'pending')
                 if fresh:
                     require(view['observation']['within_local_time_and_frontier_policy'],
@@ -188,7 +190,8 @@ class DecisionDelivery:
                             self.policy['maximum_age_seconds'] * 10**9,
                             'wallet evidence expired during delivery verification')
                 selected = {**item, 'wire': canonical(item['result']),
-                            'wallet_status': status, 'view': view}
+                            'wallet_status': status, 'view': view,
+                            'wallet_receipt_row': None if recorded_row is None else list(recorded_row)}
             finally:
                 ledger.close()
             db.execute('ROLLBACK')
@@ -261,22 +264,63 @@ class DecisionDelivery:
                 'collection_status': result['collection_status'], 'read_requests': result['read_requests'],
                 'wallet_sync_performed': False}
 
+    def _recorded_confirmation(self, selected: dict, packet: dict) -> dict | None:
+        """Confirm an existing recording, not permission to import another state.
+
+        Both sources have already been independently reverified: the wallet's
+        full snapshot/obligations and the dispatcher's exact transaction proof.
+        Matching a txid alone is insufficient. The complete immutable receipt
+        row (including execution height, sequence and state hash) must agree.
+        This is a historical observation; it does not refresh policy or ancestry.
+        """
+        if selected['wallet_status'] != 'recorded':
+            return None
+        rows = [row for row in packet['state']['native']['receipts']
+                if row[0] == selected['native_txid']]
+        require(len(rows) == 1 and encode(rows[0]) == encode(selected['wallet_receipt_row']),
+                'collected receipt conflicts with the wallet execution record')
+        return {**self._report(selected, self._transport(selected)),
+                'reconciliation_outcome': 'already_recorded',
+                'wallet_sync_performed': False, 'network_requested': False,
+                'receipt_state_height': packet['state']['height'],
+                'state_witness_imported': False}
+
     def reconcile(self, decision_id: str, *, account: str, grant_id: str = '',
                   continuation: list | None = None) -> dict:
+        """Reconcile once, or verify that this exact receipt is already recorded.
+
+        An older/duplicate receipt never rolls the wallet back. Receipt proof is
+        still mandatory even for an already-recorded payment. A no-op neither
+        imports the supplied checkpoint/continuation nor refreshes permission.
+        Pending payments use the unchanged fresh, ancestry-checked wallet sync.
+        """
         with self._source(decision_id, account, grant_id) as selected:
             require(self._transport(selected) is not None, 'queued decision required')
             packet = load_json(self.dispatch.export_receipt(selected['native_txid']))
-        # The dispatcher verified the exact receipt. The existing wallet ALSO
-        # verifies full state, its own ancestry/freshness and all reservations.
-        # A failure here retains the collected proof without clearing any hold.
+            already = self._recorded_confirmation(selected, packet)
+            if already is not None:
+                return already
         witness = {'schema': 1, 'state': packet['state'], 'state_commit': packet['state_commit']}
         wallet = CertifiedWallet(self.wallet_path, self.genesis_bytes, self.policy, clock=self.clock)
         try:
-            wallet.sync(witness, continuation=continuation)
+            try:
+                wallet.sync(witness, continuation=continuation)
+            except Reject:
+                # Another wallet connection may have recorded this payment after
+                # the first read. Recheck ONCE, without retrying sync or ignoring
+                # missing/conflicting evidence. SQLite/I/O faults still propagate.
+                with self._source(decision_id, account, grant_id) as current:
+                    already = self._recorded_confirmation(current, packet)
+                    if already is not None:
+                        return already
+                raise
         finally:
             wallet.close()
         return {**self.status(decision_id, account=account, grant_id=grant_id),
-                'wallet_sync_performed': True, 'network_requested': False}
+                'reconciliation_outcome': 'state_synchronized',
+                'wallet_sync_performed': True, 'network_requested': False,
+                'receipt_state_height': packet['state']['height'],
+                'state_witness_imported': True}
 
     def export_receipt(self, decision_id: str, *, account: str, grant_id: str = '') -> bytes:
         with self._source(decision_id, account, grant_id) as selected:

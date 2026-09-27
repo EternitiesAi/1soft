@@ -173,7 +173,11 @@ class BlockApplication:
                 genesis TEXT NOT NULL, height INTEGER NOT NULL, app_hash TEXT NOT NULL, state TEXT NOT NULL);
               CREATE TABLE IF NOT EXISTS blocks (height INTEGER PRIMARY KEY, block_hash TEXT NOT NULL,
                 tx_digest TEXT NOT NULL, app_hash TEXT NOT NULL, results TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS state_sync_marker (id INTEGER PRIMARY KEY CHECK(id=1),
+                height INTEGER NOT NULL, app_hash TEXT NOT NULL);
             ''')
+            from state_sync import StateSyncManager
+            self.state_sync = StateSyncManager(self)
             row = self.db.execute('SELECT genesis,height,app_hash,state FROM committed WHERE id=1').fetchone()
             if row is not None:
                 genesis, height, app_hash, state = row
@@ -187,7 +191,11 @@ class BlockApplication:
                 try:
                     if height > 0:
                         block = self.db.execute('SELECT app_hash FROM blocks WHERE height=?', (height,)).fetchone()
-                        require(block is not None and block[0] == app_hash, 'incomplete committed block')
+                        if block is None:
+                            marker = self.db.execute('SELECT height,app_hash FROM state_sync_marker WHERE id=1').fetchone()
+                            require(marker == (height, app_hash), 'incomplete committed block without state-sync marker')
+                        else:
+                            require(block[0] == app_hash, 'incomplete committed block')
                     self.genesis, self.height, self.app_hash, self.native = genesis, height, app_hash, state
                     self._open_proof_index()
                     if self.use_execution_cache:
@@ -228,6 +236,7 @@ class BlockApplication:
         with self.lock:
             if not self.closed:
                 self.pending = None
+                if hasattr(self, 'state_sync'): self.state_sync.clear()
                 if self._admission is not None: self._admission.clear()
                 if self._pending_execution is not None: self._pending_execution.close()
                 if self._execution is not None: self._execution.close()
@@ -267,6 +276,7 @@ class BlockApplication:
             try:
                 self.db.execute('INSERT INTO committed VALUES (1,?,?,?,?)',
                                 (encode(genesis).decode(), 0, app_hash, encode(state).decode()))
+                self.db.execute('DELETE FROM state_sync_marker')
                 from state_tree import enabled
                 index = None
                 if self.use_proof_index and enabled(genesis):
@@ -442,6 +452,8 @@ class BlockApplication:
                 if fault == 'exit_after_index': os._exit(93)
                 self.db.execute('INSERT INTO blocks VALUES (?,?,?,?,?)',
                                 (height, block_hash, tx_digest, result['app_hash'], encode(result['tx_results']).decode()))
+                # Preserve the state-sync marker as a local recovery/provenance receipt.
+                # It is not consensus state and is ignored once later block metadata exists.
                 if fault == 'before_commit': raise RuntimeError('injected failure before commit')
                 self.db.execute('COMMIT')
             except Exception:
@@ -455,6 +467,23 @@ class BlockApplication:
             if self._admission is not None: self._admission.clear()
             if old_execution is not None: old_execution.close()
             return self.info()
+
+
+    def list_snapshots(self) -> list[dict[str, Any]]:
+        with self.lock:
+            return self.state_sync.list()
+
+    def offer_snapshot(self, snapshot: dict[str, Any], app_hash: bytes) -> int:
+        with self.lock:
+            return self.state_sync.offer(snapshot, app_hash)
+
+    def load_snapshot_chunk(self, height: int, format_: int, index: int) -> bytes:
+        with self.lock:
+            return self.state_sync.load(height, format_, index)
+
+    def apply_snapshot_chunk(self, index: int, chunk: bytes, sender: str) -> dict[str, Any]:
+        with self.lock:
+            return self.state_sync.apply(index, chunk, sender)
 
     def compact_witness(self, queries: list[tuple[str, str]]) -> dict[str, Any]:
         """Prove committed records only; never exposes a pending proposal root.

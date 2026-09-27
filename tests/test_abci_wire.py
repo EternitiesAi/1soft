@@ -70,11 +70,37 @@ class WireTests(unittest.TestCase):
         try:self.assertEqual(dispatch(app,Request()).WhichOneof('value'),'exception')
         finally:app.close()
 
-    def test_snapshots_explicitly_rejected(self):
-        app=BlockApplication(':memory:')
+    def test_state_sync_snapshot_wire_and_dispatch_roundtrip(self):
+        owner,_,_,genesis=fixture()
+        source=BlockApplication(':memory:',expected_genesis=genesis)
+        target=BlockApplication(':memory:',expected_genesis=genesis)
         try:
-            r=Request();r.offer_snapshot.SetInParent();self.assertEqual(dispatch(app,r).offer_snapshot.result,3)
-        finally:app.close()
+            source.init_chain(genesis['chain_id'],genesis)
+            r=Request();r.finalize_block.txs.append(signed(genesis,owner));r.finalize_block.height=1;r.finalize_block.hash=b's'*32
+            self.assertEqual(dispatch(source,r).finalize_block.tx_results[0].code,0)
+            r=Request();r.commit.SetInParent();dispatch(source,r)
+            listed=dispatch(source,Request(list_snapshots={})).list_snapshots if False else None
+            r=Request();r.list_snapshots.SetInParent();response=dispatch(source,r)
+            self.assertEqual(len(response.list_snapshots.snapshots),1)
+            snap=response.list_snapshots.snapshots[0]
+            self.assertEqual((snap.height,snap.format), (1,1))
+            r=Request();r.offer_snapshot.snapshot.CopyFrom(snap);r.offer_snapshot.app_hash=bytes.fromhex(source.app_hash)
+            self.assertEqual(dispatch(target,r).offer_snapshot.result,1)
+            for index in range(snap.chunks):
+                r=Request();r.load_snapshot_chunk.height=snap.height;r.load_snapshot_chunk.format=snap.format;r.load_snapshot_chunk.chunk=index
+                chunk=dispatch(source,r).load_snapshot_chunk.chunk;self.assertTrue(chunk)
+                a=Request();a.apply_snapshot_chunk.index=index;a.apply_snapshot_chunk.chunk=chunk;a.apply_snapshot_chunk.sender='peer'
+                self.assertEqual(dispatch(target,a).apply_snapshot_chunk.result,1)
+            self.assertEqual(target.info()['height'],1);self.assertEqual(target.app_hash,source.app_hash)
+        finally:source.close();target.close()
+
+    def test_snapshot_request_message_fields_round_trip(self):
+        r=Request();r.offer_snapshot.snapshot.height=9;r.offer_snapshot.snapshot.format=1
+        r.offer_snapshot.snapshot.chunks=2;r.offer_snapshot.snapshot.hash=b'h'*32
+        r.offer_snapshot.snapshot.metadata=b'meta';r.offer_snapshot.app_hash=b'a'*32
+        raw=r.SerializeToString();got=Request.FromString(raw).offer_snapshot
+        self.assertEqual(got.snapshot.height,9);self.assertEqual(got.snapshot.chunks,2)
+        self.assertEqual(got.snapshot.hash,b'h'*32);self.assertEqual(got.app_hash,b'a'*32)
 
     @unittest.skipUnless(os.name=='posix','Unix-socket server is Linux/WSL scope')
     def test_socket_existing_path_not_replaced(self):

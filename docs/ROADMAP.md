@@ -1,21 +1,23 @@
-# Native-coin roadmap — v0.5
+# Native-coin roadmap — current development gate
 
-24 September 2026. Acceptance gates, not launch promises or dates.
+27 September 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
 
 | Milestone | Current state | Required evidence / next action |
 |---|---|---|
-| Native monetary rules and block commit | Implemented development model | Continue invariants, adversarial validation, crash tests and independent review. |
-| Post-genesis native account onboarding | Implemented for fresh protocol 2 | Two-sided signed funding, rollback, receipts and replay tested locally; actual engine gate outstanding. |
-| Stable-account key rotation and scoped grants | Implemented for fresh protocol 2 | Native epoch invalidation and non-resetting caps tested; not lost-key recovery or production custody. |
-| Static-genesis signed receipt verification | Implemented development verifier | Synthetic certificates and source-derived vectors; actual Go codec/live certificates unassessed. |
-| Actual multi-validator chain | **Unassessed** | Both protocol versions must pass real-engine transfers, lifecycle, quorum and independent receipt tests. |
-| Real network fault/security tests | Not executed | Engine/application crash ordering, partitions, equivocation and recovery evidence. |
-| Final engine/protocol decision | Open | Workload, dependency, licensing, security and upgrade review; no consensus-code collage. |
-| Scalable authenticated storage | Not implemented | Bounded execution/storage, compact queries, pruning, history and state sync. |
-| Protected owner/agent account product | Partial executable models | Trusted signer/UI, account discovery, explicit recovery, external revocation and privacy design. |
-| Single cross-route authorization budget | Not implemented | Atomic reservation/reconciliation across native, external journal and subdelegation. |
-| Cash, other cryptos and cards | Not implemented | Appropriate partners, custody/conversion accounting, verified connectors and liability handling. |
-| Independent review and bounded public testnet | Not started | Third-party review, independent operators, incident procedures and measured behavior. |
+| Native monetary rules and atomic block commit | Implemented development model | Continue invariants, crash/fault tests and independent review. |
+| Native accounts, key rotation and scoped grants | Implemented | Production custody/recovery design and independent review remain. |
+| Protocol-3 shared agent budgets | Implemented and exercised on local validators | Preserve one canonical signing/reservation path; cross-device coordination remains open. |
+| Certified wallet, decision delivery and receipt reconciliation | Implemented development flow | Consolidate one source lineage; hardware/hostile-host custody and cross-device operation remain open. |
+| Actual multi-validator chain | **Passed on one-host development networks** | Repeat on independently operated hosts and retain operator/network fault evidence. |
+| Authenticated compact state/proofs | Implemented development path | Continue scale, pruning and adversarial proof testing. |
+| Bounded ABCI state sync | Implemented development path; qualify each revision with its own engine receipt | Run `run_state_sync.py` against pinned CometBFT for each candidate, then repeat across independent machines. |
+| Crash/recovery and application checkpoints | Implemented development tooling | Coordinate validator consensus DB/signing-state recovery; power-loss and operator drills remain. |
+| Real network fault/security tests | Partial one-host evidence | Multi-host partitions, restarts, hostile peers, resource exhaustion and incident drills. |
+| Final engine/protocol decision | CometBFT 0.38.25 pinned for current development | Upgrade/licensing/security lifecycle and validator-set evolution policy. |
+| Snapshot pruning/history policy | Not complete | Bound receipt-history growth and define retained history/snapshot availability. |
+| Independent operator testnet | Not started | Independent hosts/operators, seed/peer plan, monitoring, release artifacts and rollback/incident procedure. |
+| Independent security review | Not started | External code/protocol/custody review before value-bearing use. |
+| Public economics/genesis | Undecided | Supply, denomination, issuance/distribution and governance must be explicitly chosen and reviewed. |
 | Public value-bearing network | Not started | Technical, economic, operational and applicable legal/partner gates satisfied. |
 
-The original native coin and a redeemable dollar instrument make different economic promises. No public supply, value, returns, reserve backing or partnership is implied. The inherited website remains a disconnected design concept.
+The native coin and any future redeemable dollar instrument make different economic promises. No public supply, value, returns, reserve backing, banking relationship or partnership is implied. The static website remains separate from node/validator infrastructure.

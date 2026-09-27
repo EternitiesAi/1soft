@@ -15,14 +15,17 @@ from google.protobuf.message import DecodeError
 
 MAX_FRAME = 2_097_152
 D = descriptor_pb2.FieldDescriptorProto
-B, S, I, U, BOOL, MSG = D.TYPE_BYTES, D.TYPE_STRING, D.TYPE_INT64, D.TYPE_UINT64, D.TYPE_BOOL, D.TYPE_MESSAGE
+B, S, I, U, UI, BOOL, MSG = D.TYPE_BYTES, D.TYPE_STRING, D.TYPE_INT64, D.TYPE_UINT64, D.TYPE_UINT32, D.TYPE_BOOL, D.TYPE_MESSAGE
 SCHEMA = {
  'RequestEcho': [('message',1,S)], 'RequestFlush': [],
  'RequestInfo': [('version',1,S),('block_version',2,U),('p2p_version',3,U),('abci_version',4,S)],
  'RequestInitChain': [('chain_id',2,S),('app_state_bytes',5,B),('initial_height',6,I)],
  'RequestQuery': [('data',1,B),('path',2,S),('height',3,I),('prove',4,BOOL)],
  'RequestCheckTx': [('tx',1,B),('type',2,D.TYPE_INT32)], 'RequestCommit': [],
- 'RequestListSnapshots': [], 'RequestOfferSnapshot': [], 'RequestLoadSnapshotChunk': [], 'RequestApplySnapshotChunk': [],
+ 'Snapshot': [('height',1,U),('format',2,UI),('chunks',3,UI),('hash',4,B),('metadata',5,B)],
+ 'RequestListSnapshots': [], 'RequestOfferSnapshot': [('snapshot',1,'Snapshot'),('app_hash',2,B)],
+ 'RequestLoadSnapshotChunk': [('height',1,U),('format',2,UI),('chunk',3,UI)],
+ 'RequestApplySnapshotChunk': [('index',1,UI),('chunk',2,B),('sender',3,S)],
  'RequestPrepareProposal': [('max_tx_bytes',1,I),('txs',2,B,True),('height',5,I)],
  'RequestProcessProposal': [('txs',1,B,True),('hash',4,B),('height',5,I)],
  'RequestExtendVote': [], 'RequestVerifyVoteExtension': [('vote_extension',4,B)],
@@ -32,9 +35,9 @@ SCHEMA = {
  'ResponseInitChain': [('app_hash',3,B)],
  'ResponseQuery': [('code',1,D.TYPE_UINT32),('log',3,S),('info',4,S),('index',5,I),('key',6,B),('value',7,B),('height',9,I),('codespace',10,S)],
  'ResponseCheckTx': [('code',1,D.TYPE_UINT32),('data',2,B),('log',3,S),('gas_wanted',5,I),('gas_used',6,I),('codespace',8,S)],
- 'ResponseCommit': [('retain_height',3,I)], 'ResponseListSnapshots': [],
- 'ResponseOfferSnapshot': [('result',1,D.TYPE_INT32)], 'ResponseLoadSnapshotChunk': [],
- 'ResponseApplySnapshotChunk': [('result',1,D.TYPE_INT32)],
+ 'ResponseCommit': [('retain_height',3,I)], 'ResponseListSnapshots': [('snapshots',1,'Snapshot',True)],
+ 'ResponseOfferSnapshot': [('result',1,D.TYPE_INT32)], 'ResponseLoadSnapshotChunk': [('chunk',1,B)],
+ 'ResponseApplySnapshotChunk': [('result',1,D.TYPE_INT32),('refetch_chunks',2,UI,True),('reject_senders',3,S,True)],
  'ResponsePrepareProposal': [('txs',1,B,True)],
  'ResponseProcessProposal': [('status',1,D.TYPE_INT32)],
  'ResponseExtendVote': [('vote_extension',1,B)],
@@ -118,7 +121,12 @@ class Client:
         target = getattr(request, method); target.SetInParent()
         for k,v in kwargs.items():
             field = target.DESCRIPTOR.fields_by_name[k]
-            if field.is_repeated: getattr(target,k).extend(v)
+            if field.type == D.TYPE_MESSAGE:
+                child = getattr(target, k)
+                if isinstance(v, dict):
+                    for ck, cv in v.items(): setattr(child, ck, cv)
+                else: child.CopyFrom(v)
+            elif field.is_repeated: getattr(target,k).extend(v)
             else: setattr(target,k,v)
         write_frame(self.stream, request)
         data = read_frame(self.stream)

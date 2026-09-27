@@ -42,7 +42,7 @@ Transaction consent remains bound to the native chain ID and genesis hash. Expir
 
 ## Recovery
 
-Before commit, a process restart discards the pending copy and reports the previous committed height. The engine must replay the decided block. After commit, a restart reports the new height. Application and engine databases are deliberately separate; their reconciliation is the engine's handshake responsibility and **has not yet been tested against a real engine here**.
+Before commit, a process restart discards the pending copy and reports the previous committed height. The engine must replay the decided block. After commit, a restart reports the new height. Application and engine databases are deliberately separate; their reconciliation requires a real-engine acceptance receipt for the exact source revision.
 
 The node application database has an exclusive process lock. Reopening with another genesis fails. A mismatched stored hash or incomplete latest block record fails validation. These checks do not protect against a privileged operator rewriting all state and verification data together.
 
@@ -52,15 +52,17 @@ The adapter uses Google's protobuf runtime and unsigned-varint length-delimited 
 
 ABCI is a **trusted engine-to-application control interface**, not a public wallet API. The Unix socket is placed in an owner-only directory and restricted to the same operating-system user. A same-user attacker could invoke authoritative ABCI methods. Production engine/application isolation and signer custody remain required. Agents must not receive this socket capability.
 
-Snapshot offers are rejected; no state-sync support is claimed. Proof queries and unsupported historical queries explicitly fail rather than returning unproved data as if it were authenticated. Vote extensions are empty; this application does not add a new vote-extension protocol.
+ABCI snapshot serving/restoration is a bounded development path. A fresh application accepts format-1 snapshots only with an explicit expected native genesis; an untouched snapshot-only checkpoint can also recover a lost final ABCI reply before CometBFT bootstraps its state store. Recovery is restricted to the exact marker-matching committed state with no local block rows, and accepts only the same or a newer trusted snapshot. Every restore recomputes the complete native AppHash before committing. Snapshot metadata and peer chunks are untrusted; CometBFT's independently light-client-verified RequestOfferSnapshot.app_hash is the external commitment. A local marker records bootstrap provenance without becoming consensus state or inventing block metadata. Current snapshots are complete-state/receipt snapshots capped at 16 MiB, so this is a bootstrap mechanism, not the final pruning/scaling design. See STATE_SYNC.md.
+
+Proof queries and unsupported historical queries explicitly fail rather than returning unproved data as if it were authenticated. Vote extensions are empty; this application does not add a new vote-extension protocol.
 
 ## Honest test taxonomy
 
 1. Unit tests establish selected local application and wire behaviors.
 2. Four OS application processes receiving scripted ABCI delivery establish transport/process consistency and selected recovery behavior. **They do not establish BFT consensus.**
-3. The official-Go wire probe is a separate unassessed compatibility gate.
+3. The official-Go wire probe is a separate compatibility gate whose result must be bound to the exact source revision.
 4. Independent certificate tests check signatures, header hashes, transaction inclusion and full-state witnesses against a static pinned genesis. Delivered packets are synthetic; those tests are not consensus evidence. The production-facing development CLI requires expected transaction IDs.
-5. The real four-validator CometBFT runner is a separate unassessed integration gate; it now requires independently verified certificates in addition to its original quorum and state checks.
+5. The real four-validator CometBFT runner has passed multiple pinned one-host scenarios in later checkpoints, including protocol-3 wallet/delivery flows. Those results apply only to their exact tested source revisions. The new ABCI state-sync changes require their own opt-in `run_state_sync.py` real-engine gate; old network results are not reused as state-sync evidence.
 6. Public deployment requires substantially more: independent operators, economic/security design, threat-driven testing, audits, operational controls and applicable issuer/custody arrangements.
 
 ## Signed receipt verification
@@ -73,10 +75,10 @@ The verifier supports an unchanged Ed25519 validator set, not arbitrary dynamic 
 
 ## Known engineering limitations
 
-Full snapshots, full receipt verification and cloning are intentionally simple and will not scale as the final state store. The next storage design needs bounded execution cost, authenticated key/value proofs and deliberate pruning/history semantics. Protocol-2 onboarding and controlled key rotation are implemented, but owner-key recovery, a parent budget tree, external payment accounting integration, validator updates and production governance remain absent.
+The original full-state proof/rebuild bottlenecks have since gained a persistent sparse-Merkle proof index, bounded execution images and a bounded ABCI state-sync snapshot path. Complete native receipt history is still carried in state and state-sync snapshots, so deliberate pruning/history semantics and a long-term scalable bootstrap design remain unresolved. Protocol-2 onboarding and controlled key rotation are implemented, but owner-key recovery, a parent budget tree, external payment accounting integration, validator updates and production governance remain absent.
 
 ## v0.5 lifecycle evidence and engine boundary
 
 The new application-process exercise records 65 checks across four scripted application processes. It executes account funding, same-named grants for different owners, rotation, explicit new authority and stale-key/grant rejections, including process loss before/after commit. This supplements, not replaces, the legacy 39-check process exercise. Neither uses validator voting.
 
-The actual-engine runner now creates separate fresh protocol-1 and protocol-2 networks. Unit tests validate their signed operation plans, but both engine runs and the official Go codec remain unassessed due to dependency retrieval failure. Handshake/version reporting, RPC details and engine recovery still require empirical verification.
+Later source checkpoints executed the pinned engine on one-host four-validator protocol-1/2/3 networks and independently verified signed receipts. Those historical results do not automatically qualify modified ABCI code. The state-sync implementation has a separate real-engine acceptance runner; its result is valid only for the exact source and pinned binary recorded in that run.
