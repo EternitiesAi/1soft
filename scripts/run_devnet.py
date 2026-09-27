@@ -38,6 +38,35 @@ import payment_transport
 PIN='0.38.25'
 
 
+def _git_bytes(*args):
+    try:
+        result=subprocess.run(['git','-C',str(ROOT),*args],capture_output=True,
+            timeout=3,check=False)
+    except (OSError,subprocess.SubprocessError):
+        return None
+    return result.stdout if result.returncode==0 else None
+
+
+def source_provenance(started_at: datetime) -> dict:
+    runner_path=Path(__file__).resolve()
+    manifest_path=ROOT/'SOURCE_MANIFEST.json'
+    status=_git_bytes('status','--porcelain','--untracked-files=no')
+    diff=_git_bytes('diff','--binary','HEAD')
+    commit=_git_bytes('rev-parse','HEAD')
+    tree=_git_bytes('rev-parse','HEAD^{tree}')
+    return {
+        'started_at_utc':started_at.isoformat(timespec='milliseconds').replace('+00:00','Z'),
+        'runner_relative_path':str(runner_path.relative_to(ROOT)),
+        'runner_sha256':hashlib.sha256(runner_path.read_bytes()).hexdigest(),
+        'source_commit':commit.decode('ascii').strip() if commit is not None else None,
+        'source_tree':tree.decode('ascii').strip() if tree is not None else None,
+        'tracked_worktree_dirty':bool(status.strip()) if status is not None else None,
+        'tracked_diff_sha256':hashlib.sha256(diff).hexdigest() if diff is not None else None,
+        'source_manifest_sha256':hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            if manifest_path.is_file() else None,
+    }
+
+
 def patch_toml(text, updates):
     """Patch only observed keys, then validate the output as TOML; no silent misses."""
     import tomllib
@@ -106,11 +135,25 @@ class DecisionDeliveryRpcProxy:
         self._broadcast_index=0
         self._records=[]
         self._read_requests=0
+        self._http_methods=[]
+        self._unexpected_http_methods=[]
         self._unexpected_requests=[]
 
         owner=self
         class Handler(BaseHTTPRequestHandler):
             protocol_version='HTTP/1.1'
+
+            def parse_request(self):
+                parsed=super().parse_request()
+                with owner._lock:
+                    if parsed:
+                        owner._http_methods.append(self.command)
+                        if self.command!='POST':
+                            owner._unexpected_http_methods.append(self.command)
+                    else:
+                        owner._http_methods.append(None)
+                        owner._unexpected_http_methods.append('malformed_http_request')
+                return parsed
 
             def log_message(self, *_):
                 return
@@ -142,6 +185,7 @@ class DecisionDeliveryRpcProxy:
 
             def do_POST(self):
                 if self.path!='/' or self.headers.get_all('Content-Length') is None or len(self.headers.get_all('Content-Length'))!=1 or self.headers.get('Transfer-Encoding') is not None:
+                    with owner._lock:owner._unexpected_requests.append('invalid_http_post')
                     self._reject()
                     return
                 try:
@@ -234,6 +278,8 @@ class DecisionDeliveryRpcProxy:
             return {'endpoint_scope':'loopback-only',
                 'forwarded_payment_submissions':len(self._records),
                 'read_only_rpc_requests':self._read_requests,
+                'http_methods_seen':list(self._http_methods),
+                'unexpected_http_methods':list(self._unexpected_http_methods),
                 'unexpected_requests':list(self._unexpected_requests),
                 'payments':[dict(item) for item in self._records]}
 
@@ -315,6 +361,7 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
         raise ValueError('decision_delivery must be an explicit boolean')
     if decision_delivery and protocol_version != 3:
         raise ValueError('decision delivery requires protocol 3')
+    run_started_at=datetime.now(timezone.utc)
     if decision_delivery:
         sys.path.insert(0,str(ROOT/'tools/wallet-account/src'))
         sys.path.insert(0,str(ROOT/'tools/wallet-delivery/src'))
@@ -324,6 +371,7 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
     output.parent.mkdir(parents=True,exist_ok=True)
     report={'state_commitment':state_commitment or 'legacy-flat-v1','schema':3,'status':'unassessed','engine_required':PIN,'native_protocol_version':protocol_version,
             'test_scope':'four local equal-power validators on one host; not independent operators',
+            'run_provenance':source_provenance(run_started_at),
             'checks':[],'wallet_integration_verified':False,'public_network':False,'real_funds':False}
     if decision_delivery:
         report['decision_delivery']={'enabled':True,'status':'unassessed',
@@ -681,9 +729,11 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                             (wallet_dir/(worker+'.pem')).unlink()
                         wallet_keys.clear()
                         key=None;password=None
-                        checked('adapter starts after ephemeral signing keys and vaults are cleared',
-                            not wallet_keys and not (wallet_dir/'raven.pem').exists() and
-                            not (wallet_dir/'atlas.pem').exists())
+                        temporary_key_files_absent=not any(
+                            (wallet_dir/(worker+'.pem')).exists() for worker in ('raven','atlas'))
+                        runner_key_handles_empty=not wallet_keys
+                        checked('temporary signer files absent and runner handle map empty at adapter start',
+                            temporary_key_files_absent and runner_key_handles_empty)
                         decision_proxy=DecisionDeliveryRpcProxy(http[0],[
                             ('first worker payment',wallet_decisions['first worker payment']['raw']),
                             ('second worker boundary payment',wallet_decisions['second worker boundary payment']['raw'])])
@@ -693,7 +743,8 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                             'initial_pending_budget_units':sum(initial_wallet['pending_budget_units'].values()),
                             'initial_on_chain_budget_spent':initial_spent,
                             'adapter_signing_performed':False,
-                            'signing_keys_and_temporary_vaults_cleared_before_delivery':True,
+                            'temporary_signing_key_files_absent_at_delivery_start':temporary_key_files_absent,
+                            'runner_signing_key_handle_map_empty_at_delivery_start':runner_key_handles_empty,
                             'budget_progression':[{'stage':'both decisions queued',
                                 'pending_budget_units':sum(initial_wallet['pending_budget_units'].values()),
                                 'on_chain_budget_spent':initial_spent}]})
@@ -821,9 +872,10 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                         report['wallet_integration_verified'])
             if decision_delivery:
                 proxy_final=decision_proxy.snapshot()
-                checked('two exact worker payments were forwarded once with no unexpected RPC calls',
+                checked('two exact worker payments were forwarded once with no unexpected HTTP methods or RPC requests',
                     len(proxy_final['payments'])==2 and
                     proxy_final['forwarded_payment_submissions']==2 and
+                    proxy_final['unexpected_http_methods']==[] and
                     proxy_final['unexpected_requests']==[] and
                     all(item['upstream_check_tx_code']==0 and item['upstream_tx_hash_matches']
                         for item in proxy_final['payments']) and

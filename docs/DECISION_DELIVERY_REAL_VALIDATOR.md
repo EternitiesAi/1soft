@@ -2,9 +2,10 @@
 
 The opt-in --decision-delivery runner path requires native protocol 3 and the
 pinned CometBFT executable. It signs two development transfers with
-CertifiedWallet, removes the temporary encrypted key files and clears the
-ephemeral signing-key handles, then queues the exact recorded decision IDs
-through DecisionDelivery.
+CertifiedWallet, removes the temporary encrypted key files and empties the
+runner's signing-key handle map, then queues the exact recorded decision IDs
+through DecisionDelivery. The report records file absence and an empty handle
+map at adapter startup; this does not claim secure erasure from process memory.
 
 ```sh
 python3 scripts/run_devnet.py --cometbft "$PWD/bin/cometbft" --protocol-version 3 --decision-delivery --output evidence/astra-decision-delivery-flat/devnet.json
@@ -19,9 +20,12 @@ checks the real validator's successful broadcast_tx_sync response and then
 closes the client connection without returning an HTTP response. The second
 exact signed payment receives its upstream response normally. The proxy passes
 only full-state abci_query and fixed-height block and commit reads after the
-first payment. Each saved report separates transport status from wallet
-obligation state and records queue, send, receipt-refresh, and reconciliation
-states.
+first payment. Each saved report includes a UTC start time, the exact runner
+SHA-256, source commit/tree, tracked-worktree status and diff digest, plus a
+source-manifest digest. It separates transport status from wallet obligation state and records
+queue, send, receipt-refresh, and reconciliation states. The proxy records all
+parsed HTTP methods, rejects every method other than POST, and the final gate
+requires no unexpected HTTP methods or RPC requests.
 
 The runner reopens the original wallet and delivery journals after each send.
 Receipt refresh must leave all wallet holds intact; DecisionDelivery.reconcile
