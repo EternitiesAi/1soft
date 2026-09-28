@@ -18,9 +18,12 @@ def main():
     parser.add_argument('--frame-seconds', type=float, default=5.0, help='absolute deadline once a frame starts')
     parser.add_argument('--reply-seconds', type=float, default=5.0, help='absolute response-write deadline')
     parser.add_argument('--no-admission-cache', action='store_true', help='explicit local comparison mode')
+    parser.add_argument('--block-history-keep', type=int, default=None,
+                        help='opt-in local block-result window (2-1000000); omitted reuses saved policy or keeps all')
     args=parser.parse_args()
     genesis=json.loads(Path(args.genesis).read_text())
-    app=BlockApplication(args.db,expected_genesis=genesis,admission_cache=not args.no_admission_cache)
+    app=BlockApplication(args.db,expected_genesis=genesis,admission_cache=not args.no_admission_cache,
+                         block_history_keep=args.block_history_keep)
     server=None
     try:
         server=Server(args.socket,app,max_connections=args.max_connections,

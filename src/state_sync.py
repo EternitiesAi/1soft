@@ -302,6 +302,8 @@ class StateSyncManager:
                         app.db.execute('DELETE FROM proof_nodes')
                     index.initialize(digest(payload['genesis']), payload['height'],
                                      payload['native'], payload['app_hash'])
+                if app.block_history is not None:
+                    app.block_history.install_snapshot(payload['height'], payload['app_hash'])
                 app.db.execute('COMMIT')
             except BaseException:
                 if app.db.in_transaction: app.db.execute('ROLLBACK')
