@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import uuid
 import time
 from datetime import datetime, timezone
 
@@ -33,6 +34,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from native_core import NativeLedger, address, canonical, public, sign
 from run_devnet import PIN, free_ports, patch_toml, rpc, wait_until
 from block_application import transaction_id
+from state_sync_acceptance import (verify_marker_commitment, validate_history,
+    validate_probe, validate_recovery, validate_payment_continuation, checkpoint)
+from serve_abci_state_sync_crash import read_observation, remove_crashed_socket
 from state_tree import MAX_WITNESS_BYTES, StateTree, bind_root, enabled, encoded, hash32, verify_proof
 
 MAX_EXECUTION_LOG_BYTES = 1_048_576
@@ -145,6 +149,22 @@ class ExecutionLogBundle:
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
         self.started.add(key)
         self.captures[key] = _BoundedLogCapture(proc.stdout, self.paths[key], self.max_log_bytes)
+        return proc
+
+    def restart(self, role: str, node: int, kind: str, argv: list[str]):
+        """One additional bounded segment for a process already reaped by caller."""
+        original = (role, node, kind)
+        key = (role, node, kind + '-restart1')
+        if original not in self.started or key in self.paths:
+            raise ValueError('restart requires one prior logged process, at most once')
+        path = self.log_dir / f'{role}-node{node}-{kind}-restart1.log'
+        if path.exists() or path.is_symlink():
+            raise ValueError('restart log already exists')
+        path.write_bytes(b''); path.chmod(0o600)
+        self.paths[key] = path
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        self.started.add(key)
+        self.captures[key] = _BoundedLogCapture(proc.stdout, path, self.max_log_bytes)
         return proc
 
     def record_runner(self, message):
@@ -382,15 +402,25 @@ def min_block_height(path: Path):
         db.close()
 
 
-def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitment=None):
+def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitment=None,
+        block_history_keep=None, final_apply_crash=False):
     if type(protocol_version) is not int or protocol_version not in (1, 3):
         raise ValueError('state-sync gate supports protocol 1 or 3')
     if state_commitment is not None and (protocol_version != 3 or state_commitment != 'smt-v1'):
         raise ValueError('smt-v1 state sync requires protocol 3')
+    if block_history_keep is not None and (type(block_history_keep) is not int or block_history_keep != 2):
+        raise ValueError('retained bootstrap acceptance uses exactly two local block results')
+    if type(final_apply_crash) is not bool:
+        raise ValueError('final_apply_crash must be boolean')
+    if final_apply_crash and block_history_keep is not None:
+        raise ValueError('combined retained/crash profile is not defined by this gate')
     started = datetime.now(timezone.utc)
+    run_id = uuid.uuid4().hex
     report = {'schema': 1, 'status': 'unassessed', 'engine_required': PIN,
               'protocol_version': protocol_version,
               'state_commitment': state_commitment or 'legacy-flat-v1',
+              'acceptance_run_id': run_id, 'block_history_keep': block_history_keep,
+              'final_apply_crash': final_apply_crash, 'final_apply_recovery_verified': False,
               'scope': 'four local source validators plus one fresh local non-validator; not independent operators',
               'source_provenance': source_provenance(started), 'checks': [],
               'state_sync_verified': False, 'continued_execution_verified': False,
@@ -483,8 +513,15 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                            'consensus.timeout_commit': '500ms', 'mempool.max_tx_bytes': 16384}
                 conf = home/'config/config.toml'; conf.write_text(patch_toml(conf.read_text(), updates))
                 role = 'target' if i == 4 else 'source'
-                app_processes[i] = logs.start(role, i, 'app', [sys.executable, str(ROOT/'scripts/serve_abci.py'),
-                    '--db', str(app_db[i]), '--socket', str(sockets[i]), '--genesis', str(app_genesis)])
+                script = 'serve_abci_state_sync_crash.py' if i == 4 and final_apply_crash else 'serve_abci.py'
+                argv = [sys.executable, str(ROOT/'scripts'/script), '--db', str(app_db[i]),
+                        '--socket', str(sockets[i]), '--genesis', str(app_genesis)]
+                if block_history_keep is not None:
+                    argv += ['--block-history-keep', str(block_history_keep)]
+                if i == 4 and final_apply_crash:
+                    crash_file = appdir/'crash.json'; recovery_file = appdir/'recovery.json'
+                    argv += ['--phase', 'crash', '--observation', str(crash_file), '--run-id', run_id]
+                app_processes[i] = logs.start(role, i, 'app', argv)
                 wait_until(lambda i=i: sockets[i].exists() and app_processes[i].poll() is None, 10)
 
             def start_engine(i):
@@ -524,14 +561,53 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                 'statesync.max_snapshot_chunks': 64,
             }))
             start_engine(4)
+            if final_apply_crash:
+                killed = app_processes[4]
+                wait_until(lambda: killed.poll() is not None, 75)
+                exit_code = killed.wait(timeout=5)
+                crash = read_observation(crash_file)
+                validate_probe(crash, mode='crash', run_id=run_id, expected_pid=killed.pid)
+                checked('target SIGKILL occurred at the observed durable-install pre-Apply-return boundary',
+                        exit_code == -9, {'observation': crash, 'exit_code': exit_code})
+                durable = checkpoint(app_db[4])
+                checked('killed target retains exactly its snapshot checkpoint before recovery',
+                        durable == {'marker': {'height': crash['height'], 'app_hash': crash['app_hash']},
+                                    'block_rows': 0, 'native_receipts': 1}, durable)
+                stop(engine_processes, 4)
+                # The real killed app is reaped. A replacement socket or symlink
+                # is an error, never something to unlink in order to pass.
+                remove_crashed_socket(sockets[4], crash['socket'])
+                app_processes[4] = logs.restart('target', 4, 'app', [sys.executable,
+                    str(ROOT/'scripts/serve_abci_state_sync_crash.py'), '--db', str(app_db[4]),
+                    '--socket', str(sockets[4]), '--genesis', str(app_genesis),
+                    '--phase', 'recovery', '--observation', str(recovery_file), '--run-id', run_id])
+                wait_until(lambda: sockets[4].exists() and app_processes[4].poll() is None, 10)
+                engine_processes[4] = logs.restart('target', 4, 'engine',
+                    [binary, 'start', '--home', str(homes/'node4')])
+                recovery = wait_until(lambda: read_observation(recovery_file), 75)
+                validate_probe(recovery, mode='recovery', run_id=run_id, expected_pid=app_processes[4].pid)
+                checked('restarted same-home target observed checkpoint-only recovery installation',
+                        recovery['height'] >= crash['height'], recovery)
+                report['final_apply_recovery'] = {'crash': crash, 'exit_code': exit_code,
+                    'durable': durable, 'recovery': recovery, 'same_node_home': True,
+                    'engine_restarted': True, 'recovery_retention_flag': None}
             restored = wait_until(lambda: marker(app_db[4]), 75)
             checked('fresh non-validator application was installed through state sync',
                     restored is not None and restored['height'] > 0, restored)
             marker_height = restored['height']
             source_marker_block = block_record(app_db[0], marker_height)
-            checked('restored marker AppHash matches source block at that exact height',
-                    source_marker_block is not None and source_marker_block['app_hash'] == restored['app_hash'],
-                    {'marker': restored, 'source_block': source_marker_block})
+            if block_history_keep is None:
+                checked('restored marker AppHash matches source block at that exact height',
+                        source_marker_block is not None and source_marker_block['app_hash'] == restored['app_hash'],
+                        {'marker': restored, 'source_block': source_marker_block})
+            # H's local block result may already be pruned. Verify the actual
+            # signed H+1 commitment, not an unsigned /block app_hash field.
+            def fixed_commit():
+                return rpc(http[0], 'commit', {'height': str(marker_height + 1)})['signed_header']
+            signed_marker = wait_until(fixed_commit, 8)
+            anchor = verify_marker_commitment(restored, signed_marker, public_genesis)
+            checked('snapshot marker matches independently verified signed H+1 commitment', True, anchor)
+            report['snapshot_signed_commitment'] = signed_marker
             checked('restored application did not invent source block metadata at snapshot height',
                     block_record(app_db[4], marker_height) is None)
 
@@ -541,7 +617,9 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             checked('post-snapshot transfer committed on source chain', int(second['check_tx']['code']) == 0 and
                     int(second['tx_result']['code']) == 0 and int(second['height']) > marker_height,
                     {'height': second.get('height'), 'snapshot_height': marker_height})
-            wait_until(lambda: height(0) >= max(marker_height + 3, int(second['height']) + 1), 30)
+            margin = 5 if block_history_keep is not None else 3
+            wait_until(lambda: all(height(i) >= max(marker_height + margin, int(second['height']) + 2)
+                                   for i in range(4)), 30)
 
             # Drop below 2/3 validator power but keep two source peers online so
             # the target can finish block sync against a stable chain head.
@@ -579,6 +657,31 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             target_committed = committed(app_db[4]); source_committed = committed(app_db[0])
             checked('target durable application checkpoint equals source checkpoint',
                     target_committed == source_committed)
+            post_receipts = validate_payment_continuation(target_state, restored,
+                case['pre_snapshot_tx'], case['post_snapshot_tx'])
+            checked('exact pre-snapshot and post-snapshot signed payment receipts persist', True, post_receipts)
+            report['continued_state'] = target_state
+            report['pre_snapshot_transaction'] = base64.b64encode(case['pre_snapshot_tx']).decode()
+            report['post_snapshot_transaction'] = base64.b64encode(case['post_snapshot_tx']).decode()
+            if block_history_keep is not None:
+                histories = []
+                for i in (0, 4):
+                    result = rpc(http[i], 'abci_query', {'path': '/history', 'prove': False})['response']
+                    if int(result['code']) != 0:
+                        raise ValueError('retained history query unavailable')
+                    item = json.loads(base64.b64decode(result['value'], validate=True))
+                    validate_history(item, final_height=final_height, bootstrap=marker_height if i == 4 else 0,
+                                     keep=block_history_keep, receipt_count=2)
+                    histories.append(item)
+                pruned = block_record(app_db[0], marker_height) is None
+                checked('retained source and fifth-node windows preserve native receipts after pruning',
+                        pruned, {'source': histories[0], 'target': histories[1],
+                                 'source_snapshot_block_pruned': pruned})
+                report['local_history'] = {'source': histories[0], 'target': histories[1],
+                                           'source_snapshot_block_pruned': pruned}
+            if final_apply_crash:
+                validate_recovery(report['final_apply_recovery'], restored, final_height, run_id)
+                report['final_apply_recovery_verified'] = True
             if state_commitment == 'smt-v1':
                 response = rpc(http[4], 'abci_query', {'path': '/proof/accounts/' + case['owner'].encode().hex(),
                                                        'prove': False})['response']
@@ -609,8 +712,11 @@ def main():
     p.add_argument('--output', type=Path, default=ROOT/'evidence/state-sync/devnet.json')
     p.add_argument('--protocol-version', type=int, choices=(1, 3), default=1)
     p.add_argument('--state-commitment', choices=('smt-v1',), default=None)
+    p.add_argument('--block-history-keep', type=int, choices=(2,), default=None)
+    p.add_argument('--final-apply-crash', action='store_true')
     args = p.parse_args()
-    report = run(args.cometbft, args.output, args.protocol_version, state_commitment=args.state_commitment)
+    report = run(args.cometbft, args.output, args.protocol_version, state_commitment=args.state_commitment,
+                 block_history_keep=args.block_history_keep, final_apply_crash=args.final_apply_crash)
     return 0 if report['status'] == 'passed' else 2
 
 
