@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import http.client
 from http.server import HTTPServer,BaseHTTPRequestHandler
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -53,15 +54,34 @@ class NetworkTests(unittest.TestCase):
         with rpc(self.c) as (endpoint,reads):r=refresh(self.x,endpoint,initial_header_hash=pin(self.c,12),clock=self.clock)
         self.assertEqual(r['state_height'],12);self.assertFalse(r['broadcast'])
         self.assertTrue(all(q['method'] in ('abci_query','commit','block') for q in reads))
+    def test_refresh_worker_resolves_native_modules_without_pythonpath(self):
+        # The release matrix intentionally clears PYTHONPATH for each engine run.
+        with rpc(self.c) as (endpoint, reads):
+            with patch.dict(os.environ, {'PYTHONPATH': ''}):
+                result = refresh(self.x, endpoint, initial_header_hash=pin(self.c, 12), clock=self.clock)
+        self.assertEqual(result['state_height'], 12)
+        self.assertTrue(reads)
+
     def test_fixed_height_commit_retry_captures_state_once(self):
         with rpc(self.c,fail_commits=2) as (endpoint,reads):r=refresh(self.x,endpoint,initial_header_hash=pin(self.c,12),clock=self.clock)
         self.assertEqual(sum(r['method']=='abci_query' for r in reads),1)
         self.assertEqual([q['params']['height'] for q in reads[1:4]],['13']*3)
         self.assertEqual(r['rpc_requests'],len(reads))
+    def test_next_height_commit_can_arrive_after_four_unavailable_reads(self):
+        with rpc(self.c, fail_commits=4) as (endpoint, reads):
+            result = refresh(self.x, endpoint, initial_header_hash=pin(self.c, 12), clock=self.clock)
+        self.assertEqual(result['state_height'], 12)
+        self.assertEqual(sum(request['method'] == 'abci_query' for request in reads), 1)
+        self.assertEqual([request['params']['height'] for request in reads[1:6]], ['13'] * 5)
+
     def test_missing_fixed_commit_leaves_no_partial_index(self):
-        with rpc(self.c,fail_commits=4) as (endpoint,reads):
+        with rpc(self.c,fail_commits=1000) as (endpoint,reads):
             with self.assertRaises(ValueError):refresh(self.x,endpoint,initial_header_hash=pin(self.c,12),clock=self.clock)
-        self.assertEqual(len(reads),5);self.assertIsNone(self.x.current())
+        self.assertGreaterEqual(len(reads), 5)
+        self.assertEqual(sum(request['method'] == 'abci_query' for request in reads), 1)
+        self.assertTrue(all(request['method'] == 'commit' and request['params']['height'] == '13'
+                            for request in reads[1:]))
+        self.assertIsNone(self.x.current())
     def test_block_read_failure_leaves_existing_index_unchanged(self):
         self.x.ingest(bundle(self.c,6),initial_header_hash=pin(self.c,6))
         with rpc(self.c,fail_blocks=True) as (endpoint,reads):

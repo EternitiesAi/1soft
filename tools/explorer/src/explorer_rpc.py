@@ -12,6 +12,10 @@ import sys
 import tempfile
 import time
 
+# The bounded worker is launched as a new process; it must resolve the
+# native verifier from this checkout even when its caller clears PYTHONPATH.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'src'))
+
 from commit_verifier import b64, encode, exact, load_json
 from payment_rpc import endpoint_port
 from receipt_collector import Reader, Unavailable
@@ -19,6 +23,7 @@ from explorer_index import MAX_INPUT, MAX_BATCH_HEADERS, need, hash_value, ns
 
 MAX_CALLS = 133
 PROCESS_TIMEOUT = 45
+NEXT_COMMIT_WAIT = 8.0
 
 
 def collect(endpoint, last_header_height, initial_window=16):
@@ -42,13 +47,16 @@ def collect(endpoint, last_header_height, initial_window=16):
     need(target >= last_header_height, 'endpoint is behind indexed state')
     start = max(1, target-initial_window) if not last_header_height else last_header_height
     need(target-start+1 <= MAX_BATCH_HEADERS, 'gap exceeds one bounded import; supply signed batches')
-    final = None
-    for attempt in range(4):
+    # The state at H can be visible before the engine publishes signed H+1.
+    # Keep that state fixed and wait only for its commitment, within a deadline.
+    deadline = time.monotonic() + NEXT_COMMIT_WAIT
+    while True:
         try:
             final = read('commit', target)['signed_header']; break
         except Unavailable:
-            if attempt == 3: raise
-            time.sleep(.1)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0: raise
+            time.sleep(min(.25, remaining))
     headers=[]; blocks=[]
     for height in range(start, target+1):
         headers.append(final if height == target else read('commit', height)['signed_header'])

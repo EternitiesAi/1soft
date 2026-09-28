@@ -8,7 +8,8 @@ not mean it ran. Missing CometBFT or missing cached Go dependencies produces an
 unassessed result, never synthetic consensus. The baseline's earlier validator
 results do not qualify this candidate merely because it descends from them.
 No monetary, native state, signature, wallet-reservation or snapshot-format rule
-changes here. The existing explorer and archive runtime is reused unchanged.
+changes here. The explorer collector has a bounded worker import and signed-next-
+height wait repair; its verification rules and the archive runtime are unchanged.
 
 ## One candidate, one matrix
 
