@@ -139,7 +139,11 @@ class BlockApplication:
     """Serialized ABCI lifecycle with atomic durable height/hash/native-state commit."""
     def __init__(self, path: str | Path, *, expected_genesis: dict[str, Any] | None = None,
                  proof_index: bool = True, execution_cache: bool = True,
-                 admission_cache: bool = True, admission_limits: AdmissionLimits | None = None):
+                 admission_cache: bool = True, admission_limits: AdmissionLimits | None = None,
+                 block_history_keep: int | None = None):
+        from block_history import validate_keep
+        validate_keep(block_history_keep)
+        self.block_history = None
         require(type(proof_index) is bool, 'proof_index must be a boolean')
         require(type(execution_cache) is bool, 'execution_cache must be a boolean')
         require(type(admission_cache) is bool, 'admission_cache must be a boolean')
@@ -202,6 +206,8 @@ class BlockApplication:
                         self._execution = ExecutionSnapshot.from_validated_ledger(checked, height, app_hash)
                 finally:
                     checked.close()
+            from block_history import BlockHistory
+            self.block_history = BlockHistory.open(self.db, block_history_keep, self.height, self.app_hash)
         except Exception:
             if self._execution is not None: self._execution.close()
             if hasattr(self, 'db'): self.db.close()
@@ -283,6 +289,8 @@ class BlockApplication:
                     from state_index import StateIndex
                     index = StateIndex(self.db)
                     index.initialize(digest(genesis), 0, state, app_hash)
+                if self.block_history is not None:
+                    self.block_history.init_chain(app_hash)
                 self.db.execute('COMMIT')
             except BaseException:
                 if self.db.in_transaction: self.db.execute('ROLLBACK')
@@ -452,6 +460,8 @@ class BlockApplication:
                 if fault == 'exit_after_index': os._exit(93)
                 self.db.execute('INSERT INTO blocks VALUES (?,?,?,?,?)',
                                 (height, block_hash, tx_digest, result['app_hash'], encode(result['tx_results']).decode()))
+                if self.block_history is not None:
+                    self.block_history.advance(self.height, self.app_hash, height, result['app_hash'])
                 # Preserve the state-sync marker as a local recovery/provenance receipt.
                 # It is not consensus state and is ignored once later block metadata exists.
                 if fault == 'before_commit': raise RuntimeError('injected failure before commit')
@@ -523,6 +533,9 @@ class BlockApplication:
                 elif path == '/state':
                     value = {'genesis': self.genesis, 'height': self.height,
                              'app_hash': self.app_hash, 'native': self.native}
+                elif path == '/history':
+                    from block_history import describe
+                    value = describe(self)
                 elif path == '/info': value = self.info()
                 elif path.startswith('/block/'):
                     text = path[len('/block/'):]
@@ -532,6 +545,12 @@ class BlockApplication:
                     require(wanted <= self.height, 'block not committed')
                     row = self.db.execute('SELECT block_hash,tx_digest,app_hash,results FROM blocks WHERE height=?',
                                           (wanted,)).fetchone()
+                    if row is None and self.block_history is not None:
+                        reason = self.block_history.classify_missing(wanted, self.height, self.app_hash)
+                        return {'code': 2, 'height': self.height,
+                                'value': encode({'schema': 1, 'status': reason, 'requested_height': wanted,
+                                                 'historical_transaction_absence_proven': False}),
+                                'log': 'Local history unavailable; this does not prove nonexecution.'}
                     require(row is not None, 'committed block unavailable')
                     value = {'height': wanted, 'block_hash': row[0], 'tx_digest': row[1],
                              'app_hash': row[2], 'tx_results': json.loads(row[3])}
