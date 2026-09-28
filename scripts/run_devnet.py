@@ -353,8 +353,26 @@ def build_native_case(chain: str, protocol_version: int = 1, *, state_commitment
     return case
 
 
+def application_command(socket_dir, genesis_file, block_history_keep=None):
+    """Only the devnet's own disposable application; no engine/network execution."""
+    validate_history_window(block_history_keep)
+    args=[sys.executable,str(ROOT/'scripts/serve_abci.py'), '--db',str(socket_dir/'app.sqlite'),
+          '--socket',str(socket_dir/'a.sock'),'--genesis',str(genesis_file)]
+    if block_history_keep is not None:
+        args.extend(['--block-history-keep',str(block_history_keep)])
+    return args
+
+
+def validate_history_window(keep):
+    # Small windows let the bounded acceptance run demonstrate actual pruning.
+    # This is a test-harness limit, not the native application's wider option.
+    if keep is not None and (type(keep) is not int or not 2 <= keep <= 16):
+        raise ValueError('devnet block history window must be 2 through 16')
+
+
 def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitment=None,
-        decision_delivery: bool = False, receipt_convergence: bool = False):
+        decision_delivery: bool = False, receipt_convergence: bool = False,
+        block_history_keep: int | None = None, product_journey: bool = False):
     if type(protocol_version) is not int or protocol_version not in (1, 2, 3):
         raise ValueError('unsupported fixture protocol version')
     if type(decision_delivery) is not bool:
@@ -365,6 +383,12 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
         raise ValueError('receipt convergence requires decision delivery')
     if decision_delivery and protocol_version != 3:
         raise ValueError('decision delivery requires protocol 3')
+    validate_history_window(block_history_keep)
+    if type(product_journey) is not bool:
+        raise ValueError('product_journey must be an explicit boolean')
+    if product_journey and (protocol_version != 3 or not decision_delivery or
+                            not receipt_convergence or block_history_keep != 2):
+        raise ValueError('product journey requires P3, decision delivery, receipt convergence and keep=2')
     run_started_at=datetime.now(timezone.utc)
     if decision_delivery:
         sys.path.insert(0,str(ROOT/'tools/wallet-account/src'))
@@ -383,6 +407,11 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             'adapter_signing_performed':False,'receipt_convergence_requested':receipt_convergence,
             'wallet':{'reopened_original_journals':False},
             'payments':[]}
+    if block_history_keep is not None:
+        report['local_history']={'enabled':True,'keep_blocks':block_history_keep,
+                                'status':'unassessed','application_restart_verified':False}
+    if product_journey:
+        report['product_journey']={'enabled':True,'status':'unassessed','stages':[]}
     binary=shutil.which(engine) if '/' not in engine else str(Path(engine).resolve())
     if not binary or not Path(binary).is_file():
         report['reason']='Pinned CometBFT executable is not installed. No consensus run occurred.'
@@ -401,7 +430,7 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
     report['engine_sha256']=hashlib.sha256(Path(binary).read_bytes()).hexdigest()
     engine_processes={};app_processes={};handles=[];runtime=None
     wallet_keys={};wallet=None;wallet_dispatch=None;wallet_delivery=None
-    wallet_observed=None;wallet_dir=None;policy=None;decision_proxy=None
+    wallet_observed=None;wallet_dir=None;policy=None;decision_proxy=None;product=None
     def checked(name,condition,details=None):
         report['checks'].append({'name':name,'passed':bool(condition),'details':details})
         if not condition:raise AssertionError(name)
@@ -436,6 +465,12 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             trust=trust_from_genesis(rootgen)
             report['genesis_file_sha256']=hashlib.sha256(public_genesis).hexdigest()
             witnesses=[]
+            def start_app(i, *, explicit_window=True):
+                socket_dir=runtime/f'app{i}';sock=socket_dir/'a.sock'
+                log=open(runtime/f'app{i}.log','ab');handles.append(log)
+                app_processes[i]=subprocess.Popen(application_command(socket_dir,gfile,
+                    block_history_keep if explicit_window else None),stdout=log,stderr=log)
+                wait_until(lambda:sock.exists() and app_processes[i].poll() is None,10)
             for i in range(4):
                 home=homes/f'node{i}'
                 (home/'config/genesis.json').write_text(json.dumps(rootgen,indent=2)+'\n')
@@ -449,10 +484,7 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                     'p2p.persistent_peers':','.join(f'{ids[j]}@127.0.0.1:{p2p[j]}' for j in range(4) if j!=i),
                     'p2p.addr_book_strict':False,'p2p.allow_duplicate_ip':True,'p2p.pex':False,
                     'consensus.timeout_commit':'500ms','mempool.max_tx_bytes':16384}))
-                log=open(runtime/f'app{i}.log','ab');handles.append(log)
-                app_processes[i]=subprocess.Popen([sys.executable,str(ROOT/'scripts/serve_abci.py'),
-                    '--db',str(socket_dir/'app.sqlite'),'--socket',str(sock),'--genesis',str(gfile)],stdout=log,stderr=log)
-                wait_until(lambda:sock.exists() and app_processes[i].poll() is None,10)
+                start_app(i)
             def start_engine(i):
                 log=open(runtime/f'engine{i}.log','ab');handles.append(log)
                 engine_processes[i]=subprocess.Popen([binary,'start','--home',str(homes/f'node{i}')],stdout=log,stderr=log)
@@ -578,6 +610,10 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                         included_height=int(block['block']['header']['height'])
                         receipt_witness={'schema':1,'state':packet['state'],
                             'state_commit':packet['state_commit']}
+                        if product is not None:
+                            product.receipt('raven' if name=='first worker payment' else 'atlas', wallet, raw, packet,
+                                expected_pending=expected_hold,
+                                expected_spent=60 if name=='first worker payment' else 100)
                         continuation=wallet_continuation(wallet_observed,receipt_witness)
                         checked(name+' uses signed receipt state and bounded header continuation',
                             len(continuation)<=64 and
@@ -623,6 +659,9 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                                 else 'second payment reconciled',
                             'pending_budget_units':sum(summary['pending_budget_units'].values()),
                             'on_chain_budget_spent':budget_spent})
+                        if product is not None:
+                            product.reconciled('raven' if name=='first worker payment' else 'atlas',
+                                wallet, expected, 100-expected)
                         if name=='second worker boundary payment':
                             report['wallet_integration_verified']=True
                     else:
@@ -782,6 +821,13 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                             decision.update(txid=queued['native_txid'],
                                 confirmation=queued['delivery_confirmation'],evidence=evidence)
                             report['decision_delivery']['payments'].append(evidence)
+                        if product_journey:
+                            from product_network_case import ProductNetworkCase
+                            product=ProductNetworkCase(runtime/'product',output.parent/'product-evidence',
+                                public_genesis,f'http://127.0.0.1:{http[0]}/',
+                                lambda method,params:rpc(http[0],method,params),checked,case['budget_id'])
+                            report['product_journey']=product.report
+                            product.start(wallet,wallet_observed)
             for name,raw in case['rejected']:
                 rejected=rpc(http[0],'broadcast_tx_sync',{'tx':base64.b64encode(raw).decode()})
                 checked(name,int(rejected['code'])!=0)
@@ -796,9 +842,43 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
             checked('quorum restoration resumes progress',True)
             start_engine(3);wait_until(lambda:height(3)>=halt+3)
             checked('stale validator rejoins',True)
+            if block_history_keep is not None:
+                from product_network_case import check_retention
+                def local_history(i):
+                    response=rpc(http[i],'abci_query',{'path':'/history','prove':False})['response']
+                    if int(response['code']) != 0:raise AssertionError('history query failed')
+                    return json.loads(base64.b64decode(response['value'],validate=True))
+                wait_until(lambda:all(height(i)>block_history_keep+2 for i in range(4)))
+                before_restart=local_history(3);check_retention(before_restart,block_history_keep)
+                stop(engine_processes,3);stop(app_processes,3)
+                # Same database, no reset and NO retention flag on reopening.
+                start_app(3,explicit_window=False);start_engine(3)
+                wait_until(lambda:height(3)>=before_restart['application_height']+2)
+                after_restart=local_history(3);check_retention(after_restart,block_history_keep)
+                checked('retention survives actual application and engine restart without a repeated flag',
+                        after_restart['application_height']>before_restart['application_height'] and
+                        after_restart['availability']['keep_blocks']==block_history_keep,
+                        {'before':before_restart,'after':after_restart})
+                observations=[local_history(i) for i in range(4)]
+                for item in observations:check_retention(item,block_history_keep)
+                checked('all four applications retain the bounded local window without pruning native receipts',
+                        all(v['native_receipt_count']==len(case['accepted']) for v in observations),observations)
+                report['local_history'].update(status='passed',application_restart_verified=True,
+                    before_restart=before_restart,after_restart=after_restart,nodes=observations)
+            captured_records=None
             def matching():
+                nonlocal captured_records
                 allstates=[json.loads(base64.b64decode(rpc(http[i],'abci_query',{'path':'/state','prove':False})['response']['value'])) for i in range(4)]
-                return allstates[0] if all(s==allstates[0] for s in allstates) else None
+                if not all(s==allstates[0] for s in allstates):return None
+                if block_history_keep is not None:
+                    selected_height=allstates[0]['height'];records=[]
+                    for i in range(4):
+                        response=rpc(http[i],'abci_query',{'path':f'/block/{selected_height}','prove':False})['response']
+                        if int(response['code'])==2:return None  # Select a new common current checkpoint, not a false pass.
+                        if int(response['code'])!=0:raise AssertionError('common checkpoint block record unavailable')
+                        records.append(json.loads(base64.b64decode(response['value'],validate=True)))
+                    captured_records=records
+                return allstates[0]
             final=wait_until(matching,30)
             checked('four applications agree at common height',True,{'height':final['height'],'app_hash':final['app_hash']})
             checked('native test supply conserved',sum(row[4] for row in final['native']['accounts'])==100_000_000)
@@ -867,8 +947,13 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                         checked('compact receipt binds exact original transfer',receipt['status']=='verified',receipt)
                     (output.parent/('compact-'+table+'.json')).write_text(json.dumps({'witness':witness,'signed_header':signed},indent=2)+'\n')
             # Fixed-height metadata avoids confusing later advancing heads.
-            records=[json.loads(base64.b64decode(rpc(http[i],'abci_query',
-                {'path':f'/block/{state_height}','prove':False})['response']['value'])) for i in range(4)]
+            records=(captured_records if block_history_keep is not None else
+                     [json.loads(base64.b64decode(rpc(http[i],'abci_query',
+                      {'path':f'/block/{state_height}','prove':False})['response']['value'])) for i in range(4)])
+            if block_history_keep is not None:
+                (output.parent/'retained-checkpoint-blocks.json').write_text(json.dumps({
+                    'state_height':state_height,'records':records,
+                    'capture':'same common checkpoint before later certificate reads'},indent=2)+'\n')
             checked('four committed block records agree',all(r==records[0] for r in records))
             checked('block record matches signed next-header state commitment',
                     records[0]['app_hash']==verification['state']['state_app_hash'])
@@ -902,6 +987,8 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                     decision_proxy.snapshot()==before_proxy and
                     sum(wallet.pending()['pending_budget_units'].values())==0)
                 report['decision_delivery']['receipt_convergence']=again
+            if product is not None:
+                report['product_journey']=product.finish(wallet)
             if decision_delivery:
                 proxy_final=decision_proxy.snapshot()
                 checked('two exact worker payments were forwarded once with no unexpected HTTP methods or RPC requests',
@@ -919,6 +1006,15 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
         except Exception as exc:
             report['status']='failed';report['reason']=f'{type(exc).__name__}: {exc}'
         finally:
+            if product is not None:
+                if report['status']!='passed':product.report['status']='failed'
+                try:
+                    product.persist()
+                except Exception as exc:
+                    report.update(status='failed',product_evidence_error=type(exc).__name__)
+                finally:
+                    product.close()
+                report['product_journey']=product.report
             if wallet_dispatch is not None:wallet_dispatch.close()
             if wallet_delivery is not None:wallet_delivery.close()
             if wallet is not None:wallet.close()
@@ -947,6 +1043,10 @@ if __name__=='__main__':
                    help='run the real-validator DecisionDelivery acceptance path (protocol 3 only)')
     p.add_argument('--receipt-convergence',action='store_true',
                    help='also confirm older receipts after cold reopen; requires decision delivery')
+    p.add_argument('--block-history-keep',type=int,default=None,
+                   help='exercise persisted local block history on actual apps; test range 2-16')
+    p.add_argument('--product-journey',action='store_true',
+                   help='also exercise live explorer and receipt archive; requires P3/delivery/convergence/keep=2')
     args=p.parse_args()
     if args.receipt_convergence and not args.decision_delivery:
         p.error('--receipt-convergence requires --decision-delivery')
@@ -954,6 +1054,7 @@ if __name__=='__main__':
         p.error('--decision-delivery requires --protocol-version 3')
     report=run(args.cometbft,args.output,args.protocol_version,
         state_commitment=args.state_commitment,decision_delivery=args.decision_delivery,
-        receipt_convergence=args.receipt_convergence)
+        receipt_convergence=args.receipt_convergence,
+        block_history_keep=args.block_history_keep,product_journey=args.product_journey)
     print(json.dumps(report,indent=2))
     raise SystemExit(0 if report['status']=='passed' else 2)

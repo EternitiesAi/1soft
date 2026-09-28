@@ -12,7 +12,7 @@ import sys
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
-PIN='e621222ca58d514beb1b6f6fe6bc84b743f629ff361239b181ede84bd36af017'
+DEPENDENCY_PIN='11d21dbd9e410ee2da6252e29b32b391f2bbbdfd6506c15422f85eac7cfc00f8'
 BASE='072ebe6a6850c80044a5ad1b0496c6f3a1ffebe0'
 
 
@@ -33,12 +33,13 @@ def main():
     parser.add_argument('--report',type=Path)
     args=parser.parse_args();native=args.native_root.resolve()
     raw=(native/'SOURCE_MANIFEST.json').read_bytes()
-    if hashlib.sha256(raw).hexdigest()!=PIN:raise ValueError('requires exact PR15 root manifest')
     entries=json.loads(raw)['files']
     # Every native runtime source plus the two native test helpers we import and
     # dependency pins. Unused parent runner/test files are NOT claimed verified.
     deps=[e for e in entries if e['path'].startswith('src/') or e['path'] in
           ('requirements.txt','tests/certificate_fixture.py','tests/test_block_application.py')]
+    if hashlib.sha256(json.dumps(deps,sort_keys=True,separators=(',',':')).encode()).hexdigest()!=DEPENDENCY_PIN:
+        raise ValueError('requires exact pinned PR15 runtime and fixture dependencies')
     own=json.loads((ROOT/'SOURCE_MANIFEST.json').read_bytes())['files']
     counts={'addon':checked(ROOT,own),'native_runtime_and_helpers':checked(native,deps)}
     paths=[str(ROOT/'src'),str(native/'src'),str(native/'tests'),str(ROOT/'tests')]
@@ -52,7 +53,7 @@ def main():
     counts['addon_after']=checked(ROOT,own);counts['native_after']=checked(native,deps)
     passed=(expected>0 and result.testsRun==expected and result.wasSuccessful() and
             not result.skipped and len(set(result.ids))==expected)
-    report={'scope':'receipt archive add-on, not full native regression', 'parent_commit':BASE,
+    report={'scope':'receipt archive add-on, not full native regression', 'dependency_source_commit':BASE,
             'source_checks':counts,'expected':expected,'run':result.testsRun,'passed':passed,
             'failures':len(result.failures),'errors':len(result.errors),'skipped':len(result.skipped),
             'passed_ids':result.ids,'consensus_executed':False,'native_receipts_pruned':False}
