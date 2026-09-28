@@ -83,6 +83,37 @@ class NetworkTests(unittest.TestCase):
         with rpc(self.c) as (endpoint,reads):
             with self.assertRaises(ValueError):refresh(self.x,endpoint,initial_header_hash=pin(self.c,12),clock=lambda:self.clock()+301*10**9)
         self.assertIsNone(self.x.current())
+    def test_commit_published_half_second_after_state_is_retrieved_at_fixed_height(self):
+        # Deterministic model of the existing 500 ms block interval, not a
+        # validator run or a wall-clock timing assertion. State is read once.
+        from receipt_collector import Unavailable
+        elapsed=[0.0]; requests=[]
+        c=self.c
+        class DelayedReader:
+            def __init__(self,endpoint):pass
+            def call(self,method,height=None):
+                requests.append((method,height))
+                if method=='abci_query':
+                    return {'response':{'code':0,'height':'12',
+                        'value':base64.b64encode(encode(c['states'][12])).decode()}}
+                if method=='commit':
+                    if height==13 and elapsed[0]<0.5:
+                        raise Unavailable('fixture_next_commit_not_yet_published')
+                    return {'signed_header':c['headers'][height]}
+                if method=='block':return c['blocks'][height]
+                raise AssertionError('unexpected method')
+        def sleep(seconds):elapsed[0]+=seconds
+        with patch('explorer_rpc.Reader',DelayedReader),patch('explorer_rpc.time.sleep',side_effect=sleep):
+            result=collect('http://127.0.0.1:26657/',0)
+        self.assertEqual(result['status'],'collected')
+        self.assertEqual([r for r in requests if r[0]=='abci_query'],[('abci_query',None)])
+        target_reads=[r for r in requests if r==('commit',13)]
+        self.assertLessEqual(len(target_reads),4)
+        self.assertGreaterEqual(elapsed[0],0.5)
+        self.assertLessEqual(elapsed[0],0.75)
+        self.assertEqual(result['evidence']['state']['height'],12)
+        self.assertEqual(result['rpc_requests'],len(requests))
+
     def test_preview_data_uses_real_native_execution(self):
         self.x.ingest(bundle(self.c,24),initial_header_hash=pin(self.c,24));v=self.x.current()
         self.assertEqual(v['transaction_count'],len(self.c['states'][24]['native']['receipts']))

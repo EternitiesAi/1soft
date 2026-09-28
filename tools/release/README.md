@@ -116,3 +116,12 @@ Independent hosts, public networking, production key handling, new native histor
 formats and public economics remain outside this local milestone. No deployment,
 Actions, paid compute, DNS/site changes, Resident/Luna/Psyche work, real funds,
 force-pushes or merges are authorized by this command.
+
+## Retention-enabled real-engine product gate
+
+`run_product_network.py` now provides an opt-in four-validator product acceptance
+scenario with explicit binary pinning, local block retention, explorer/receipt
+archive observation, and engine/application restart. It is not invoked by the
+local checker and does not make a local test pass equivalent to a network pass.
+See `NETWORK_ACCEPTANCE.md` for exact prerequisites, commands, captured outcomes,
+the bounded explorer retry correction and the still-unassessed boundaries.
