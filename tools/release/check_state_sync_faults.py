@@ -21,7 +21,7 @@ sys.path[:0]=[str(ROOT/'src'),str(ROOT/'scripts')]
 from block_application import application_hash,restore
 from commit_verifier import load_json,pinned_genesis
 from native_core import canonical
-from run_state_sync import verify_snapshot_anchor,verify_history_window
+from run_state_sync import verify_snapshot_anchor,verify_history_window,verify_compact_proof_response
 
 PROFILES=(
  ('retained-sync-p1',1,None,2,False),
@@ -91,6 +91,8 @@ def validate_result(value,name,source,engine_sha256,process,genesis_bytes):
     state=value.get('final_state');require(type(state) is dict and
         set(state)=={'genesis','height','app_hash','native'} and state['genesis']==engine['app_state']
         and state['genesis']['chain_id']==trust.chain_id and exact_int(state['height'],final),'wrong final state')
+    require(exact_int(state['genesis'].get('protocol_version',1),version) and
+            state['genesis'].get('state_commitment')==commitment,'native genesis protocol/commitment differs')
     ledger=restore(state['genesis'],state['native'])
     try:
         require(application_hash(state['genesis'],final,state['native'])==state['app_hash'],'final AppHash differs')
@@ -135,7 +137,9 @@ def validate_result(value,name,source,engine_sha256,process,genesis_bytes):
                 and named_check(checks,CRASH_CHECKS[2]).get('details')==r,'crash observations differ')
     else:require(value.get('final_apply_recovery_verified') is False,'unexpected crash qualification')
     if commitment:
-        named_check(checks,'state-synced SMT node serves a verified compact account proof after continuation')
+        proof=verify_compact_proof_response(value.get('compact_proof_response'),state,'accounts',envelope['body']['sender'])
+        require(named_check(checks,'state-synced SMT node serves a verified compact account proof after continuation').get('details')==proof,
+                'compact proof details differ from verified final state')
     return len(checks)
 
 

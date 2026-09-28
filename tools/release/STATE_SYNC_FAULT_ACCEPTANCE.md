@@ -72,7 +72,9 @@ Every scenario binds the exact source commit/tree, runner and manifest hashes,
 protocol, commitment mode and supplied engine digest. Named checks must have
 matching details. The validator rechecks the supplied genesis, signed snapshot
 anchor when retention is enabled, native final state/AppHash and complete receipt
-history, and exact post-snapshot signed payment. Crash observation IDs, child PIDs,
+history, and exact post-snapshot signed payment. SMT runs must also supply a raw compact
+proof response that is reverified against that final native state; the genesis
+protocol and commitment format must match the selected profile. Crash observation IDs, child PIDs,
 kill signal, committed snapshot identity and recovered marker must agree. Numeric
 booleans, generic passing labels, missing receipt bodies and placeholder histories
 are not enough.

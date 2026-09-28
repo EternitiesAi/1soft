@@ -691,6 +691,7 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                 response = rpc(http[4], 'abci_query', {'path': '/proof/accounts/' + case['owner'].encode().hex(),
                                                        'prove': False})['response']
                 proof = verify_compact_proof_response(response, target_state, 'accounts', case['owner'])
+                report['compact_proof_response']=response
                 checked('state-synced SMT node serves a verified compact account proof after continuation',
                         proof['record'] is not None, proof)
 

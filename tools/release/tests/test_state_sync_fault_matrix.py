@@ -14,7 +14,8 @@ import check_state_sync_faults as gate
 from block_application import BlockApplication
 from certificate_fixture import validators,make_header,make_commit
 from commit_verifier import encode
-from run_state_sync import build_case,verify_snapshot_anchor
+from run_state_sync import build_case,verify_snapshot_anchor,verify_compact_proof_response
+from state_tree import make_witness
 
 ENGINE='a'*64
 SOURCE={'commit':'1'*40,'tree':'2'*40,'source_id':'3'*64,'files':[
@@ -71,7 +72,12 @@ def fixture(name):
   r['final_apply_recovery']={'run_id':run,'killed':killed,'recovered':recovered,
      'same_node_home':True,'engine_restarted':True,'retention_flag_repeated':False}
   checks.extend([{'name':n,'passed':True,'details':d} for n,d in zip(gate.CRASH_CHECKS,(killed,{'checkpoint':snap,'marker':marker},recovered))])
- if commitment:checks.append({'name':'state-synced SMT node serves a verified compact account proof after continuation','passed':True})
+ if commitment:
+  witness=make_witness(g,9,state['native'],[('accounts',case['owner'])])
+  response={'code':0,'height':'9','value':base64.b64encode(encode(witness)).decode()}
+  proof=verify_compact_proof_response(response,state,'accounts',case['owner'])
+  r['compact_proof_response']=response
+  checks.append({'name':'state-synced SMT node serves a verified compact account proof after continuation','passed':True,'details':proof})
  return r,genesis
 
 
@@ -148,6 +154,12 @@ class GateTests(unittest.TestCase):
    with patch.object(gate,'ROOT',src),patch.object(gate,'source_identity',return_value=SOURCE),patch.object(gate,'checked_manifests',return_value=[]),patch.object(gate,'run_process',side_effect=AssertionError('no engine')):
     self.assertEqual(gate.run(str(root/'missing'),ENGINE,out),2)
    r=json.loads((out/'result.json').read_bytes());self.assertEqual(r['scenarios'],[]);self.assertFalse(r['consensus_executed'])
+ def test_missing_smt_proof_cannot_hide_behind_pass(self):
+  r,g=self.sample();r.pop('compact_proof_response')
+  with self.assertRaises(ValueError):self.validate(r,g)
+ def test_changed_smt_proof_rejected(self):
+  r,g=self.sample();r['compact_proof_response']['value']='e30='
+  with self.assertRaises(ValueError):self.validate(r,g)
  def test_wrong_binary_keeps_failed_terminal_report(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);src=root/'src';src.mkdir();out=root/'out';binary=root/'binary';binary.write_bytes(b'not an engine')
