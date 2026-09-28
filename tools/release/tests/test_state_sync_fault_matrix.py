@@ -140,6 +140,18 @@ class GateTests(unittest.TestCase):
  def test_killed_checkpoint_requires_one_verified_native_receipt(self):
   r,g=self.sample();r['final_apply_recovery']['durable']['native_receipts']=0
   with self.assertRaises(ValueError):self.validate(r,g)
+ def test_boolean_durable_counts_and_marker_height_refused(self):
+  for key,value in (('block_rows',False),('native_receipts',True)):
+   r,g=self.sample();r['final_apply_recovery']['durable'][key]=value
+   with self.assertRaises(ValueError):self.validate(r,g)
+  r,g=self.sample();r['final_apply_recovery']['durable']['marker']['height']=True
+  with self.assertRaises(ValueError):self.validate(r,g)
+ def test_boolean_durable_check_details_refused(self):
+  r,g=self.sample()
+  for check in r['checks']:
+   if check['name']==gate.CRASH_CHECKS[1]:
+    check['details']={**check['details'],'native_receipts':True}
+  with self.assertRaises(ValueError):self.validate(r,g)
  def test_old_genesis_pin_refused(self):
   r,g=self.sample();r['genesis_file_sha256']='0'*64
   with self.assertRaises(ValueError):self.validate(r,g)

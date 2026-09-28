@@ -135,10 +135,14 @@ def validate_result(value,name,source,engine_sha256,process,genesis_bytes):
                 r.get('app_hash')==marker['app_hash'] and marker['height']>=snap['height'],'snapshot/recovery identity differs')
         if marker['height']==snap['height']:require(marker['app_hash']==snap['app_hash'],'same-height snapshot changed')
         durable=fault.get('durable')
-        require(durable=={'marker':{'height':snap['height'],'app_hash':snap['app_hash']},
-                          'block_rows':0,'native_receipts':1},'killed checkpoint body not independently validated')
+        require(type(durable) is dict and set(durable)=={'marker','block_rows','native_receipts'}
+                and type(durable['marker']) is dict and set(durable['marker'])=={'height','app_hash'}
+                and exact_int(durable['marker']['height'],snap['height'])
+                and durable['marker']['app_hash']==snap['app_hash']
+                and exact_int(durable['block_rows'],0) and exact_int(durable['native_receipts'],1),
+                'killed checkpoint body not independently validated')
         require(named_check(checks,CRASH_CHECKS[0]).get('details')==k and
-                named_check(checks,CRASH_CHECKS[1]).get('details')==durable
+                canonical(named_check(checks,CRASH_CHECKS[1]).get('details'))==canonical(durable)
                 and named_check(checks,CRASH_CHECKS[2]).get('details')==r,'crash observations differ')
     else:require(value.get('final_apply_recovery_verified') is False,'unexpected crash qualification')
     if commitment:
