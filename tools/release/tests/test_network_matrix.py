@@ -17,6 +17,69 @@ ENGINE='1'*64
 TXIDS=('a'*64,'b'*64)
 WIRES=('c'*64,'d'*64)
 NAMES=('first worker payment','second worker boundary payment')
+NATIVE_CORE_CHECKS=(
+    'four actual CometBFT processes',
+    'fresh chain producing blocks',
+    'native transfer independently signature/inclusion verified',
+    '3 of 4 continue',
+    '2 of 4 do not advance during measured interval',
+    'quorum restoration resumes progress',
+    'stale validator rejoins',
+    'four applications agree at common height',
+    'native test supply conserved',
+    'all intended native operations recorded',
+    'native receipts independently certified against genesis',
+    'read-only client collected and verified actual RPC receipt',
+    'four committed block records agree',
+    'block record matches signed next-header state commitment',
+)
+P1_CHECKS=(
+    'owner grant independently signature/inclusion verified',
+    'agent transfer independently signature/inclusion verified',
+    'owner fence independently signature/inclusion verified',
+    'old authority rejected by node admission',
+)
+P2_CHECKS=(
+    'onboard signed native account independently signature/inclusion verified',
+    'rotate continuing account key independently signature/inclusion verified',
+    'replacement key payment independently signature/inclusion verified',
+    'retired account key rejected',
+    'pre-rotation grant rejected',
+    'duplicate onboarding cannot reset identity',
+    'rotated account retains stable identity and expected balance',
+    'same-named grants remain owner-scoped',
+)
+P3_CHECKS=(
+    'shared budget creation independently signature/inclusion verified',
+    'first worker payment signed by certified wallet against real validator state',
+    'second worker overcommit refused before vault unlock',
+    'second worker boundary payment signed by certified wallet against real validator state',
+    'older first receipt is already recorded after cold reopen',
+    'revisiting receipt preserves wallet transport and RPC counts',
+)
+SMT_CHECKS=(
+    'compact accounts query accepted',
+    'compact accounts proof independently verified',
+    'compact receipts query accepted',
+    'compact receipts proof independently verified',
+    'compact receipt binds exact original transfer',
+)
+SYNC_CORE_CHECKS=(
+    'four source validators are producing blocks',
+    'pre-snapshot native transfer committed',
+    'state-sync trust height/hash captured from running source chain',
+    'fresh non-validator application was installed through state sync',
+    'restored marker AppHash matches source block at that exact height',
+    'restored application did not invent source block metadata at snapshot height',
+    'post-snapshot transfer committed on source chain',
+    'source chain head is stable after quorum loss',
+    'state-synced node continued through ordinary block sync',
+    'source and state-synced applications agree at frozen head',
+    'post-snapshot transaction exists in target native receipt history',
+    'state-sync provenance marker survives later block execution',
+    'target block metadata starts strictly after restored snapshot',
+    'target durable application checkpoint equals source checkpoint',
+)
 
 def history(height):
     return {'scope':'local_application_block_results','application_height':height,
@@ -38,6 +101,15 @@ def fixture(name='native-p1'):
          'tracked_worktree_dirty':False,'runner_relative_path':script,
          'runner_sha256':next(f['sha256'] for f in SOURCE['files'] if f['path']==script),
          'source_manifest_sha256':'f'*64}}
+    required=SYNC_CORE_CHECKS if script.endswith('run_state_sync.py') else NATIVE_CORE_CHECKS
+    r['checks'].extend({'name':check,'passed':True} for check in required)
+    if script.endswith('run_devnet.py'):
+        specific=P1_CHECKS if name in ('native-p1','retained-p1') else P1_CHECKS+P2_CHECKS if name=='native-p2' else P3_CHECKS
+        r['checks'].extend({'name':check,'passed':True} for check in specific)
+        if name in ('native-p3-smt','product-p3-smt'):
+            r['checks'].extend({'name':check,'passed':True} for check in SMT_CHECKS)
+    if name=='state-sync-p3-smt':
+        r['checks'].append({'name':'state-synced SMT node serves a verified compact account proof after continuation','passed':True})
     if '--decision-delivery' in args:
         delivery_payments=[{'name':name,'decision_id':str(i+2)*64,'native_txid':TXIDS[i],
                             'wire_sha256':WIRES[i],'submission_attempts':1}
@@ -111,7 +183,9 @@ def fixture(name='native-p1'):
 class NetworkMatrixTests(unittest.TestCase):
     def validate(self,r,name='native-p1',process=None):
         return matrix.validate_result(r,name,SOURCE,ENGINE,process or PROCESS)
-    def test_exact_profile_can_pass_structural_checks_only(self):self.assertEqual(self.validate(fixture()),1)
+    def test_exact_profile_can_pass_structural_checks_only(self):
+        report=fixture()
+        self.assertEqual(self.validate(report),len(report['checks']))
     def test_all_nine_profiles_are_unique(self):
         self.assertEqual(len(matrix.PROFILES),9);self.assertEqual(len({p[0] for p in matrix.PROFILES}),9)
     def test_product_profiles_explicitly_enable_retention_and_delivery(self):
@@ -190,6 +264,45 @@ class NetworkMatrixTests(unittest.TestCase):
         r=fixture('product-p3-flat')
         r['checks']=[{'name':'synthetic control','passed':True}]
         with self.assertRaises(ValueError):self.validate(r,'product-p3-flat')
+    def test_native_semantic_checks_cannot_be_replaced_by_generic_pass(self):
+        for name in ('native-p1','native-p2','native-p3-flat','native-p3-smt','retained-p1'):
+            with self.subTest(name=name):
+                r=fixture(name)
+                r['checks']=[{'name':'synthetic control','passed':True}]
+                with self.assertRaises(ValueError):self.validate(r,name)
+    def test_state_sync_semantic_checks_cannot_be_replaced_by_generic_pass(self):
+        for name in ('state-sync-p1','state-sync-p3-smt'):
+            with self.subTest(name=name):
+                r=fixture(name)
+                r['checks']=[{'name':'synthetic control','passed':True}]
+                with self.assertRaises(ValueError):self.validate(r,name)
+    def test_profile_specific_semantic_checks_are_required(self):
+        for name,missing in (
+            ('native-p1','owner fence independently signature/inclusion verified'),
+            ('native-p2','owner grant independently signature/inclusion verified'),
+            ('native-p2','retired account key rejected'),
+            ('native-p3-flat','second worker overcommit refused before vault unlock'),
+            ('native-p3-smt','compact receipts proof independently verified'),
+            ('state-sync-p1','target block metadata starts strictly after restored snapshot'),
+            ('state-sync-p3-smt','state-synced SMT node serves a verified compact account proof after continuation')):
+            with self.subTest(name=name):
+                r=fixture(name)
+                r['checks']=[check for check in r['checks'] if check['name']!=missing]
+                with self.assertRaises(ValueError):self.validate(r,name)
+    def test_boolean_values_cannot_impersonate_numeric_engine_evidence(self):
+        mutations=(
+            ('native-p1', lambda r: r.__setitem__('native_protocol_version',True)),
+            ('native-p3-flat', lambda r: r['decision_delivery']['payments'][0].__setitem__('submission_attempts',True)),
+            ('native-p3-flat', lambda r: r['decision_delivery']['transport']['payments'][0].__setitem__('upstream_check_tx_code',False)),
+            ('retained-p1', lambda r: r['local_history']['before_restart']['availability'].__setitem__('bootstrap_height',False)),
+            ('product-p3-flat', lambda r: r['product_journey']['stages'][4].__setitem__('wallet_pending_units',False)),
+            ('product-p3-flat', lambda r: (r['product_journey']['payments'][0].__setitem__('inclusion_height',1),
+                                          r['product_journey']['verification_after_local_pruning'][0].__setitem__('pruned_block',True))),
+        )
+        for name,mutate in mutations:
+            with self.subTest(name=name,mutation=mutate.__code__.co_firstlineno):
+                r=fixture(name);mutate(r)
+                with self.assertRaises(ValueError):self.validate(r,name)
     def test_product_not_allowed_to_release_hold_before_reconciliation(self):
         r=fixture('product-p3-flat');r['product_journey']['stages'][1]['wallet_pending_units']=40
         with self.assertRaises(ValueError):self.validate(r,'product-p3-flat')

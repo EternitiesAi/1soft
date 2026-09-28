@@ -35,6 +35,69 @@ PROFILES = (
     ('state-sync-p1', 'scripts/run_state_sync.py', ('--protocol-version','1')),
     ('state-sync-p3-smt', 'scripts/run_state_sync.py', ('--protocol-version','3','--state-commitment','smt-v1')),
 )
+NATIVE_CORE_CHECKS = (
+    'four actual CometBFT processes',
+    'fresh chain producing blocks',
+    'native transfer independently signature/inclusion verified',
+    '3 of 4 continue',
+    '2 of 4 do not advance during measured interval',
+    'quorum restoration resumes progress',
+    'stale validator rejoins',
+    'four applications agree at common height',
+    'native test supply conserved',
+    'all intended native operations recorded',
+    'native receipts independently certified against genesis',
+    'read-only client collected and verified actual RPC receipt',
+    'four committed block records agree',
+    'block record matches signed next-header state commitment',
+)
+P1_CHECKS = (
+    'owner grant independently signature/inclusion verified',
+    'agent transfer independently signature/inclusion verified',
+    'owner fence independently signature/inclusion verified',
+    'old authority rejected by node admission',
+)
+P2_CHECKS = (
+    'onboard signed native account independently signature/inclusion verified',
+    'rotate continuing account key independently signature/inclusion verified',
+    'replacement key payment independently signature/inclusion verified',
+    'retired account key rejected',
+    'pre-rotation grant rejected',
+    'duplicate onboarding cannot reset identity',
+    'rotated account retains stable identity and expected balance',
+    'same-named grants remain owner-scoped',
+)
+P3_CHECKS = (
+    'shared budget creation independently signature/inclusion verified',
+    'first worker payment signed by certified wallet against real validator state',
+    'second worker overcommit refused before vault unlock',
+    'second worker boundary payment signed by certified wallet against real validator state',
+    'older first receipt is already recorded after cold reopen',
+    'revisiting receipt preserves wallet transport and RPC counts',
+)
+SMT_CHECKS = (
+    'compact accounts query accepted',
+    'compact accounts proof independently verified',
+    'compact receipts query accepted',
+    'compact receipts proof independently verified',
+    'compact receipt binds exact original transfer',
+)
+SYNC_CORE_CHECKS = (
+    'four source validators are producing blocks',
+    'pre-snapshot native transfer committed',
+    'state-sync trust height/hash captured from running source chain',
+    'fresh non-validator application was installed through state sync',
+    'restored marker AppHash matches source block at that exact height',
+    'restored application did not invent source block metadata at snapshot height',
+    'post-snapshot transfer committed on source chain',
+    'source chain head is stable after quorum loss',
+    'state-synced node continued through ordinary block sync',
+    'source and state-synced applications agree at frozen head',
+    'post-snapshot transaction exists in target native receipt history',
+    'state-sync provenance marker survives later block execution',
+    'target block metadata starts strictly after restored snapshot',
+    'target durable application checkpoint equals source checkpoint',
+)
 
 
 def expected_profile(name):
@@ -43,6 +106,10 @@ def expected_profile(name):
 
 def hex_sha256(value):
     return type(value) is str and re.fullmatch('[0-9a-f]{64}', value) is not None
+
+
+def exact_int(value, expected):
+    return type(value) is int and value == expected
 
 
 def named_check(checks, name):
@@ -57,16 +124,16 @@ def retained_snapshot(value, keep, receipt_count):
     availability = value['availability']; height = value.get('application_height')
     return (value.get('scope') == 'local_application_block_results'
             and type(height) is int and height > keep
-            and availability.get('bootstrap_height') == 0
-            and availability.get('keep_blocks') == keep
-            and availability.get('pruned_through') == height - keep
-            and availability.get('retained_count') == keep
-            and availability.get('retained_from') == height - keep + 1
-            and availability.get('retained_through') == height
+            and exact_int(availability.get('bootstrap_height'), 0)
+            and exact_int(availability.get('keep_blocks'), keep)
+            and exact_int(availability.get('pruned_through'), height - keep)
+            and exact_int(availability.get('retained_count'), keep)
+            and exact_int(availability.get('retained_from'), height - keep + 1)
+            and exact_int(availability.get('retained_through'), height)
             and availability.get('within_configured_window') is True
-            and value.get('native_receipt_count') == receipt_count
+            and exact_int(value.get('native_receipt_count'), receipt_count)
             and value.get('native_receipts_pruned') is False
-            and value.get('cometbft_retain_height') == 0
+            and exact_int(value.get('cometbft_retain_height'), 0)
             and value.get('engine_history_pruning_requested') is False
             and value.get('historical_transaction_absence_proven') is False
             and value.get('total_storage_bounded') is False)
@@ -101,10 +168,27 @@ def validate_result(value, profile, source, engine_sha256, process):
     require(value.get('public_network') is False and value.get('real_funds') is False,
             'scope flags differ from local-only acceptance')
     def option(name, default=None):return args[args.index(name)+1] if name in args else default
-    require(value.get('native_protocol_version',value.get('protocol_version')) == int(option('--protocol-version')),
+    require(exact_int(value.get('native_protocol_version',value.get('protocol_version')),
+                      int(option('--protocol-version'))),
             'wrong protocol in scenario report')
     require(value.get('state_commitment') == option('--state-commitment','legacy-flat-v1'),
             'wrong commitment mode in scenario report')
+    for check_name in (SYNC_CORE_CHECKS if script == 'scripts/run_state_sync.py' else NATIVE_CORE_CHECKS):
+        named_check(checks, check_name)
+    if script == 'scripts/run_devnet.py':
+        if profile in ('native-p1', 'retained-p1'):
+            specific = P1_CHECKS
+        elif profile == 'native-p2':
+            specific = P1_CHECKS + P2_CHECKS
+        else:
+            specific = P3_CHECKS
+        for check_name in specific:
+            named_check(checks, check_name)
+        if profile in ('native-p3-smt', 'product-p3-smt'):
+            for check_name in SMT_CHECKS:
+                named_check(checks, check_name)
+    if profile == 'state-sync-p3-smt':
+        named_check(checks, 'state-synced SMT node serves a verified compact account proof after continuation')
     if '--decision-delivery' in args:
         delivery=value.get('decision_delivery',{})
         require(delivery.get('enabled') is True and delivery.get('status') == 'passed' and
@@ -121,7 +205,7 @@ def validate_result(value, profile, source, engine_sha256, process):
                 [row.get('name') for row in transport_payments] == list(expected_names),
                 'two exact delivery and transport payment records required')
         require(transport.get('endpoint_scope') == 'loopback-only' and
-                transport.get('forwarded_payment_submissions') == 2 and
+                exact_int(transport.get('forwarded_payment_submissions'), 2) and
                 type(transport.get('read_only_rpc_requests')) is int and
                 transport['read_only_rpc_requests'] > 0 and
                 type(transport.get('http_methods_seen')) is list and
@@ -134,10 +218,10 @@ def validate_result(value, profile, source, engine_sha256, process):
             require(hex_sha256(payment.get('decision_id')) and
                     hex_sha256(payment.get('native_txid')) and
                     hex_sha256(payment.get('wire_sha256')) and
-                    payment.get('submission_attempts') == 1 and
+                    exact_int(payment.get('submission_attempts'), 1) and
                     witness.get('wire_sha256') == payment['wire_sha256'] and
-                    witness.get('upstream_http_status') == 200 and
-                    witness.get('upstream_check_tx_code') == 0 and
+                    exact_int(witness.get('upstream_http_status'), 200) and
+                    exact_int(witness.get('upstream_check_tx_code'), 0) and
                     witness.get('upstream_tx_hash_matches') is True and
                     witness.get('downstream_reply_dropped') is (index == 0) and
                     witness.get('downstream_reply_forwarded') is (index == 1),
@@ -145,7 +229,7 @@ def validate_result(value, profile, source, engine_sha256, process):
         revisit=delivery['receipt_convergence']
         require(revisit.get('native_txid') == payments[0]['native_txid'] and
                 revisit.get('wire_sha256') == payments[0]['wire_sha256'] and
-                revisit.get('submission_attempts') == 1 and
+                exact_int(revisit.get('submission_attempts'), 1) and
                 revisit.get('network_requested') is False and
                 revisit.get('wallet_sync_performed') is False and
                 revisit.get('signing_performed') is False,
@@ -156,7 +240,7 @@ def validate_result(value, profile, source, engine_sha256, process):
         receipts=value.get('final_state',{}).get('native',{}).get('receipts')
         before,after,nodes=(history.get('before_restart'),history.get('after_restart'),
                             history.get('nodes'))
-        require(history.get('enabled') is True and history.get('keep_blocks') == 2 and
+        require(history.get('enabled') is True and exact_int(history.get('keep_blocks'), 2) and
                 history.get('status') == 'passed' and
                 history.get('application_restart_verified') is True and
                 type(receipts) is list and bool(receipts) and
@@ -186,6 +270,8 @@ def validate_result(value, profile, source, engine_sha256, process):
                 [(stage.get('stage'),stage.get('wallet_pending_units'),stage.get('explorer_spent_units'))
                  for stage in stages] == list(expected_stages) and
                 all(stage.get('wallet_pending_debits_included') is False and
+                    type(stage.get('wallet_pending_units')) is int and
+                    type(stage.get('explorer_spent_units')) is int and
                     type(stage.get('wallet_state_height')) is int and
                     type(stage.get('explorer_state_height')) is int and
                     hex_sha256(stage.get('explorer_anchor_hash')) and
@@ -205,7 +291,7 @@ def validate_result(value, profile, source, engine_sha256, process):
                     type(payment.get('inclusion_height')) is int and payment['inclusion_height'] > 0 and
                     payment.get('proof_kind') == expected_proof and
                     after_pruning.get('native_txid') == payment['txid'] and
-                    after_pruning.get('pruned_block') == payment['inclusion_height'] and
+                    exact_int(after_pruning.get('pruned_block'), payment['inclusion_height']) and
                     after_pruning.get('exact_archived_receipt_verified') is True and
                     after_pruning.get('index_retains_verified_inclusion') is True,
                     'product payment/receipt identity or post-pruning proof differs')
