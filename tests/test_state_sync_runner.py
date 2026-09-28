@@ -2,17 +2,22 @@ import base64
 from contextlib import redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
+import time
 import sqlite3
 import sys
 import tempfile
 import unittest
 
 from native_core import NativeLedger, parse_wire
+from block_application import BlockApplication
+from abci_wire import Client
 from run_devnet import patch_toml
 from run_state_sync import (
-    ExecutionLogBundle, build_case, committed, marker, min_block_height, receipt_history_contains,
-    run, verify_compact_proof_response,
+    ExecutionLogBundle, build_case, committed, marker, min_block_height, private_json,
+    receipt_history_contains, run, verify_compact_proof_response,
 )
 from state_tree import make_witness
 
@@ -132,6 +137,83 @@ raise SystemExit(8)
                       (output.parent/'failed-run.json.logs'/'runner.log').read_text())
         self.assertEqual(len([path for path in (output.parent/'failed-run.json.logs').glob('*.log')
                               if path.name != 'runner.log']),10)
+
+    def test_retention_and_crash_modes_are_explicit_even_when_engine_is_missing(self):
+        output=self.root/'retained.json'
+        report=run(str(self.root/'missing'),output,3,state_commitment='smt-v1',
+                   block_history_keep=2,final_apply_crash=True)
+        self.assertEqual(report['status'],'unassessed')
+        self.assertEqual(report['block_history_keep'],2)
+        self.assertTrue(report['final_apply_crash'])
+        self.assertFalse(report['final_apply_recovery_verified'])
+        for bad in (True,1,1.0,'2',1000001):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    run(str(self.root/'missing'),self.root/f'bad-{bad}.json',1,block_history_keep=bad)
+
+    def test_extra_restart_log_is_bounded_and_manifested_separately(self):
+        bundle=ExecutionLogBundle(self.root/'restart.json',max_log_bytes=256)
+        first=bundle.start('target',4,'engine',[sys.executable,'-c','print("first")'])
+        self.assertEqual(first.wait(timeout=5),0)
+        second=bundle.start_extra('target',4,'engine','restart1',[sys.executable,'-c','print("restart")'])
+        self.assertEqual(second.wait(timeout=5),0)
+        bundle.finish('passed')
+        manifest=json.loads(bundle.manifest_path.read_text())
+        rows=[r for r in manifest['logs'] if r['role']=='target' and r['node']==4 and r['process']=='engine']
+        self.assertEqual({r['phase'] for r in rows},{'initial','restart1'})
+        self.assertEqual(manifest['log_files'],11)
+
+    def test_final_apply_supervisor_sigkills_then_recovers_exact_checkpoint(self):
+        case=build_case('final-apply-local-test',1)
+        source=BlockApplication(':memory:',expected_genesis=case['genesis'])
+        source.init_chain(case['genesis']['chain_id'],case['genesis'])
+        result=source.finalize_block([case['pre_snapshot_tx']],1,b'a'*32)
+        self.assertEqual(result['tx_results'][0]['code'],0);source.commit()
+        desc=source.list_snapshots()[0]
+        private=self.root/'crash-app';private.mkdir(mode=0o700)
+        genesis=private/'genesis.json';genesis.write_text(json.dumps(case['genesis']))
+        socket=private/'a.sock';db=private/'app.sqlite';status=private/'killed.json';resume=private/'resume';recovered=private/'recovered.json'
+        proc=subprocess.Popen([sys.executable,str(Path(__file__).resolve().parents[1]/'scripts/serve_abci_state_sync_crash.py'),
+            '--db',str(db),'--socket',str(socket),'--genesis',str(genesis),
+            '--status',str(status),'--resume',str(resume),'--recovered',str(recovered)],
+            stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        try:
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline and not socket.exists():
+                self.assertIsNone(proc.poll());time.sleep(.02)
+            self.assertTrue(socket.exists())
+            with Client(str(socket)) as peer:
+                offered=peer.call('offer_snapshot',snapshot=desc,app_hash=bytes.fromhex(source.app_hash))
+                self.assertEqual(offered.result,1)
+                for i in range(desc['chunks']-1):
+                    self.assertEqual(peer.call('apply_snapshot_chunk',index=i,chunk=source.load_snapshot_chunk(1,1,i),sender='fixture').result,1)
+                with self.assertRaises((ConnectionError,OSError,EOFError,ValueError)):
+                    peer.call('apply_snapshot_chunk',index=desc['chunks']-1,chunk=source.load_snapshot_chunk(1,1,desc['chunks']-1),sender='fixture')
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline and private_json(status) is None:time.sleep(.02)
+            self.assertEqual(private_json(status),{'schema':1,'phase':'killed-after-durable-install','signal':'SIGKILL','exit_code':-9})
+            self.assertEqual(marker(db),{'height':1,'app_hash':source.app_hash})
+            self.assertIsNone(min_block_height(db))
+            resume.write_text('resume\n');resume.chmod(0o600)
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline and not socket.exists():time.sleep(.02)
+            self.assertTrue(socket.exists());time.sleep(.05)
+            with Client(str(socket)) as peer:
+                offered=peer.call('offer_snapshot',snapshot=desc,app_hash=bytes.fromhex(source.app_hash))
+                self.assertEqual(offered.result,1)
+                for i in range(desc['chunks']):
+                    self.assertEqual(peer.call('apply_snapshot_chunk',index=i,chunk=source.load_snapshot_chunk(1,1,i),sender='fixture').result,1)
+                info=peer.call('info');self.assertEqual(info.last_block_height,1)
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline and private_json(recovered) is None:time.sleep(.02)
+            self.assertEqual(private_json(recovered),{'schema':1,'phase':'checkpoint-recovery-install',
+                'height':1,'app_hash':source.app_hash,'checkpoint_recovery':True})
+        finally:
+            source.close()
+            if proc.poll() is None:proc.terminate()
+            try:proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:proc.kill();proc.communicate(timeout=5)
+
 
     def test_post_snapshot_receipt_gate_requires_exact_transaction_id(self):
         state={'native':{'receipts':[['older-txid',1,'','{}',''],['other-txid',2,'','{}','']]}}
