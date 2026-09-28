@@ -19,6 +19,9 @@ from explorer_index import MAX_INPUT, MAX_BATCH_HEADERS, need, hash_value, ns
 
 MAX_CALLS = 133
 PROCESS_TIMEOUT = 45
+# Four fixed-H+1 reads span up to 750 ms of delay, covering the 500 ms
+# development block interval without selecting a different state target.
+COMMIT_RETRY_SECONDS = 0.25
 
 
 def collect(endpoint, last_header_height, initial_window=16):
@@ -48,7 +51,7 @@ def collect(endpoint, last_header_height, initial_window=16):
             final = read('commit', target)['signed_header']; break
         except Unavailable:
             if attempt == 3: raise
-            time.sleep(.1)
+            time.sleep(COMMIT_RETRY_SECONDS)
     headers=[]; blocks=[]
     for height in range(start, target+1):
         headers.append(final if height == target else read('commit', height)['signed_header'])
