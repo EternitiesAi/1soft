@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from native_core import NativeLedger, address, canonical, public, sign
 from run_devnet import PIN, free_ports, patch_toml, rpc, wait_until
 from block_application import transaction_id, application_hash, restore
-from commit_verifier import pinned_genesis, verify_signed_header
+from commit_verifier import load_json, pinned_genesis, verify_signed_header
 from serve_abci_state_sync_crash import read_event, write_event
 from state_tree import MAX_WITNESS_BYTES, StateTree, bind_root, enabled, encoded, hash32, verify_proof
 
@@ -376,6 +376,67 @@ def committed(path: Path):
         db.close()
 
 
+def durable_snapshot_checkpoint(path: Path):
+    """Read the killed application's committed snapshot without changing it."""
+    db = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=2)
+    try:
+        db.execute('BEGIN')
+        row = db.execute('SELECT genesis,height,app_hash,state FROM committed WHERE id=1').fetchone()
+        mark = db.execute('SELECT height,app_hash FROM state_sync_marker WHERE id=1').fetchone()
+        blocks = db.execute('SELECT count(*) FROM blocks').fetchone()[0]
+        if row is None or mark is None:
+            raise ValueError('snapshot checkpoint unavailable')
+        genesis_raw, height, app_hash, native_raw = row
+        genesis = load_json(genesis_raw.encode())
+        native = load_json(native_raw.encode())
+        if (type(height) is not int or height < 1 or type(app_hash) is not str or
+                mark != (height, app_hash) or blocks != 0):
+            raise ValueError('not an untouched snapshot-only checkpoint')
+        if application_hash(genesis, height, native) != app_hash:
+            raise ValueError('durable snapshot body differs from committed AppHash')
+        ledger = restore(genesis, native)
+        ledger.close()
+        receipts = native['receipts']
+        if type(receipts) is not list or len(receipts) != 1:
+            raise ValueError('killed checkpoint must retain exactly one native receipt')
+        return {'marker': {'height': height, 'app_hash': app_hash},
+                'block_rows': 0, 'native_receipts': 1}
+    finally:
+        db.close()
+
+
+def verify_payment_continuation(state, mark, pre_wire: bytes, post_wire: bytes):
+    """Bind both native receipts to exact signed wires across the snapshot."""
+    if (type(state) is not dict or set(state) != {'genesis', 'height', 'app_hash', 'native'} or
+            type(mark) is not dict or type(mark.get('height')) is not int or
+            type(state.get('height')) is not int or state['height'] <= mark['height'] or
+            type(pre_wire) is not bytes or type(post_wire) is not bytes or pre_wire == post_wire):
+        raise ValueError('invalid payment continuation evidence')
+    if application_hash(state['genesis'], state['height'], state['native']) != state['app_hash']:
+        raise ValueError('continued state AppHash differs')
+    ledger = restore(state['genesis'], state['native'])
+    ledger.close()
+    rows = state['native']['receipts']
+    if type(rows) is not list or len(rows) != 2:
+        raise ValueError('two distinct native receipts required')
+    checked = []
+    for row, wire in zip(rows, (pre_wire, post_wire)):
+        envelope = load_json(wire, max_bytes=16384)
+        if canonical(envelope) != wire:
+            raise ValueError('noncanonical signed payment')
+        receipt = load_json(row[3].encode(), max_bytes=32768)
+        txid = transaction_id(wire)
+        if (canonical(receipt['envelope']) != wire or receipt['txid'] != txid or
+                row[0] != txid or type(receipt['height']) is not int):
+            raise ValueError('native receipt differs from exact signed payment')
+        checked.append({'txid': txid, 'height': receipt['height'],
+                        'wire_sha256': hashlib.sha256(wire).hexdigest()})
+    if not (1 <= checked[0]['height'] <= mark['height'] <
+            checked[1]['height'] <= state['height']):
+        raise ValueError('receipts are not ordered around snapshot height')
+    return checked
+
+
 def block_record(path: Path, height: int):
     db = _db(path)
     try:
@@ -588,10 +649,14 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                         killed['run_id']==run_id and type(killed['returncode']) is int and killed['returncode']==-9
                         and killed['signal']=='SIGKILL' and killed['install']['transaction_active'] is False, killed)
                 durable=committed(app_db[4]);mark=marker(app_db[4])
+                checkpoint=durable_snapshot_checkpoint(app_db[4])
                 checked('killed application retains snapshot checkpoint and no executed block rows',
-                        durable is not None and mark=={'height':durable['height'],'app_hash':durable['app_hash']}
-                        and killed['checkpoint']=={**mark,'local_block_rows':0} and min_block_height(app_db[4]) is None,
-                        {'checkpoint':killed['checkpoint'],'marker':mark})
+                        durable is not None and checkpoint == {
+                            'marker': {'height': durable['height'], 'app_hash': durable['app_hash']},
+                            'block_rows': 0, 'native_receipts': 1}
+                        and mark == checkpoint['marker']
+                        and killed['checkpoint'] == {**mark, 'local_block_rows': 0}
+                        and min_block_height(app_db[4]) is None, checkpoint)
                 stop(engine_processes,4)
                 write_event(control,'resume.json',{'schema':1,'run_id':run_id,'resume':True})
                 ready=wait_until(lambda: read_event(control,'recovery-ready.json'),10)
@@ -602,7 +667,8 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                         and recovered['pid']!=killed['pid'] and recovered['checkpoint_recovery'] is True
                         and recovered['transaction_active'] is False and recovered['height']>=mark['height'],recovered)
                 report['final_apply_recovery']={'run_id':run_id,'killed':killed,'recovered':recovered,
-                    'same_node_home':True,'engine_restarted':True,'retention_flag_repeated':False}
+                    'durable':checkpoint,'same_node_home':True,'engine_restarted':True,
+                    'retention_flag_repeated':False}
                 report['final_apply_recovery_verified']=True
             restored = wait_until(lambda: marker(app_db[4]), 75)
             checked('fresh non-validator application was installed through state sync',
@@ -613,17 +679,16 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                 checked('restored marker AppHash matches source block at that exact height',
                         source_marker_block is not None and source_marker_block['app_hash'] == restored['app_hash'],
                         {'marker':restored,'source_block':source_marker_block})
-            else:
-                # Local source rows may already be pruned. Read and VERIFY the
-                # exact H+1 validator commitment, not an endpoint's bare hash.
-                def snapshot_commit():
-                    try: return rpc(http[0],'commit',{'height':str(marker_height+1)})['signed_header']
-                    except (KeyError,ValueError,OSError): return None
-                signed=wait_until(snapshot_commit,10)
-                anchor=verify_snapshot_anchor(signed,public_genesis,restored)
-                checked('restored marker matches verified signed next-height commitment',True,anchor)
-                report['snapshot_anchor']={'signed_header':signed,'verified':anchor}
-                report['engine_genesis']=rootgen
+            # The signed H+1 header binds the installed snapshot in EVERY
+            # profile, including crash-only runs with unpruned local rows.
+            def snapshot_commit():
+                try: return rpc(http[0],'commit',{'height':str(marker_height+1)})['signed_header']
+                except (KeyError,ValueError,OSError): return None
+            signed=wait_until(snapshot_commit,10)
+            anchor=verify_snapshot_anchor(signed,public_genesis,restored)
+            checked('restored marker matches verified signed next-height commitment',True,anchor)
+            report['snapshot_anchor']={'signed_header':signed,'verified':anchor}
+            report['engine_genesis']=rootgen
             checked('restored application did not invent source block metadata at snapshot height',
                     block_record(app_db[4], marker_height) is None)
 
@@ -685,7 +750,12 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                         {'source':source_history,'target':target_history})
                 report['local_history']={'source':source_history,'target':target_history,
                                         'source_snapshot_block_pruned':True}
+            payments=verify_payment_continuation(target_state, restored,
+                case['pre_snapshot_tx'], case['post_snapshot_tx'])
+            checked('pre- and post-snapshot signed payments match native receipts and ordering',
+                    True, payments)
             report['final_state']=target_state
+            report['pre_snapshot_transaction']=base64.b64encode(case['pre_snapshot_tx']).decode()
             report['post_snapshot_transaction']=base64.b64encode(case['post_snapshot_tx']).decode()
             if state_commitment == 'smt-v1':
                 response = rpc(http[4], 'abci_query', {'path': '/proof/accounts/' + case['owner'].encode().hex(),

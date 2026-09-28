@@ -21,7 +21,7 @@ sys.path[:0]=[str(ROOT/'src'),str(ROOT/'scripts')]
 from block_application import application_hash,restore
 from commit_verifier import load_json,pinned_genesis
 from native_core import canonical
-from run_state_sync import verify_snapshot_anchor,verify_history_window,verify_compact_proof_response
+from run_state_sync import verify_snapshot_anchor,verify_history_window,verify_compact_proof_response,verify_payment_continuation
 
 PROFILES=(
  ('retained-sync-p1',1,None,2,False),
@@ -34,6 +34,7 @@ PROFILES=(
 MARKER_CHECK='restored marker AppHash matches source block at that exact height'
 SIGNED_CHECK='restored marker matches verified signed next-height commitment'
 HISTORY_CHECK='source and recovered target retain bounded results and complete native receipts'
+PAYMENT_CHECK='pre- and post-snapshot signed payments match native receipts and ordering'
 CRASH_CHECKS=(
  'target application SIGKILL observed after snapshot commit before final Apply reply',
  'killed application retains snapshot checkpoint and no executed block rows',
@@ -97,18 +98,19 @@ def validate_result(value,name,source,engine_sha256,process,genesis_bytes):
     try:
         require(application_hash(state['genesis'],final,state['native'])==state['app_hash'],'final AppHash differs')
     finally:ledger.close()
+    pre_raw=base64.b64decode(value['pre_snapshot_transaction'],validate=True)
     raw=base64.b64decode(value['post_snapshot_transaction'],validate=True)
-    envelope=load_json(raw,max_bytes=16384);require(canonical(envelope)==raw,'post transaction not canonical')
-    receipts=[load_json(row[3].encode(),max_bytes=32768) for row in state['native']['receipts']]
-    selected=[r for r in receipts if r['envelope']==envelope]
-    require(len(receipts)==2 and len(selected)==1 and positive(selected[0]['height']) and
-            marker['height']<selected[0]['height']<=final,'exact post-snapshot execution receipt missing')
+    envelope=load_json(raw,max_bytes=16384)
+    require(canonical(envelope)==raw,'post transaction not canonical')
+    payments=verify_payment_continuation(state,marker,pre_raw,raw)
+    require(named_check(checks,PAYMENT_CHECK).get('details')==payments,
+            'exact pre/post payment receipt details differ')
     require(named_check(checks,'source and state-synced applications agree at frozen head').get('details')==
             {'height':final,'app_hash':state['app_hash']},'frozen-state details differ')
+    anchor=value.get('snapshot_anchor',{})
+    verified=verify_snapshot_anchor(anchor.get('signed_header'),genesis_bytes,marker)
+    require(verified==anchor.get('verified')==named_check(checks,SIGNED_CHECK).get('details'),'signed anchor details differ')
     if keep is not None:
-        anchor=value.get('snapshot_anchor',{})
-        verified=verify_snapshot_anchor(anchor.get('signed_header'),genesis_bytes,marker)
-        require(verified==anchor.get('verified')==named_check(checks,SIGNED_CHECK).get('details'),'signed anchor details differ')
         h=value.get('local_history',{});require(h.get('source_snapshot_block_pruned') is True,'pruning not observed')
         source_h=verify_history_window(h.get('source'),height=final,bootstrap=0,keep=keep,receipts=2)
         target_h=verify_history_window(h.get('target'),height=final,bootstrap=marker['height'],keep=keep,receipts=2)
@@ -132,8 +134,11 @@ def validate_result(value,name,source,engine_sha256,process,genesis_bytes):
                 snap['app_hash']==install.get('app_hash') and exact_int(r.get('height'),marker['height']) and
                 r.get('app_hash')==marker['app_hash'] and marker['height']>=snap['height'],'snapshot/recovery identity differs')
         if marker['height']==snap['height']:require(marker['app_hash']==snap['app_hash'],'same-height snapshot changed')
+        durable=fault.get('durable')
+        require(durable=={'marker':{'height':snap['height'],'app_hash':snap['app_hash']},
+                          'block_rows':0,'native_receipts':1},'killed checkpoint body not independently validated')
         require(named_check(checks,CRASH_CHECKS[0]).get('details')==k and
-                named_check(checks,CRASH_CHECKS[1]).get('details')=={'checkpoint':snap,'marker':{k:snap[k] for k in ('height','app_hash')}}
+                named_check(checks,CRASH_CHECKS[1]).get('details')==durable
                 and named_check(checks,CRASH_CHECKS[2]).get('details')==r,'crash observations differ')
     else:require(value.get('final_apply_recovery_verified') is False,'unexpected crash qualification')
     if commitment:

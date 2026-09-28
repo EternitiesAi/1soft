@@ -18,7 +18,9 @@ only its process-local StateSyncManager._install method. After the real method
 returns from its durable snapshot installation, the wrapper records its height,
 AppHash, PID and inactive transaction state, then pauses without returning to
 ApplySnapshotChunk. The supervisor sends SIGKILL to that exact child, observes
-exit -9, and reads the durable checkpoint/marker with zero executed block rows.
+exit -9, and independently reads the durable checkpoint/marker with zero
+executed block rows. It recomputes the stored AppHash, restores the native
+ledger, and requires exactly one pre-snapshot receipt at the kill boundary.
 No final Apply response can be constructed by the paused call.
 
 The supervisor removes only the original Unix socket's captured device/inode,
@@ -43,11 +45,14 @@ to all five applications. A source's old local block-result row may disappear
 before bootstrap inspection. The runner therefore retrieves the exact H+1 signed
 commitment and independently verifies its committee signatures against the generated
 engine genesis, comparing its AppHash to the restored marker. A bare endpoint hash
-is not sufficient evidence. CometBFT's own historical block store is not pruned.
+is not sufficient evidence. The same signed H+1 check is required in crash-only
+profiles as well. CometBFT's own historical block store is not pruned.
 
 The target must process the exact nonempty post-snapshot transfer, converge with
 the source at the frozen height, retain the marker, and keep the bounded local
-window while preserving both native receipts. Both source and target window
+window while preserving both native receipts. The validator compares the exact
+pre- and post-snapshot signed payment wires to those receipts and their heights.
+Both source and target window
 snapshots are checked. The source snapshot-height local block row must actually
 be pruned by the end; missing unrelated data is not called deliberate pruning.
 
@@ -71,8 +76,8 @@ No engine download, Actions run, deployment or paid compute is performed.
 Every scenario binds the exact source commit/tree, runner and manifest hashes,
 protocol, commitment mode and supplied engine digest. Named checks must have
 matching details. The validator rechecks the supplied genesis, signed snapshot
-anchor when retention is enabled, native final state/AppHash and complete receipt
-history, and exact post-snapshot signed payment. SMT runs must also supply a raw compact
+anchor in every profile, native final state/AppHash and complete receipt
+history, and both exact pre- and post-snapshot signed payments. SMT runs must also supply a raw compact
 proof response that is reverified against that final native state; the genesis
 protocol and commitment format must match the selected profile. Crash observation IDs, child PIDs,
 kill signal, committed snapshot identity and recovered marker must agree. Numeric

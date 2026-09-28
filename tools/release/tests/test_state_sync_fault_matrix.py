@@ -14,7 +14,7 @@ import check_state_sync_faults as gate
 from block_application import BlockApplication
 from certificate_fixture import validators,make_header,make_commit
 from commit_verifier import encode
-from run_state_sync import build_case,verify_snapshot_anchor,verify_compact_proof_response
+from run_state_sync import build_case,verify_snapshot_anchor,verify_compact_proof_response,verify_payment_continuation
 from state_tree import make_witness
 
 ENGINE='a'*64
@@ -55,23 +55,27 @@ def fixture(name):
   'public_network':False,'real_funds':False,'state_sync_verified':True,'continued_execution_verified':True,
   'final_apply_recovery_verified':crash,'snapshot_height':4,'final_height':9,'state_sync_marker':marker,
   'genesis_file_sha256':gate.digest(genesis),'final_state':state,
+  'pre_snapshot_transaction':base64.b64encode(case['pre_snapshot_tx']).decode(),
   'post_snapshot_transaction':base64.b64encode(case['post_snapshot_tx']).decode(),
   'source_provenance':{'source_commit':SOURCE['commit'],'source_tree':SOURCE['tree'],'tracked_worktree_dirty':False,
    'runner_relative_path':'scripts/run_state_sync.py','runner_sha256':'4'*64,'source_manifest_sha256':'5'*64}}
+ verified=verify_snapshot_anchor(signed,genesis,marker)
+ r['snapshot_anchor']={'signed_header':signed,'verified':verified}
+ checks.append({'name':gate.SIGNED_CHECK,'passed':True,'details':verified})
+ payments=verify_payment_continuation(state,marker,case['pre_snapshot_tx'],case['post_snapshot_tx'])
+ checks.append({'name':gate.PAYMENT_CHECK,'passed':True,'details':payments})
  if keep is not None:
-  verified=verify_snapshot_anchor(signed,genesis,marker)
-  r['snapshot_anchor']={'signed_header':signed,'verified':verified}
   r['local_history']={'source':history(9,0),'target':history(9,4),'source_snapshot_block_pruned':True}
-  checks.extend([{'name':gate.SIGNED_CHECK,'passed':True,'details':verified},
-                 {'name':gate.HISTORY_CHECK,'passed':True,'details':{k:r['local_history'][k] for k in ('source','target')}}])
+  checks.append({'name':gate.HISTORY_CHECK,'passed':True,'details':{k:r['local_history'][k] for k in ('source','target')}})
  else:checks.append({'name':gate.MARKER_CHECK,'passed':True})
  if crash:
   run='d'*32;install={'schema':1,'run_id':run,'pid':101,**marker,'transaction_active':False,'checkpoint_recovery':False}
   snap={**marker,'local_block_rows':0};killed={'schema':1,'run_id':run,'pid':101,'signal':'SIGKILL','returncode':-9,'install':install,'checkpoint':snap}
   recovered={**install,'pid':102,'checkpoint_recovery':True}
+  durable={'marker':marker,'block_rows':0,'native_receipts':1}
   r['final_apply_recovery']={'run_id':run,'killed':killed,'recovered':recovered,
-     'same_node_home':True,'engine_restarted':True,'retention_flag_repeated':False}
-  checks.extend([{'name':n,'passed':True,'details':d} for n,d in zip(gate.CRASH_CHECKS,(killed,{'checkpoint':snap,'marker':marker},recovered))])
+     'durable':durable,'same_node_home':True,'engine_restarted':True,'retention_flag_repeated':False}
+  checks.extend([{'name':n,'passed':True,'details':d} for n,d in zip(gate.CRASH_CHECKS,(killed,durable,recovered))])
  if commitment:
   witness=make_witness(g,9,state['native'],[('accounts',case['owner'])])
   response={'code':0,'height':'9','value':base64.b64encode(encode(witness)).decode()}
@@ -119,6 +123,22 @@ class GateTests(unittest.TestCase):
   with self.assertRaises(ValueError):self.validate(r,g)
  def test_forged_snapshot_anchor_refused(self):
   r,g=self.sample();r['snapshot_anchor']['signed_header']['commit']['signatures'][0]['signature']='AA=='
+  with self.assertRaises(ValueError):self.validate(r,g)
+ def test_crash_only_cannot_omit_or_forge_signed_anchor(self):
+  for name in ('crash-sync-p1','crash-sync-p3-smt'):
+   r,g=self.sample(name);r.pop('snapshot_anchor')
+   with self.assertRaises(ValueError):self.validate(r,g,name)
+   r,g=self.sample(name);r['snapshot_anchor']['signed_header']['commit']['signatures'][0]['signature']='AA=='
+   with self.assertRaises(ValueError):self.validate(r,g,name)
+ def test_changed_pre_snapshot_signed_wire_refused(self):
+  r,g=self.sample();r['pre_snapshot_transaction']=r['post_snapshot_transaction']
+  with self.assertRaises(ValueError):self.validate(r,g)
+ def test_swapped_payment_wires_refused(self):
+  r,g=self.sample()
+  r['pre_snapshot_transaction'],r['post_snapshot_transaction']=r['post_snapshot_transaction'],r['pre_snapshot_transaction']
+  with self.assertRaises(ValueError):self.validate(r,g)
+ def test_killed_checkpoint_requires_one_verified_native_receipt(self):
+  r,g=self.sample();r['final_apply_recovery']['durable']['native_receipts']=0
   with self.assertRaises(ValueError):self.validate(r,g)
  def test_old_genesis_pin_refused(self):
   r,g=self.sample();r['genesis_file_sha256']='0'*64

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,8 @@ from abci_wire import Client
 from block_application import BlockApplication
 from certificate_fixture import validators,make_header,make_commit
 from commit_verifier import encode
-from run_state_sync import build_case,verify_snapshot_anchor,verify_history_window,run
+from run_state_sync import (build_case,verify_snapshot_anchor,verify_history_window,
+    durable_snapshot_checkpoint,verify_payment_continuation,run)
 from serve_abci_state_sync_crash import read_event,write_event,remove_exact_socket
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -58,6 +60,9 @@ def process_case(root, *, smt=False, keep=None):
         killed=await_event(control,'killed.json',proc)
         assert killed['returncode']==-9 and killed['checkpoint']=={'height':4,'app_hash':src.app_hash,'local_block_rows':0}
         assert killed['install']['transaction_active'] is False
+        assert durable_snapshot_checkpoint(db) == {
+            'marker': {'height': 4, 'app_hash': src.app_hash},
+            'block_rows': 0, 'native_receipts': 1}
         # No automatic recreation/restart until a deliberately supplied marker.
         assert not sock.exists()
         write_event(control,'resume.json',{'schema':1,'run_id':run_id,'resume':True})
@@ -81,6 +86,10 @@ def process_case(root, *, smt=False, keep=None):
                 assert client.call('commit').retain_height==0
             query=client.call('query',path='/state');assert query.code==0
             target=json.loads(query.value);assert target==json.loads(src.query('/state')['value'])
+            payments=verify_payment_continuation(target,
+                {'height': 4, 'app_hash': killed['checkpoint']['app_hash']},
+                case['pre_snapshot_tx'],case['post_snapshot_tx'])
+            assert len(payments)==2 and payments[0]['height']<=4<payments[1]['height']
             hist=json.loads(client.call('query',path='/history').value)
             if keep is not None:verify_history_window(hist,height=9,bootstrap=4,keep=keep,receipts=2)
             # Once ordinary blocks exist, snapshot-only recovery must be closed.
@@ -143,9 +152,12 @@ class ProcessTests(unittest.TestCase):
 
 class EvidenceTests(unittest.TestCase):
     def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         c=build_case('anchor-test',1);engine,self.trust,self.keys=validators(c['genesis']);self.raw=encode(engine)
         h=make_header(self.trust,6,'a'*64,previous={'hash':'b'*64,'parts':{'total':1,'hash':'c'*64}});self.signed=make_commit(h,self.trust,self.keys)
         self.mark={'height':5,'app_hash':'a'*64}
+    def tearDown(self):
+        self.tmp.cleanup()
     def test_exact_signed_next_height_verifies(self):
         self.assertEqual(verify_snapshot_anchor(self.signed,self.raw,self.mark)['height'],6)
     def test_endpoint_hash_alone_is_not_signed_evidence(self):
@@ -159,6 +171,29 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):verify_snapshot_anchor(self.signed,self.raw,{**self.mark,'app_hash':'b'*64})
     def test_boolean_height_refused(self):
         with self.assertRaises(ValueError):verify_snapshot_anchor(self.signed,self.raw,{**self.mark,'height':True})
+    def test_durable_checkpoint_rejects_tampered_native_body(self):
+        case=build_case('checkpoint-integrity',1)
+        db=self.root/'snapshot.sqlite'
+        app=BlockApplication(db,expected_genesis=case['genesis'])
+        app.init_chain(case['genesis']['chain_id'],case['genesis'])
+        for h in range(1,5):
+            txs=[case['pre_snapshot_tx']] if h==1 else []
+            app.finalize_block(txs,h,hashlib.sha256(str(h).encode()).digest())
+            app.commit()
+        height,app_hash=app.height,app.app_hash
+        app.close()
+        with sqlite3.connect(db) as conn:
+            conn.execute('DELETE FROM blocks')
+            conn.execute('INSERT INTO state_sync_marker(id,height,app_hash) VALUES(1,?,?)',
+                         (height,app_hash))
+        self.assertEqual(durable_snapshot_checkpoint(db)['native_receipts'],1)
+        with sqlite3.connect(db) as conn:
+            state=json.loads(conn.execute('SELECT state FROM committed WHERE id=1').fetchone()[0])
+            state['accounts'][0][4]+=1
+            conn.execute('UPDATE committed SET state=? WHERE id=1',(
+                json.dumps(state,sort_keys=True,separators=(',',':')),))
+        with self.assertRaises(ValueError):durable_snapshot_checkpoint(db)
+
     def test_history_scope_false_is_required(self):
         value={'scope':'local_application_block_results','application_height':10,'native_receipt_count':2,
             'availability':{'keep_blocks':2,'bootstrap_height':5,'pruned_through':8,'retained_from':9,
