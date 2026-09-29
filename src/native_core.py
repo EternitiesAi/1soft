@@ -24,6 +24,7 @@ KEY_CONSENT_DOMAIN = b"ETERNITIES/ACCOUNT-KEY-CONSENT/v2\x00"
 BODY_FIELDS = {"version", "chain_id", "genesis_hash", "sender", "nonce", "op",
                "grant_id", "valid_until", "max_fee"}
 GENESIS_FIELDS = {"chain_id", "asset", "fee", "allocations"}
+P4_GENESIS_FIELDS = GENESIS_FIELDS | {"protocol_version", "validator_registry"}
 
 class Reject(ValueError):
     """The entire transition was rejected; committed state is unchanged."""
@@ -80,8 +81,8 @@ def key_acceptance_message(body: dict[str, Any]) -> bytes:
     The current owner/sponsor still signs the full body including acceptance.
     """
     fields(body, BODY_FIELDS)
-    require(type(body["version"]) is int and body["version"] in (2, 3),
-            "account-key acceptance requires protocol 2 or 3")
+    require(type(body["version"]) is int and body["version"] in (2, 3, 4),
+            "account-key acceptance requires protocol 2, 3 or 4")
     require(body["grant_id"] == "", "delegated account-key acceptance forbidden")
     op = body["op"]
     require(type(op) is dict, "invalid account-key operation")
@@ -144,11 +145,18 @@ class NativeLedger:
     def __init__(self, path: str | Path, genesis: dict[str, Any]):
         require(type(genesis) is dict and set(genesis) in
                 (GENESIS_FIELDS, GENESIS_FIELDS | {"protocol_version"},
-                 GENESIS_FIELDS | {"protocol_version", "state_commitment"}),
+                 GENESIS_FIELDS | {"protocol_version", "state_commitment"},
+                 P4_GENESIS_FIELDS),
                 "unexpected or missing genesis fields")
         self.protocol_version = genesis.get("protocol_version", 1)
-        require(type(self.protocol_version) is int and self.protocol_version in (1, 2, 3),
+        require(type(self.protocol_version) is int and self.protocol_version in (1, 2, 3, 4),
                 "unsupported genesis protocol version")
+        if self.protocol_version == 4:
+            require(set(genesis) == P4_GENESIS_FIELDS, "protocol 4 requires a fresh composite genesis")
+            from registry_rules_core import RegistryRules
+            policy = RegistryRules(genesis["validator_registry"])
+            require(policy.genesis["chain_id"] == genesis["chain_id"],
+                    "monetary and validator chain identities differ")
         if "state_commitment" in genesis:
             require(self.protocol_version == 3 and genesis["state_commitment"] == "smt-v1",
                     "unsupported state commitment; use an explicit fresh protocol-3 genesis")
@@ -193,7 +201,7 @@ class NativeLedger:
                 self.db.execute("INSERT INTO accounts VALUES (?,?,0,0,0)", (FEE_ACCOUNT,""))
                 for item in genesis["allocations"]:
                     self.db.execute("INSERT INTO accounts VALUES (?,?,0,0,?)", (address(item["public_key"]),item["public_key"],item["units"]))
-            if self.protocol_version == 3:
+            if self.protocol_version >= 3:
                 from native_budgets import BudgetRules
                 self.budgets = BudgetRules(self)
             self._invariants()
@@ -315,7 +323,7 @@ class NativeLedger:
                 self.db.execute("UPDATE accounts SET balance=balance+? WHERE id=?", (op["units"],op["to"]))
             elif op["type"] == "grant":
                 fields(op, {"type","id","public_key","cap","expires","recipients"} |
-                       ({"budget_id"} if self.protocol_version == 3 else set()))
+                       ({"budget_id"} if self.protocol_version >= 3 else set()))
                 identifier(op["id"]); pubkey(op["public_key"]); integer(op["cap"], minimum=1); integer(op["expires"])
                 require(op["expires"] >= height, "grant already expired")
                 recipients = op["recipients"]
@@ -329,9 +337,9 @@ class NativeLedger:
                 self.db.execute("INSERT INTO grants VALUES (?,?,?,?,0,?,0,?,?,0)", (grant_key,owner["id"],op["public_key"],owner["epoch"],op["cap"],op["expires"],json.dumps(sorted(recipients))))
                 if self.budgets is not None:
                     self.budgets.bind(owner, grant_key, op, height)
-            elif self.protocol_version == 3 and op["type"] == "budget_create":
+            elif self.protocol_version >= 3 and op["type"] == "budget_create":
                 self.budgets.create(owner, op, height)
-            elif self.protocol_version == 3 and op["type"] == "budget_revoke":
+            elif self.protocol_version >= 3 and op["type"] == "budget_revoke":
                 self.budgets.revoke(owner, op)
             elif op["type"] == "revoke":
                 fields(op, {"type","id"}); identifier(op["id"])

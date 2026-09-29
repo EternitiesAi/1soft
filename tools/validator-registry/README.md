@@ -1,11 +1,13 @@
 # 1soft validator registry — isolated development application
 
-This is the execution side of the validator-transition foundation: authenticated
-administrative actions, delayed update emission, epoch activation, durable replay
-and a registry-specific evidence adapter. It is **not integrated into the monetary
-node**, does not implement native protocol-4 payments, and activates no existing
-chain. No source under `src/`, existing wallet, explorer, receipt archive or node
-entry point imports this component.
+This isolated reference is the execution side of the validator-transition
+foundation: authenticated administrative actions, delayed update emission, epoch
+activation, durable replay and a registry-specific evidence adapter. Its own
+application remains **registry-only** and activates no existing chain. The pure
+rules are also promoted to `src/registry_rules_core.py` for a separate opt-in
+fresh-genesis P4 money-and-registry development application; see
+[`docs/PROTOCOL4_DEVELOPMENT.md`](../../docs/PROTOCOL4_DEVELOPMENT.md). Static
+wallet, explorer and archive paths still refuse P4.
 
 Base: local candidate `7d860457fa85950f81aaa67f7cd3c98a979d5bbc`, tree
 `24b7a034b26616ee9a6e824da3b7b5e7910e72fb`, directly above published PR #23

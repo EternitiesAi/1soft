@@ -86,7 +86,7 @@ class Handler(socketserver.BaseRequestHandler):
                 wire = read_frame(channel)
                 if wire is None:
                     return
-                request = Request.FromString(wire)
+                request = self.server.request_type.FromString(wire)
             except FrameDeadline:
                 self.server.count('receive_deadlines'); return
             except (ValueError, DecodeError):
@@ -95,13 +95,13 @@ class Handler(socketserver.BaseRequestHandler):
                 return
             # Only decoding errors above are client framing faults. Internal
             # application errors below must quarantine, not become cached rejects.
-            response = dispatch(self.server.app, request)
+            response = self.server.dispatcher(self.server.app, request)
             if response.ByteSize() > MAX_FRAME:
                 self.server.count('oversized_replies')
                 if request.WhichOneof('value') == 'query':
                     # Full-state reads can outgrow this private transport. Prefer
                     # compact proofs; do not quarantine an otherwise healthy node.
-                    response = Response()
+                    response = self.server.response_type()
                     response.query.code = 1
                     response.query.log = 'response exceeds local frame limit; request compact records'
                     response.query.height = self.server.app.height
@@ -127,7 +127,8 @@ class Server(_UnixServer):
 
     def __init__(self, path: str, app: BlockApplication, *, max_connections: int = 16,
                  frame_seconds: float = 5.0, reply_seconds: float = 5.0,
-                 close_seconds: float = 5.0):
+                 close_seconds: float = 5.0, request_type=Request,
+                 response_type=Response, dispatcher=dispatch):
         if _UnixServer is object or os.name != 'posix':
             raise RuntimeError('ABCI server requires Linux/WSL or another Unix environment')
         if type(max_connections) is not int or not 1 <= max_connections <= 128:
@@ -146,6 +147,9 @@ class Server(_UnixServer):
         if mode.st_uid != os.getuid() or stat.S_IMODE(mode.st_mode) & 0o077:
             raise ValueError('socket directory must be owned by this user and mode 0700')
         self.app = app
+        self.request_type = request_type
+        self.response_type = response_type
+        self.dispatcher = dispatcher
         self.failed = threading.Event()
         self.closing = threading.Event()
         self._clients_lock = threading.Lock()
