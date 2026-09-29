@@ -201,6 +201,28 @@ class Protocol4StateSyncTests(unittest.TestCase):
             recipient.close()
             source.close()
 
+    def test_snapshot_rejects_extra_failed_transaction_replay_inputs(self):
+        source = self._source(4)
+        recipient = Protocol4Application(Path(self.temp.name) / 'extra-failed-tx.db',
+                                         expected_genesis=self.genesis)
+        try:
+            desc = source.list_snapshots()[0]
+            raw = b''.join(source.load_snapshot_chunk(desc['height'], desc['format'], i)
+                           for i in range(desc['chunks']))
+            payload = json.loads(raw)
+            payload['history'][1]['txs'].append(base64.b64encode(b'not-a-transaction').decode())
+            forged = encode(payload)
+            chunks = (len(forged) + CHUNK_BYTES - 1) // CHUNK_BYTES
+            bad_desc = {**desc, 'chunks': chunks, 'hash': _hash(forged),
+                        'metadata': _metadata(self.genesis, source.height,
+                                              source.app_hash, len(forged), chunks)}
+            self.assertEqual(self._transfer(source, recipient, bad_desc, forged),
+                             APPLY_REJECT_SNAPSHOT)
+            self.assertEqual(recipient.height, 0)
+        finally:
+            recipient.close()
+            source.close()
+
     def test_local_install_fault_rolls_back_every_record(self):
         source = self._source(4)
         path = Path(self.temp.name) / 'install-fault.db'

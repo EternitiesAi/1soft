@@ -128,7 +128,7 @@ class Server(_UnixServer):
     def __init__(self, path: str, app: BlockApplication, *, max_connections: int = 16,
                  frame_seconds: float = 5.0, reply_seconds: float = 5.0,
                  close_seconds: float = 5.0, request_type=Request,
-                 response_type=Response, dispatcher=dispatch):
+                 response_type=Response, dispatcher=None):
         if _UnixServer is object or os.name != 'posix':
             raise RuntimeError('ABCI server requires Linux/WSL or another Unix environment')
         if type(max_connections) is not int or not 1 <= max_connections <= 128:
@@ -149,7 +149,9 @@ class Server(_UnixServer):
         self.app = app
         self.request_type = request_type
         self.response_type = response_type
-        self.dispatcher = dispatcher
+        # Preserve the legacy module-level dispatch hook while allowing a
+        # versioned P4 dispatcher to be passed explicitly.
+        self.dispatcher = dispatcher if dispatcher is not None else lambda app, req: dispatch(app, req)
         self.failed = threading.Event()
         self.closing = threading.Event()
         self._clients_lock = threading.Lock()

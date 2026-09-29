@@ -182,7 +182,7 @@ class Protocol4Application:
 
     @classmethod
     def _audit_history(cls, genesis: dict, state: dict, height: int,
-                       app_hash: str, history: list[dict]) -> None:
+                       app_hash: str, history: list[dict], *, strict_txs: bool = False) -> None:
         require(type(history) is list and len(history) == height,
                 'protocol-4 block history is incomplete')
         candidate = cls(':memory:', expected_genesis=genesis)
@@ -197,6 +197,9 @@ class Protocol4Application:
                 txs = [cls._wire_from_b64(value) for value in row['txs']]
                 cls._bounds(txs)
                 next_state, replay = candidate._execute(txs, expected_height)
+                if strict_txs:
+                    require(all(item['code'] == 0 for item in replay['tx_results']),
+                            'snapshot history contains nonexecuting transactions')
                 candidate.state, candidate.height, candidate.app_hash = (
                     next_state, expected_height, replay['app_hash'])
             require(candidate.state == state and candidate.app_hash == app_hash,

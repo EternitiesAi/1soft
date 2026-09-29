@@ -198,7 +198,7 @@ class Protocol4StateSync:
                 candidate.close()
             Protocol4Application._audit_history(payload['genesis'], payload['state'],
                                                  payload['height'], payload['app_hash'],
-                                                 payload['history'])
+                                                 payload['history'], strict_txs=True)
         except (Reject, RegistryReject, VerificationError, ValueError, TypeError,
                 OverflowError, sqlite3.IntegrityError) as exc:
             raise Reject('invalid protocol-4 composite snapshot') from exc
