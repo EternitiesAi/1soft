@@ -50,6 +50,9 @@ def main(argv=None):
         genesis = read_json(args.genesis)
         body = read_json(args.body)
         if (type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int
+                and genesis.get('protocol_version', 1) == 4):
+            raise Reject('legacy wallet refuses protocol 4 dynamic validators')
+        if (type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int
                 and genesis.get('protocol_version', 1) == 3):
             raise Reject('protocol 3 shared-budget wallet operations require scripts/certified_wallet.py with one shared journal')
         review = review_intent(genesis, body, args.signer_public_key, mode=args.mode)

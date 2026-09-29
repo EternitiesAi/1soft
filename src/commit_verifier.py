@@ -237,6 +237,9 @@ def trust_from_genesis(genesis: Any) -> TrustAnchor:
     vals = genesis.get('validators');native=genesis.get('app_state')
     ensure(type(vals) is list and 0<len(vals)<=MAX_VALIDATORS,'invalid validator count')
     ensure(type(native) is dict and native.get('chain_id')==chain,'application/engine genesis mismatch')
+    version = native.get('protocol_version', 1)
+    ensure(type(version) is int and version in (1, 2, 3),
+           'static trust anchor refuses dynamic protocol')
     seen = set();ordered=[]
     for val in vals:
         ensure(type(val) is dict,'invalid validator')

@@ -37,7 +37,7 @@ ORDER = {'meta': 'k', 'accounts': 'id', 'grants': 'id', 'receipts': 'sequence'}
 
 
 def tables_for(genesis):
-    if genesis.get('protocol_version', 1) == 3:
+    if genesis.get('protocol_version', 1) in (3, 4):
         from native_budgets import BUDGET_COLUMNS, LINK_COLUMNS
         return {**TABLES, 'budgets': BUDGET_COLUMNS, 'grant_budgets': LINK_COLUMNS}
     return TABLES
@@ -143,6 +143,9 @@ class BlockApplication:
                  block_history_keep: int | None = None):
         from block_history import validate_keep
         validate_keep(block_history_keep)
+        if expected_genesis is not None:
+            require(expected_genesis.get('protocol_version', 1) in (1, 2, 3),
+                    'legacy node refuses protocol-4 genesis')
         self.block_history = None
         require(type(proof_index) is bool, 'proof_index must be a boolean')
         require(type(execution_cache) is bool, 'execution_cache must be a boolean')
@@ -186,6 +189,8 @@ class BlockApplication:
             if row is not None:
                 genesis, height, app_hash, state = row
                 genesis = json.loads(genesis); state = json.loads(state)
+                require(genesis.get('protocol_version', 1) in (1, 2, 3),
+                        'legacy node refuses protocol-4 store')
                 require(expected_genesis is None or digest(expected_genesis) == digest(genesis), 'genesis mismatch')
                 require(application_hash(genesis, height, state) == app_hash, 'stored application hash mismatch')
                 # Disk input always takes the full validation path before any
@@ -259,6 +264,8 @@ class BlockApplication:
 
     def init_chain(self, chain_id: str, genesis: dict[str, Any], initial_height: int = 1) -> str:
         with self.lock:
+            require(genesis.get('protocol_version', 1) in (1, 2, 3),
+                    'legacy node refuses protocol-4 genesis')
             require(initial_height in (0, 1) and type(initial_height) is int, 'only initial height 1 supported')
             require(chain_id == genesis.get('chain_id'), 'engine/application chain mismatch')
             if self.expected_genesis is not None:

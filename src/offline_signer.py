@@ -101,6 +101,9 @@ def _load_vault(path: Path, password: bytes) -> Ed25519PrivateKey:
 
 def review_intent(genesis: dict, body: dict, signer_public_key: str, *, mode: str = 'sign') -> dict:
     """Static review only: no claim of current balance, nonce or authority proof."""
+    require(type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int and
+            genesis.get('protocol_version', 1) in (1, 2, 3),
+            'legacy offline signer refuses protocol 4 dynamic validators')
     pubkey(signer_public_key)
     require(mode in ('sign', 'accept'), 'unsupported signing role')
     body = json.loads(canonical(body))
@@ -183,6 +186,9 @@ def review_intent(genesis: dict, body: dict, signer_public_key: str, *, mode: st
 
 def approve_intent(path: Path, password: bytes, genesis: dict, body: dict,
                    signer_public_key: str, confirmation: str, *, mode: str = 'sign') -> dict:
+    require(type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int and
+            genesis.get('protocol_version', 1) in (1, 2, 3),
+            'legacy offline signer refuses protocol 4 dynamic validators')
     if (type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int
             and genesis.get('protocol_version', 1) == 3):
         raise Reject('protocol 3 shared-budget signing requires scripts/certified_wallet.py with one shared journal')

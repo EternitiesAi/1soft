@@ -21,6 +21,13 @@ decision-bound delivery and verified receipt reconciliation. Separate devices, r
 keys, copied journals and the legacy outbox are still outside that local reservation
 boundary; do not operate competing signing paths against the same funds.
 
+An **opt-in fresh-genesis protocol-4 development application** combines native
+payments and the SIP-0003 validator registry in one SQLite commit and AppHash.
+It has a separate ABCI entry point and format-2 composite state sync. The
+protocol-1/2/3 node and static wallet, explorer, and receipt archive refuse
+P4; their dynamic-validator evidence adapters have not been built. See
+[protocol-4 development scope](docs/PROTOCOL4_DEVELOPMENT.md).
+
 
 ## Node bootstrap
 
@@ -33,6 +40,11 @@ development bootstrap path, not the final pruning design. See
 [state sync](docs/STATE_SYNC.md). Its new real-engine acceptance runner is authored
 but still must execute on the exact modified source before this feature is called
 engine-qualified.
+
+Protocol 4 uses a separate format-2 snapshot. It replays monetary and signed
+registry inputs against the trusted composite AppHash, but does not import peer
+claims about historical block IDs, votes, or full responses. Historical `/block/H`
+results remain unavailable on a newly synced node until separately verified.
 
 ## Verification boundary
 
@@ -59,6 +71,15 @@ The network gate must run the real engine and all four scenarios; fixture
 certificates and scripted application calls are not substitutes. The local runner
 uses disposable validator keys and loopback listeners only. Do not use its public
 test seeds for funds.
+
+The P4 real-engine runner is separate:
+
+```sh
+python scripts/run_protocol4_engine.py --engine PATH_TO_COMETBFT --engine-sha256 PINNED_SHA256 --output NEW_P4_RESULT.json
+```
+
+Its one-host result cannot qualify independent operators, custody, economics,
+dynamic client evidence, or a public network.
 
 No GitHub Actions, public RPC, hosted compute, or production keys are used here.
 The static website is separate. Read [node admission](docs/NODE_ADMISSION.md),
