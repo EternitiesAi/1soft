@@ -158,6 +158,36 @@ rejected action may accompany a persisted block containing that rejection. No
 `sign`, `broadcast` or public activation command exists. All new output paths are
 exclusive. The demo writes public disposable signed fixtures, never private keys.
 
+## Private CometBFT transition gate
+
+The separate registry-only ABCI adapter can be tested against a local
+CometBFT **v0.38.25** binary. It uses protocol version 4001, a disposable
+four-validator plus one nonvalidator network on one host, and generated fixture
+administrator and validator identities. It never starts the native money app.
+
+```sh
+python tools/validator-registry/scripts/run_registry_engine.py \
+  --engine /path/to/pinned/cometbft \
+  --engine-sha256 EXTERNALLY_VERIFIED_BINARY_DIGEST \
+  --output /private/new-run/result.json
+```
+
+Choose a fresh output path for each run. The runner verifies a threshold-signed
+schedule, its exact three-update FinalizeBlock response, the H+1/H+2 signed
+AppHashes, H+1 signed `next_validators_hash`, H+2 signed `validators_hash`
+and RPC validator powers,
+and actual H+3 last-commit votes. It then stops the retired validator, checks
+that the replacement set advances, and restarts a surviving validator using its
+same node home and registry database. The report records version/hash, source
+revision, public genesis digest, transaction digest, observations and check
+results. Process logs are bounded and sanitized; generated private keys and
+node homes remain in a temporary private directory and are discarded at exit.
+
+This is same-host real-engine evidence for the isolated registry. The ordinary
+restart does not establish crash-replay correctness; there is no atomic native
+money-plus-registry state, independent-operator qualification or public network
+authorization.
+
 ## Remaining integration boundary
 
 Before enabling this functionality on the money chain, decide and review governance,
@@ -165,8 +195,8 @@ introduce an explicit versioned native commitment combining registry and money
 state atomically, bind engine genesis/InitChain to its registry, add validated
 FinalizeBlock and last-commit/next-set handling, and implement handshake/replay
 behavior. Then adapt dynamic state sync, wallet, explorer and receipt proofs and
-run a real changing-validator network with new/absent/retired validators and
-interruption/quorum tests. There is no dual-database atomic money/registry commit
+run integrated changing-validator, interruption and quorum tests. There is no
+dual-database atomic money/registry commit
 in this candidate; the separate test store must not be bolted beside a live money
 node and represented as consensus state.
 
