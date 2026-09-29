@@ -39,6 +39,8 @@ GROUPS = {
                 ['tools/receipt-archive/src', 'tools/receipt-archive/tests', 'src', 'tests']),
     'explorer': ('tools/explorer/tests', 'test_*.py',
                  ['tools/explorer/src', 'tools/explorer/tests', 'src', 'tests']),
+    'validator_transition': ('tools/validator-transition/tests', 'test_*.py',
+                ['tools/validator-transition/src', 'tools/validator-transition/tests', 'src', 'tests']),
     'release': ('tools/release/tests', 'test_*.py',
                 ['tools/release', 'tools/wallet-delivery/src', 'tools/wallet-delivery/tests',
                  'tools/wallet-account/src', 'tools/explorer/src',
@@ -106,7 +108,7 @@ def source_identity(root):
 
 def checked_manifests(root):
     paths = ['SOURCE_MANIFEST.json'] + [f'tools/{name}/SOURCE_MANIFEST.json' for name in
-            ('wallet-account', 'wallet-delivery', 'receipt-archive', 'explorer')]
+            ('wallet-account', 'wallet-delivery', 'receipt-archive', 'explorer', 'validator-transition')]
     result = []
     for name in paths:
         p = root / name; raw = p.read_bytes(); manifest = json.loads(raw)
