@@ -115,6 +115,14 @@ class RegistryAbciTests(unittest.TestCase):
         self.assertEqual(dispatch(self.app, self.finalize_request(2, bad_vote=True)).WhichOneof('value'), 'exception')
         self.assertEqual(self.app.state()['height'], 1)
 
+    def test_state_sync_wire_rejects_snapshot_without_retry(self):
+        offered = Request()
+        offered.offer_snapshot.SetInParent()
+        self.assertEqual(dispatch(self.app, offered).offer_snapshot.result, 3)
+        chunk = Request()
+        chunk.apply_snapshot_chunk.SetInParent()
+        self.assertEqual(dispatch(self.app, chunk).apply_snapshot_chunk.result, 5)
+
     def test_socket_server_stops_after_internal_commit_failure(self):
         address = Path(self.temp.name) / 'registry.sock'
         with Server(address, self.app) as server:

@@ -166,7 +166,7 @@ def dispatch(app: RegistryApplication, request, observer=None):
         elif method == 'load_snapshot_chunk':
             pass
         elif method == 'apply_snapshot_chunk':
-            out.result = 3  # REJECT_SNAPSHOT
+            out.result = 5  # REJECT_SNAPSHOT (3 is RETRY in CometBFT v0.38.25).
         elif method == 'extend_vote':
             pass
         elif method == 'verify_vote_extension':
