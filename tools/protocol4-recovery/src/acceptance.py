@@ -4,7 +4,7 @@ import base64
 from block_application import encode
 from native_core import digest
 from recovery_checks import (need, integer, hex64, sha, validate_state, verify_boundary,
-                              verify_replayed_anchor, verify_payment_rows, fingerprint)
+                              verify_replayed_anchor, verify_payment_rows, fingerprint, verify_block_records)
 
 PROFILES=('bootstrap-after-turnover','commit-reply-loss-at-emission')
 
@@ -34,6 +34,7 @@ def validate(report, *, source, engine_hash):
     validate_state(g,target['state'],target['height'],target['app_hash'],target['history'])
     for field in ('height','app_hash','state','history'):
         need(encode(final[field]) == encode(target[field]), 'source and target differ')
+    verify_block_records(final,g,1)
     wires=[base64.b64decode(t,validate=True) for t in evidence['payment_wires']]
     need(len(wires) == (3 if profile==PROFILES[0] else 2), 'missing expected payments')
     payments=verify_payment_rows(final['state'],wires)
@@ -59,14 +60,25 @@ def validate(report, *, source, engine_hash):
              encode(obs.get('checkpoint')) == encode(fingerprint(boot)), 'bootstrap receipt differs')
         need(len(boot['state']['native']['receipts'])==2 and records[2]['height']>boot['height'] and
              boot['history'] == final['history'][:boot['height']], 'post-snapshot payment or replay lineage missing')
+        verify_block_records(boot,g,boot['height']+1)
+        verify_block_records(target,g,boot['height']+1)
         missing=evidence.get('unavailable_blocks')
         need(missing == list(range(1,boot['height']+1)) and all(type(h) is int for h in missing),
              'historical block unavailability not inspected')
+        responses=evidence['unavailable_block_responses']
+        need(type(responses) is list and len(responses)==boot['height'], 'missing unavailability responses')
+        for h,row in enumerate(responses,1):
+            need(type(row) is dict and type(row.get('height')) is int and row['height']==h and
+                 type(row.get('code')) is int and row['code']==1 and
+                 row.get('log')=='protocol-4 response unavailable' and row.get('value')=='',
+                 'query failed for a reason other than unavailable history')
         need(target['snapshot_marker'] is None and target['local_block_count']==target['height']-boot['height'],
              'target did not proceed from snapshot into ordinary blocks')
     else:
         crash=evidence['crash'];saved=crash['checkpoint']
         validate_state(g,saved['state'],saved['height'],saved['app_hash'],saved['history'])
+        verify_block_records(saved,g,1)
+        derived_emissions=verify_block_records(target,g,1)
         verify_boundary(crash['observation'],saved,run_id=report['run_id'],pid=crash['pid'],height=emission,
                         returncode=crash['returncode'])
         need(saved['history']==final['history'][:emission] and len(saved['state']['native']['receipts'])==1,
@@ -78,7 +90,7 @@ def validate(report, *, source, engine_hash):
              crash.get('same_engine_identity') is True, 'same-store process restart not observed')
         need(crash['saved_response_after_recovery'] == saved['latest_block']['response_sha256'],
              'emitted full response changed after recovery')
-        need(crash['emission_heights'] == [emission] and all(type(h) is int for h in crash['emission_heights']),
+        need(crash['emission_heights'] == derived_emissions == [emission] and all(type(h) is int for h in crash['emission_heights']),
              'validator updates duplicated or missing')
     return {'status':'verified-local-acceptance','profile':profile,'height':final['height'],
             'app_hash':final['app_hash'],'receipt_count':payments['receipt_count'],

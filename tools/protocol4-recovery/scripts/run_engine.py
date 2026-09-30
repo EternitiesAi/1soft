@@ -12,6 +12,7 @@ from datetime import datetime,timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import stat
@@ -42,7 +43,8 @@ PIN='0.38.25'
 LOG_CAP=2*1024*1024
 
 class Child:
-    def __init__(self,argv,log):
+    def __init__(self,argv,log,runtime=None):
+        self.runtime=runtime
         self.log=log;self.buffer=bytearray();self.bytes=0;self.error=None;self.record=None
         self.p=subprocess.Popen(argv,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
         def read():
@@ -50,20 +52,40 @@ class Child:
                 while data:=self.p.stdout.read(65536):
                     left=max(0,LOG_CAP-len(self.buffer));self.buffer.extend(data[:left]);self.bytes+=len(data)
             except OSError:self.error='log capture failed'
+            finally:self.p.stdout.close()
         self.thread=threading.Thread(target=read,daemon=True);self.thread.start()
     def stop(self):
-        if self.p.poll() is None:
-            self.p.terminate()
-            try:self.p.wait(8)
-            except subprocess.TimeoutExpired:self.p.kill();self.p.wait(5)
-        self.thread.join(5)
+        if self.record is not None:return self.record
+        # start_new_session gives this fixture its own group, including children
+        # that retain stdout after the direct child exits. Never signal a name.
+        def signal_group(sig):
+            try:os.killpg(self.p.pid,sig)
+            except ProcessLookupError:pass
+        signal_group(signal.SIGTERM)
+        try:self.p.wait(8)
+        except subprocess.TimeoutExpired:signal_group(signal.SIGKILL);self.p.wait(5)
+        self.thread.join(2)
+        signal_group(signal.SIGKILL)  # Also stop descendants that closed stdout.
+        if self.thread.is_alive():self.thread.join(5)
         need(not self.thread.is_alive() and self.error is None,'incomplete process log')
-        self.p.stdout.close()
-        if self.record is None:
-            raw=_sanitize_log(bytes(self.buffer));self.log.write_bytes(raw);self.log.chmod(0o600)
-            self.record={'path':self.log.name,'sha256':sha(raw),'bytes':len(raw),'observed_bytes':self.bytes,
-                         'truncated':self.bytes>LOG_CAP,'pid':self.p.pid,'returncode':self.p.returncode}
+        raw=sanitize(bytes(self.buffer),self.runtime);self.log.write_bytes(raw);self.log.chmod(0o600)
+        self.record={'path':self.log.name,'sha256':sha(raw),'bytes':len(raw),'observed_bytes':self.bytes,
+                     'truncated':self.bytes>LOG_CAP,'pid':self.p.pid,'returncode':self.p.returncode,
+                     'owned_process_group_stopped':True}
         return self.record
+
+def sanitize(raw,runtime=None):
+    raw=_sanitize_log(raw)
+    return raw.replace(os.fsencode(runtime),b'[private-runtime]') if runtime is not None else raw
+
+def rpc_height(value):
+    need(type(value) is str and re.fullmatch(r'0|[1-9][0-9]{0,2}',value) is not None,
+         'invalid bounded RPC height')
+    return int(value)
+
+def live_height(engine,port):
+    need(engine.p.poll() is None,'owned engine process exited')
+    return rpc_height(rpc(port,'status')['sync_info']['latest_block_height'])
 
 def wait(fn,seconds=40):
     deadline=time.monotonic()+seconds;last=None
@@ -88,8 +110,10 @@ def make_payment(g,key,recipient,nonce,units):
 
 def submit(port,raw):
     result=rpc(port,'broadcast_tx_commit',{'tx':base64.b64encode(raw).decode()})
-    need(int(result['check_tx']['code'])==0 and int(result['tx_result']['code'])==0,'test transaction not committed')
-    return int(result['height'])
+    need(all(type(result[k]['code']) is int and result[k]['code']==0 for k in ('check_tx','tx_result')),
+         'test transaction not committed')
+    height=rpc_height(result['height']);need(height>0,'transaction has no committed height')
+    return height
 
 def run(engine,engine_hash,output,profile):
     hex64(engine_hash);need(profile in PROFILES,'unknown acceptance profile')
@@ -112,7 +136,7 @@ def run(engine,engine_hash,output,profile):
         report['checks'].append({'name':name,'passed':bool(ok)})
         need(ok,'acceptance check failed: '+name)
     def child(args,label):
-        c=Child(args,output/(label+'.log'));children.append(c);return c
+        c=Child(args,output/(label+'.log'),runtime);children.append(c);return c
     def stop(c):
         record=c.stop();need(not record['truncated'],'captured process output truncated')
     try:
@@ -124,6 +148,11 @@ def run(engine,engine_hash,output,profile):
         runtime=Path(name);homes=runtime/'nodes';count=6 if profile==PROFILES[0] else 5
         setup=subprocess.run([str(binary),'testnet','--v','4','--n',str(count-4),'--o',str(homes),
                               '--initial-height','1'],capture_output=True,timeout=30)
+        setup_log=sanitize(setup.stdout+setup.stderr,runtime)
+        (output/'engine-setup.log').write_bytes(setup_log[:LOG_CAP])
+        (output/'engine-setup.log').chmod(0o600)
+        report['setup_log']={'path':'engine-setup.log','sha256':sha(setup_log[:LOG_CAP]),'bytes':min(len(setup_log),LOG_CAP),'truncated':len(setup_log)>LOG_CAP}
+        need(len(setup_log)<=LOG_CAP,'engine setup log truncated')
         need(setup.returncode==0,'disposable engine setup failed')
         for path in homes.rglob('*'):path.chmod(0o700 if path.is_dir() else 0o600)
         public_gen=json.loads((homes/'node0/config/genesis.json').read_bytes())
@@ -170,7 +199,7 @@ def run(engine,engine_hash,output,profile):
             wait(lambda:socket(i).exists() and apps[i].p.poll() is None,10)
         def start_engine(i,phase='initial'):
             engines[i]=child([str(binary),'start','--home',str(homes/f'node{i}')],f'engine{i}-{phase}')
-        def height(i):return int(rpc(http[i],'status')['sync_info']['latest_block_height'])
+        def height(i):return live_height(engines[i],http[i])
         for i in range(5):
             start_app(i,crash=profile==PROFILES[1] and i==2);start_engine(i)
         report['consensus_executed']=True
@@ -231,11 +260,15 @@ def run(engine,engine_hash,output,profile):
             write_new(output/'bootstrap-observation.json',obs);write_new(output/'bootstrap-checkpoint.json',boot)
             write_new(runtime/'app5/release.json',{'run_id':run_id})
             wait(lambda:height(5)>=boot['height'],45)
-            missing=[]
+            missing=[];unavailable=[]
             for h in range(1,boot['height']+1):
                 response=rpc(http[5],'abci_query',{'path':f'/block/{h}','prove':False})['response']
-                need(type(response['code']) is int and response['code']!=0,'snapshot invented block evidence');missing.append(h)
-            evidence['unavailable_blocks']=missing;checked('no-imported-block-evidence',True)
+                need(type(response['code']) is int and response['code']==1 and
+                     response['log']=='protocol-4 response unavailable' and response['value']=='',
+                     'historical block query did not report unavailable response')
+                missing.append(h);unavailable.append({'height':h,'code':response['code'],'log':response['log'],'value':response['value']})
+            evidence['unavailable_blocks']=missing;evidence['unavailable_block_responses']=unavailable
+            checked('no-imported-block-evidence',True)
             wires.append(make_payment(g,payers[0],address(public(payers[1])),2,71))
             final_payment_height=submit(http[1],wires[-1]);checked('post-snapshot-payment',final_payment_height>boot['height'])
         else:final_payment_height=post_height
@@ -252,9 +285,8 @@ def run(engine,engine_hash,output,profile):
         evidence.update(final_checkpoint=left,target_checkpoint=right,signed_headers=signed,
                         verified_anchor=anchor,payment_wires=[base64.b64encode(w).decode() for w in wires])
         if profile==PROFILES[1]:
-            import sqlite3
-            conn=sqlite3.connect(db(2));rows=conn.execute('SELECT height,result FROM blocks ORDER BY height').fetchall();conn.close()
-            emissions=[h for h,raw in rows if json.loads(raw)['validator_updates']]
+            from recovery_checks import verify_block_records
+            emissions=verify_block_records(right,g,1)
             evidence['crash']['emission_heights']=emissions
             checked('no-duplicate-emission',emissions==[emission])
         report.update(status='passed',observed_at_ns=now,evidence=evidence)
@@ -264,18 +296,21 @@ def run(engine,engine_hash,output,profile):
         for c in reversed(children):stop(c)
         need(source_identity(ROOT)==source,'source changed during engine acceptance')
         need(sha(binary.read_bytes())==engine_hash,'engine binary changed during acceptance')
-    except Exception as exc:
-        report.update(status='failed',error_type=type(exc).__name__)
+    except BaseException as exc:
+        message=sanitize(str(exc).encode(),temp_handle.name if temp_handle else None)[:4096].decode(errors='replace')
+        report.update(status='failed',error_type=type(exc).__name__,error_message=message)
+        report.pop('verification',None)
     finally:
         records=[]
         for c in reversed(children):
             try:records.append(c.stop())
-            except Exception:report.update(status='failed',log_capture_failed=True)
+            except BaseException:report.update(status='failed',log_capture_failed=True)
         report['process_logs']=list(reversed(records))
         if temp_handle is not None:
             try:temp_handle.cleanup()
             except OSError:report.update(status='failed',runtime_cleanup_failed=True)
         if any(r['truncated'] for r in records):report.update(status='failed',log_truncated=True)
+        if report['status']!='passed':report.pop('verification',None)
         write_new(output/'result.json',report)
     return report
 

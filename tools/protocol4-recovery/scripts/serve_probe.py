@@ -25,7 +25,7 @@ def run(args):
     integer(args.kill_height)
     need(not (args.kill_height and args.kill_emission), 'select one crash boundary')
     need(len(args.run_id) == 32 and all(c in '0123456789abcdef' for c in args.run_id), 'run identifier required')
-    for p in (args.boundary, args.snapshot_notice):
+    for p in (args.boundary, args.snapshot_notice, args.snapshot_release):
         if p is not None: need(not p.exists() and not p.is_symlink(), 'old observation must not be reused')
     genesis = read_json(args.genesis,131072)
     app = Protocol4Application(args.db,expected_genesis=genesis)
@@ -60,6 +60,7 @@ def run(args):
                     while not args.snapshot_release.exists():
                         need(time.monotonic()<deadline,'snapshot inspection deadline')
                         time.sleep(.025)
+                    need(read_json(args.snapshot_release)=={'run_id':args.run_id}, 'snapshot release belongs to another run')
             return response
     try:
         server = Server(str(args.socket),app,request_type=Request,response_type=Response,dispatcher=dispatch)

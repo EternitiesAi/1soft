@@ -60,7 +60,7 @@ def write_new(path, value):
         # Preserve partial evidence on failed output. Never interpret it as success.
         raise
 
-def validate_state(genesis, state, height, app_hash, history):
+def validate_state(genesis, state, height, app_hash, history, *, results=None):
     """Reexecute every ordered input; return the final deterministic result."""
     integer(height, 1); hex64(app_hash)
     need(type(history) is list and len(history) == height, 'incomplete replay history')
@@ -75,10 +75,44 @@ def validate_state(genesis, state, height, app_hash, history):
                  'invalid replay row')
             txs = [app._wire_from_b64(t) for t in row['txs']]
             following,result = app._execute(txs,h)
+            if results is not None: results.append(result)
             app.state,app.height,app.app_hash = following,h,result['app_hash']
         need(app.state == state and app.app_hash == app_hash, 'replayed composite state differs')
         return result
     finally: app.close()
+
+def verify_block_records(saved, genesis, first_height, *, results=None):
+    """Bind a complete expected local block interval to deterministic replay.
+
+    The caller supplies the interval origin: one for an ordinary node, or the
+    observed snapshot height plus one. The database cannot self-certify it.
+    """
+    height = integer(saved['height'], 1)
+    integer(first_height, 1, height + 1)
+    if results is None:
+        results = []
+        validate_state(genesis, saved['state'], height, saved['app_hash'], saved['history'], results=results)
+    rows = saved['local_blocks']
+    need(type(rows) is list and len(rows) == height - first_height + 1 and
+         type(saved['local_block_count']) is int and saved['local_block_count'] == len(rows),
+         'incomplete local block coverage')
+    emissions = []
+    for h, row in zip(range(first_height, height + 1), rows):
+        need(type(row) is dict and type(row.get('height')) is int and row['height'] == h,
+             'local block height gap')
+        result = row['result']; expected = results[h - 1]
+        need(encode({k: result.get(k) for k in expected}) == encode(expected),
+             'stored block differs from independently replayed result')
+        need(type(result.get('height')) is int and result['height'] == h and
+             row['txs'] == saved['history'][h - 1]['txs'], 'stored block lineage differs')
+        response = bytes.fromhex(row['response_hex'])
+        need(response == encode_finalization(result) and sha(response) == row['response_sha256'],
+             'stored full block response differs')
+        hex64(row['block_hash']); hex64(row['request_sha256'])
+        if result['validator_updates']: emissions.append(h)
+    tip = None if not rows else {k: v for k, v in rows[-1].items() if k != 'height'}
+    need(encode(tip) == encode(saved['latest_block']), 'local block tip differs')
+    return emissions
 
 def checkpoint(path, genesis):
     """Read one durable SQLite snapshot; independently replay money and registry."""
@@ -99,7 +133,8 @@ def checkpoint(path, genesis):
         marker = None if not marker_rows else dict(zip(('height','app_hash'),marker_rows[0]))
         count = db.execute('SELECT count(*) FROM blocks').fetchone()[0]
         block = db.execute('SELECT block_hash,request_sha256,txs,result,response FROM blocks WHERE height=?', (height,)).fetchone()
-        replay_result = validate_state(genesis, state, height, app_hash, history)
+        results = []
+        replay_result = validate_state(genesis, state, height, app_hash, history, results=results)
         record = None
         if block is not None:
             result = json.loads(block[3]); raw_response = bytes(block[4])
@@ -115,15 +150,26 @@ def checkpoint(path, genesis):
         else:
             need(marker == {'height':height,'app_hash':app_hash} and count == 0,
                  'neither local block nor untouched snapshot checkpoint')
+        blocks = []
+        for h, bh, request_sha, txs, result, response in db.execute(
+                'SELECT height,block_hash,request_sha256,txs,result,response FROM blocks ORDER BY height'):
+            blocks.append({'height': h, 'block_hash': bh, 'request_sha256': request_sha,
+                'txs': json.loads(txs), 'result': json.loads(result),
+                'response_hex': bytes(response).hex(), 'response_sha256': sha(bytes(response))})
+        saved = {'height':height,'app_hash':app_hash,'state':state,'history':history,
+                 'snapshot_marker':marker,'local_block_count':count,'latest_block':record,'local_blocks':blocks}
+        # Check every present record and any internal gaps. Acceptance separately
+        # checks the externally established origin (genesis or observed bootstrap).
+        verify_block_records(saved, genesis, blocks[0]['height'] if blocks else height + 1, results=results)
         db.execute('COMMIT')
-        return {'height':height,'app_hash':app_hash,'state':state,'history':history,
-                'snapshot_marker':marker,'local_block_count':count,'latest_block':record}
+        return saved
     finally: db.close()
 
 def fingerprint(saved):
     return {k: saved[k] for k in ('height','app_hash','snapshot_marker','local_block_count')} | {
         'state_sha256':sha(encode(saved['state'])), 'history_sha256':sha(encode(saved['history'])),
         'latest_block_sha256':sha(encode(saved['latest_block'])),
+        'local_blocks_sha256':sha(encode(saved['local_blocks'])),
         'registry_epoch':saved['state']['registry']['epoch'],
         'native_receipt_count':len(saved['state']['native']['receipts'])}
 

@@ -128,7 +128,8 @@ def bootstrap_report():
         'signed_headers':c['headers'],'verified_anchor':verify_replayed_anchor(g,c['history'],final['state'],c['headers'],initial,now),
         'payment_wires':[base64.b64encode(c[k]).decode() for k in ('first','second','third')],
         'bootstrap_checkpoint':boot,'bootstrap_observation':{'schema':1,'run_id':'a'*32,'pid':123,
-        'phase':'snapshot-installed-before-reply','checkpoint':fingerprint(boot)},'unavailable_blocks':list(range(1,8))}}
+        'phase':'snapshot-installed-before-reply','checkpoint':fingerprint(boot)},'unavailable_blocks':list(range(1,8)),
+        'unavailable_block_responses':[{'height':h,'code':1,'log':'protocol-4 response unavailable','value':''} for h in range(1,8)]}}
 
 class BootstrapReportTests(unittest.TestCase):
     @classmethod
