@@ -1,0 +1,10 @@
+const test=require('node:test');const assert=require('node:assert/strict');
+const {atomic,formatUnits,shortId,deadline,STAGES}=require('../web/wallet.js');
+test('maximum native units are displayed exactly',()=>assert.equal(formatUnits('9007199254740991'),'9,007,199,254,740,991 DEV'));
+test('no floating point or coercion amounts',()=>{for(const value of [1,1.2,true,null,undefined,'1.5','1e3','+1','-1','01',' 1','١',''])assert.throws(()=>atomic(value));});
+test('native maximum is enforced',()=>assert.throws(()=>atomic('9007199254740992')));
+test('positive payment refuses zero but balance permits it',()=>{assert.equal(atomic('0'),0n);assert.throws(()=>atomic('0',{positive:true}));});
+test('fee inclusive debit formatting preserves exact strings',()=>assert.equal(formatUnits('60'),'60 DEV'));
+test('short hashes preserve both ends without changing source',()=>{const id='0123456789abcdef'.repeat(4);assert.equal(shortId(id),'0123456789ab…89abcdef');assert.equal(id.length,64);});
+test('nanosecond date string is bounded to a readable deadline',()=>assert.ok(deadline('1790000000000000000').length>8));
+test('unsigned review binding is not a signature or receipt',()=>{assert.match(STAGES.review_bound_unsigned,/signature unrecorded/);assert.match(STAGES.signed_reserved,/obligation/);});
