@@ -175,9 +175,25 @@ python tools/protocol4-receipts/tools/verify.py --native-root . \
   --report /private/new-receipts-report.json
 ```
 
-`DEPENDENCIES.json` pins exact base-source bytes and commit.
-`SOURCE_MANIFEST.json` records this tool's deliverable bytes. The entrypoint checks
-both before and after the focused suite and requires exact installed versions
-from the native requirements file. See `VERIFICATION.md` for observed scope and
-remaining gates. No old byte identity check or synthetic header is labeled a new
-real-engine or independent-security result.
+`DEPENDENCIES.json` pins the original parent commit and all 190 unchanged
+native/existing-addon dependency files. The parent must be an ancestor of the
+current source commit; a clean additive integration may advance HEAD without
+replacing any of those pinned bytes. `SOURCE_MANIFEST.json` records this tool's
+deliverable bytes. Both inventories are checked before and after the focused suite.
+
+The entrypoint also invokes the unchanged existing release
+`tools/release/check_release.py:source_identity` before and after tests. That gate
+requires a completely clean tracked/untracked checkout and verifies every tracked
+byte and mode against current HEAD. The entire source identity must remain equal
+across the run. The receipt tool must be installed under that selected checkout;
+there is no skip, dirty-tree or ancestry-only qualification path. Reports record
+`parent_commit` separately from the tested current `source_commit`, `source_tree`
+and `source_id`. Write new reports outside the source checkout to preserve its
+clean identity for subsequent checks.
+
+Exact installed versions from the native requirements file remain required.
+The unchanged `evidence/receipt-tests-20260930.json` is the historical
+preintegration 32-case report. It and previous engine logs keep their original
+provenance; they are not relabeled as tests of a later integration commit. See
+`VERIFICATION.md` for observed scope and remaining gates. No byte identity check
+or synthetic header is labeled a new real-engine or independent-security result.

@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import importlib.metadata
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,36 @@ def checked(root, records):
     return len(seen)
 
 
+def _release_source_identity(native):
+    """Use the pinned existing release gate, without launching release checks."""
+    path = native / 'tools/release/check_release.py'
+    spec = importlib.util.spec_from_file_location('p4_receipts_release_source_gate', path)
+    if spec is None or spec.loader is None:
+        raise ValueError('existing release source identity gate unavailable')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.source_identity(native)
+
+
+def qualified_source(native, parent_commit, *, expected=None):
+    """Qualify an exact clean integrated checkout descended from pinned base.
+
+    Ancestry never substitutes for dependency byte pins. The caller checks those
+    separately before using this unchanged release source-identity gate.
+    """
+    source = _release_source_identity(native)
+    ancestry = subprocess.run(
+        ['git', '-C', str(native), 'merge-base', '--is-ancestor',
+         parent_commit, source['commit']], capture_output=True, timeout=15)
+    if ancestry.returncode == 1:
+        raise ValueError('pinned parent is not an ancestor of current source')
+    if ancestry.returncode != 0:
+        raise ValueError('unable to establish pinned parent ancestry')
+    if expected is not None and source != expected:
+        raise ValueError('integrated source identity changed during receipt checks')
+    return source
+
+
 def ids(items):
     for test in items:
         if isinstance(test, unittest.TestSuite): yield from ids(test)
@@ -40,14 +71,13 @@ def main():
     parser.add_argument('--native-root', type=Path, default=ROOT.parents[1])
     parser.add_argument('--report', type=Path)
     args = parser.parse_args(); native = args.native_root.resolve()
+    if ROOT.resolve() != (native / 'tools/protocol4-receipts').resolve():
+        raise ValueError('receipt tool must be integrated under the selected native checkout')
     dependencies = json.loads((ROOT / 'DEPENDENCIES.json').read_bytes())
     own = json.loads((ROOT / 'SOURCE_MANIFEST.json').read_bytes())
     before = {'receipts': checked(ROOT, own['files']),
               'pinned_base_dependencies': checked(native, dependencies['files'])}
-    head = subprocess.run(['git', '-C', str(native), 'rev-parse', 'HEAD'],
-                          check=True, capture_output=True, text=True).stdout.strip()
-    if head != dependencies['parent_commit']:
-        raise ValueError('base commit differs; explicit requalification required')
+    source_before = qualified_source(native, dependencies['parent_commit'])
     packages = {}
     for line in (native / 'requirements.txt').read_text().splitlines():
         if not line.strip() or line.lstrip().startswith('#'): continue
@@ -68,9 +98,16 @@ def main():
     result = unittest.TextTestRunner(verbosity=2, resultclass=Result).run(suite)
     after = {'receipts': checked(ROOT, own['files']),
              'pinned_base_dependencies': checked(native, dependencies['files'])}
+    source_after = qualified_source(native, dependencies['parent_commit'], expected=source_before)
     passed = bool(expected) and len(set(expected)) == len(expected) and sorted(result.ids) == sorted(expected) and result.wasSuccessful() and not result.skipped and not result.expectedFailures
     report = {'schema': 1, 'scope': 'Portable P4 payment capsules and private archive; not consensus',
-        'parent_commit': head, 'source_checks_before': before, 'source_checks_after': after,
+        'parent_commit': dependencies['parent_commit'],
+        'source_commit': source_before['commit'], 'source_tree': source_before['tree'],
+        'source_id': source_before['source_id'], 'source_tracked_files': source_before['tracked_files'],
+        'source_identity_before': {k: source_before[k] for k in ('commit', 'tree', 'source_id', 'tracked_files')},
+        'source_identity_after': {k: source_after[k] for k in ('commit', 'tree', 'source_id', 'tracked_files')},
+        'parent_ancestor_verified': True,
+        'source_checks_before': before, 'source_checks_after': after,
         'packages': packages, 'tests': result.testsRun, 'expected_ids': expected,
         'successful_ids': result.ids, 'passed': passed, 'failures': len(result.failures),
         'errors': len(result.errors), 'skips': len(result.skipped),
