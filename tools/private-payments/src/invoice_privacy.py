@@ -171,4 +171,3 @@ def decrypt_invoice(envelope, *, key, genesis_sha256, request_sha256):
     content = _parse(plaintext, MAX_PLAINTEXT_BYTES)
     _plaintext(content)
     return content
-

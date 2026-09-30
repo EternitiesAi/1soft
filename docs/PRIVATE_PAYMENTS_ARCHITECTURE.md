@@ -324,4 +324,3 @@ aggregate expenditure or inventing new cryptography fails this spike. Resource
 costs are presently unknown; no acquired code was built, no proving benchmark ran,
 and no on-chain privacy, anonymity, zero-knowledge receipt, independent review,
 public network, production custody or commercial adoption is claimed.
-
