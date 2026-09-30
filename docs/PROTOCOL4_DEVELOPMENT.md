@@ -35,8 +35,9 @@ a state-replay input, not a signed-header archive. Complete history and a 16 MiB
 ceiling limit this to bounded development networks; no pruning plan exists.
 
 The static validator trust anchor, certified wallet, legacy signer, explorer and
-receipt archive reject P4. No P4 verified wallet, explorer, receipt capsule,
-public RPC or custody path exists. Dynamic validator trust and signed-header
-ancestry need distinct versioned client adapters before those claims are possible.
+receipt archive reject P4. Separate P4 read, signing-wallet and decision-delivery
+adapters now validate signed dynamic-validator ancestry and full native execution.
+See [their exact-source acceptance gate](P4_DELIVERY_ENGINE.md). They do not add
+an explorer, portable receipt-capsule standard, public RPC or production custody.
 Governance key recovery/rotation, long-outage cancellation, independent operators,
 economics, production security and real funds remain outside this experiment.
