@@ -63,6 +63,13 @@ class ReportIntegrityTests(unittest.TestCase):
     def test_unavailability_must_be_specific_not_any_query_failure(self):
         r=copy.deepcopy(self.boot);r['evidence']['unavailable_block_responses'][0]['log']='unknown query path'
         with self.assertRaisesRegex(ValueError,'other than'):validate(r,source=SOURCE,engine_hash=ENGINE)
+    def test_official_comet_json_null_represents_empty_query_value(self):
+        r=copy.deepcopy(self.boot)
+        for row in r['evidence']['unavailable_block_responses']:row['value']=None
+        self.assertEqual(validate(r,source=SOURCE,engine_hash=ENGINE)['receipt_count'],3)
+    def test_nonempty_unavailability_value_is_refused(self):
+        r=copy.deepcopy(self.boot);r['evidence']['unavailable_block_responses'][0]['value']='eA=='
+        with self.assertRaises(ValueError):validate(r,source=SOURCE,engine_hash=ENGINE)
     def test_boolean_unavailability_code_is_refused(self):
         r=copy.deepcopy(self.boot);r['evidence']['unavailable_block_responses'][0]['code']=True
         with self.assertRaises(ValueError):validate(r,source=SOURCE,engine_hash=ENGINE)

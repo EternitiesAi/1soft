@@ -269,7 +269,7 @@ def run(engine,engine_hash,output,profile):
             for h in range(1,boot['height']+1):
                 response=rpc(http[5],'abci_query',{'path':f'/block/{h}','prove':False})['response']
                 need(type(response['code']) is int and response['code']==1 and
-                     response['log']=='protocol-4 response unavailable' and response['value']=='',
+                     response['log']=='protocol-4 response unavailable' and response['value'] in (None,''),
                      'historical block query did not report unavailable response')
                 missing.append(h);unavailable.append({'height':h,'code':response['code'],'log':response['log'],'value':response['value']})
             evidence['unavailable_blocks']=missing;evidence['unavailable_block_responses']=unavailable

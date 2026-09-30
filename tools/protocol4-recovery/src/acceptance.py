@@ -70,7 +70,7 @@ def validate(report, *, source, engine_hash):
         for h,row in enumerate(responses,1):
             need(type(row) is dict and type(row.get('height')) is int and row['height']==h and
                  type(row.get('code')) is int and row['code']==1 and
-                 row.get('log')=='protocol-4 response unavailable' and row.get('value')=='',
+                 row.get('log')=='protocol-4 response unavailable' and 'value' in row and row['value'] in (None,''),
                  'query failed for a reason other than unavailable history')
         need(target['snapshot_marker'] is None and target['local_block_count']==target['height']-boot['height'],
              'target did not proceed from snapshot into ordinary blocks')
