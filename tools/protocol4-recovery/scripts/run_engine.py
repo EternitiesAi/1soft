@@ -248,11 +248,16 @@ def run(engine,engine_hash,output,profile):
             config.write_text(patch_toml(config.read_text(),{'statesync.enable':True,
                 'statesync.rpc_servers':f'http://127.0.0.1:{http[1]},http://127.0.0.1:{http[3]}',
                 'statesync.trust_height':trust_height,'statesync.trust_hash':header_hash(trust_header['header']).hex().upper(),
-                'statesync.trust_period':'1h0m0s','statesync.discovery_time':'3s',
+                'statesync.trust_period':'1h0m0s','statesync.discovery_time':'5s',
                 'statesync.chunk_request_timeout':'5s','statesync.chunk_fetchers':2,'statesync.max_snapshot_chunks':64}))
             need(not db(5).exists(),'observer database must start absent')
             start_app(5,snapshot=True);start_engine(5)
-            notice=runtime/'app5/snapshot.json';wait(lambda:notice.exists(),75)
+            notice=runtime/'app5/snapshot.json'
+            def installed():
+                need(engines[5].p.poll() is None and apps[5].p.poll() is None,
+                     'observer process exited before snapshot installation')
+                return notice.exists()
+            wait(installed,75)
             boot=checkpoint(db(5),g);obs=read_json(notice)
             checked('untouched-format2-bootstrap',boot['local_block_count']==0 and boot['latest_block'] is None and
                     boot['snapshot_marker']=={'height':boot['height'],'app_hash':boot['app_hash']} and boot['height']>=emission+2)
