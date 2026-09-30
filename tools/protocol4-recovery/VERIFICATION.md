@@ -1,5 +1,8 @@
 # P4 recovery: source and executed evidence
 
+> Original 29 September handoff record. For the reviewed combined candidate and
+> subsequent engine execution, see [P4 recovery integration](../../docs/P4_RECOVERY_INTEGRATION.md).
+
 29 September 2026. The source basis is PR #28 b73a88ca53666972ae2c8ce35fd9edb7ac0cb41c.
 No prior PR's reported engine run is counted as execution of this extension.
 

@@ -48,6 +48,10 @@ Protocol 4 uses a separate format-2 snapshot. It replays monetary and signed
 registry inputs against the trusted composite AppHash, but does not import peer
 claims about historical block IDs, votes, or full responses. Historical `/block/H`
 results remain unavailable on a newly synced node until separately verified.
+The combined P4 development candidate includes real-engine bootstrap and durable
+Commit reply-loss acceptance alongside the client delivery gate. See
+[P4 recovery integration](docs/P4_RECOVERY_INTEGRATION.md) for exact scope,
+source compatibility, commands and remaining qualification boundaries.
 
 ## Verification boundary
 

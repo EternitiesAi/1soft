@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from block_application import encode
 from native_core import digest
+from commit_verifier import header_hash
 from recovery_checks import (need, integer, hex64, sha, validate_state, verify_boundary,
                               verify_replayed_anchor, verify_payment_rows, fingerprint, verify_block_records)
 
@@ -41,6 +42,10 @@ def validate(report, *, source, engine_hash):
     checked=verify_replayed_anchor(g,final['history'],final['state'],evidence['signed_headers'],
                                   report['initial_header_hash'],report['observed_at_ns'])
     need(checked == evidence['verified_anchor'], 'anchor summary not derived from evidence')
+    for saved in (final,target):
+        for row in saved['local_blocks']:
+            need(row['block_hash']==header_hash(evidence['signed_headers'][row['height']-1]['header']).hex(),
+                 'stored block identity differs from signed header')
     registry=final['state']['registry'];integer(registry['epoch'],1,1)
     emission=integer(evidence['emitted_height'],1,508);activation=emission+2
     records=[__import__('json').loads(r[3]) for r in final['state']['native']['receipts']]
@@ -88,6 +93,10 @@ def validate(report, *, source, engine_hash):
         need(type(crash.get('restarted_pid')) is int and crash['restarted_pid']>0 and
              crash['restarted_pid'] != crash['pid'] and crash.get('same_database_inode') is True and
              crash.get('same_engine_identity') is True, 'same-store process restart not observed')
+        recovered=target['local_blocks'][emission-1]
+        need(all(recovered[k]==saved['latest_block'][k] for k in
+                 ('block_hash','request_sha256','response_hex','response_sha256')),
+             'crash block request or response identity changed during recovery')
         need(crash['saved_response_after_recovery'] == saved['latest_block']['response_sha256'],
              'emitted full response changed after recovery')
         need(crash['emission_heights'] == derived_emissions == [emission] and all(type(h) is int for h in crash['emission_heights']),

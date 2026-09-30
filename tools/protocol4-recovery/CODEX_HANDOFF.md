@@ -1,5 +1,8 @@
 # Execute the P4 recovery acceptance extension
 
+> Original 29 September handoff record. For the reviewed combined candidate and
+> subsequent engine execution, see [P4 recovery integration](../../docs/P4_RECOVERY_INTEGRATION.md).
+
 Use exact PR #28 parent b73a88ca53666972ae2c8ce35fd9edb7ac0cb41c, tree
 123e5bfc57d42ee31736969f61aa5a6d32482832, plus this additive component. Do not combine
 parallel proposals or replace existing runtime files with the package's dependency

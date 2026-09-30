@@ -56,6 +56,12 @@ class StoredBlockTests(unittest.TestCase):
 class ReportIntegrityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.crash=crash_report();cls.boot=bootstrap_report()
+    def test_recovered_emission_request_identity_is_preserved(self):
+        r=copy.deepcopy(self.crash);r['evidence']['target_checkpoint']['local_blocks'][3]['request_sha256']='f'*64
+        with self.assertRaisesRegex(ValueError,'identity changed'):validate(r,source=SOURCE,engine_hash=ENGINE)
+    def test_stored_block_identity_must_match_its_signed_header(self):
+        r=copy.deepcopy(self.crash);r['evidence']['target_checkpoint']['local_blocks'][3]['block_hash']='f'*64
+        with self.assertRaisesRegex(ValueError,'signed header'):validate(r,source=SOURCE,engine_hash=ENGINE)
     def test_claimed_emission_list_cannot_hide_a_missing_stored_response(self):
         r=copy.deepcopy(self.crash);r['evidence']['target_checkpoint']['local_blocks'].pop(2)
         r['evidence']['target_checkpoint']['local_block_count']-=1

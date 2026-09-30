@@ -1,5 +1,8 @@
 # P4 bootstrap and Commit-reply recovery acceptance
 
+> Original 29 September handoff record. For the reviewed combined candidate and
+> subsequent engine execution, see [P4 recovery integration](../../docs/P4_RECOVERY_INTEGRATION.md).
+
 29 September 2026. Additive to PR #28, commit
 `b73a88ca53666972ae2c8ce35fd9edb7ac0cb41c`, tree
 `123e5bfc57d42ee31736969f61aa5a6d32482832`.

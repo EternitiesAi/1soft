@@ -126,7 +126,8 @@ def run(engine,engine_hash,output,profile):
     report={'schema':1,'profile':profile,'run_id':run_id,'source':{'commit':source['commit'],
         'tree':source['tree'],'source_id':source['source_id']},'status':'unassessed','engine_required':PIN,
         'checks':[],'public_network':False,'real_funds':False,'independent_operators':False,
-        'release_status':'blocked','consensus_executed':False}
+        'release_status':'blocked','consensus_executed':False,
+        'engine_processes_started':0,'observed_engine_heights':{}}
     write_new(output/'source.json',source);write_new(output/'started.json',report)
     binary=Path(engine).resolve();children=[];apps={};engines={};temp_handle=None
     if not binary.is_file():
@@ -199,10 +200,15 @@ def run(engine,engine_hash,output,profile):
             wait(lambda:socket(i).exists() and apps[i].p.poll() is None,10)
         def start_engine(i,phase='initial'):
             engines[i]=child([str(binary),'start','--home',str(homes/f'node{i}')],f'engine{i}-{phase}')
-        def height(i):return live_height(engines[i],http[i])
+            report['engine_processes_started']+=1
+            if report['consensus_executed'] is not True:report['consensus_executed']=None
+        def height(i):
+            value=live_height(engines[i],http[i])
+            report['observed_engine_heights'][str(i)]=max(value,report['observed_engine_heights'].get(str(i),0))
+            if value>0:report['consensus_executed']=True
+            return value
         for i in range(5):
             start_app(i,crash=profile==PROFILES[1] and i==2);start_engine(i)
-        report['consensus_executed']=True
         wait(lambda:all(height(i)>=2 for i in range(5)),40)
         initial=rpc(http[1],'commit',{'height':'1'})['signed_header']
         report['initial_header_hash']=header_hash(initial['header']).hex()
