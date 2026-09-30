@@ -25,7 +25,10 @@ An **opt-in fresh-genesis protocol-4 development application** combines native
 payments and the SIP-0003 validator registry in one SQLite commit and AppHash.
 It has a separate ABCI entry point and format-2 composite state sync. The
 protocol-1/2/3 node and static wallet, explorer, and receipt archive refuse
-P4; their dynamic-validator evidence adapters have not been built. See
+P4. Separate development P4 read, signing-wallet and decision-delivery clients
+verify signed validator history and native execution; receipt collection leaves
+wallet holds intact until explicit reconciliation. See
+[P4 client and engine acceptance](docs/P4_DELIVERY_ENGINE.md) and
 [protocol-4 development scope](docs/PROTOCOL4_DEVELOPMENT.md).
 
 

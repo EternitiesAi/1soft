@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+"""Bounded one-host P4 client acceptance with real CometBFT and disposable funds.
+
+The three process exits are client recovery drills, not node Commit crash tests.
+All listeners are loopback; generated keys and databases stay in a private tempdir.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+from datetime import datetime, timezone
+import hashlib
+import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ROOT/'src'), str(ROOT/'scripts'), str(ROOT/'tools/validator-transition/src')]
+for component in ('protocol4-client', 'protocol4-wallet', 'protocol4-delivery'):
+    sys.path.insert(0, str(ROOT/'tools'/component/'src'))
+
+from cryptography.hazmat.primitives import serialization as ser
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from block_application import encode, restore
+from commit_verifier import header_hash
+from native_core import address, canonical, digest, public, sign, FEE_ACCOUNT
+from p4_delivery import P4Delivery, collect_evidence
+from p4_evidence import POLICY_FORMAT
+from p4_wallet import P4Wallet
+from registry_rules_core import GENESIS_FORMAT, RegistryRules
+from run_devnet import free_ports, patch_toml, rpc, wait_until
+from run_protocol4_engine import git, key_from_genesis, app_query, stop, MAX_LOG, PIN
+from validator_sets_core import ValidatorSet, canonical_roster
+
+
+def process_fault(config_path, phase):
+    """Exit only this child at the specified durable client boundary."""
+    import p4_delivery as module
+    cfg = json.loads(Path(config_path).read_bytes())
+    root = Path(cfg['runtime'])
+    with P4Delivery(root/'wallet.sqlite', root/'delivery.sqlite',
+                    (root/'engine-genesis.json').read_bytes(), cfg['policy'], cfg['endpoint']) as delivery:
+        if phase == 'after_claim':
+            module.submit_once = lambda *args: os._exit(73)
+        elif phase == 'after_submission':
+            original = module.submit_once
+            def submit(*args):
+                original(*args)
+                os._exit(74)
+            module.submit_once = submit
+        elif phase == 'after_wallet_sync':
+            original = delivery.wallet.sync
+            def sync(*args, **kwargs):
+                original(*args, **kwargs)
+                os._exit(75)
+            delivery.wallet.sync = sync
+            delivery.reconcile(cfg['decision_id'], payer=cfg['payer'], grant_id=cfg['grant'],
+                               expected_revision=cfg['revision'])
+            raise AssertionError('fault hook did not terminate child')
+        else:
+            raise ValueError('unsupported fault phase')
+        delivery.send(cfg['review']['review'], cfg['review']['confirmation'])
+        raise AssertionError('fault hook did not terminate child')
+
+
+class Proxy:
+    """Forward exact JSON RPC bytes, dropping only a successful CheckTx response."""
+    def __init__(self, upstream):
+        self.upstream = upstream
+        self.drop_next = True
+        self.submissions = []
+        self.observations = []
+        outer = self
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+            def do_POST(self):
+                raw = self.rfile.read(int(self.headers['Content-Length']))
+                request = json.loads(raw)
+                conn = http.client.HTTPConnection('127.0.0.1', outer.upstream, timeout=3)
+                try:
+                    conn.request('POST', '/', raw, {'Content-Type': 'application/json'})
+                    response = conn.getresponse()
+                    body = response.read(8 * 1024 * 1024)
+                    if request['method'] == 'broadcast_tx_sync':
+                        wire = base64.b64decode(request['params']['tx'], validate=True)
+                        result = json.loads(body)['result']
+                        outer.submissions.append(wire)
+                        dropped = outer.drop_next and type(result['code']) is int and result['code'] == 0
+                        outer.observations.append({'wire_sha256': hashlib.sha256(wire).hexdigest(),
+                            'upstream_result': result, 'downstream_dropped': dropped})
+                        if dropped:
+                            outer.drop_next = False
+                            self.close_connection = True
+                            self.connection.shutdown(socket.SHUT_RDWR)
+                            self.connection.close()
+                            return
+                    self.send_response(response.status)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                finally:
+                    conn.close()
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=.05), daemon=True)
+        self.thread.start()
+        self.endpoint = f'http://127.0.0.1:{self.server.server_port}/'
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(3)
+
+
+def run(engine, expected_sha256, output):
+    output = Path(output).resolve()
+    if output.is_relative_to(ROOT):
+        raise ValueError('acceptance output must be outside the source checkout')
+    output.mkdir(mode=0o700, parents=False, exist_ok=False)
+    binary = Path(engine).resolve()
+    report = {'schema': 1, 'status': 'unassessed', 'checks': [], 'stages': [],
+        'source_commit': git('rev-parse', 'HEAD'), 'source_tree': git('rev-parse', 'HEAD^{tree}'),
+        'source_dirty_before': bool(git('status', '--porcelain')),
+        'engine_required_sha256': expected_sha256, 'scope': 'eight local nodes, one host, disposable keys',
+        'real_funds': False, 'independent_hosts': False, 'public_release_ready': False,
+        'node_commit_crash_assessed': False, 'node_bootstrap_assessed': False,
+        'started_at': datetime.now(timezone.utc).isoformat()}
+    def check(name, condition, details=None):
+        report['checks'].append({'name': name, 'passed': bool(condition), 'details': details})
+        if not condition:
+            raise AssertionError(name)
+    apps, engines, handles = [], [], []
+    proxy = wallet = delivery = runtime = temp = None
+    try:
+        if not binary.is_file():
+            report['reason'] = 'pinned engine absent'
+            return report
+        observed = hashlib.sha256(binary.read_bytes()).hexdigest()
+        check('engine matches independent SHA256 pin', len(expected_sha256) == 64 and observed == expected_sha256)
+        report['engine_sha256'] = observed
+        report['engine_version'] = subprocess.check_output([str(binary), 'version'], text=True).strip()
+        check('engine version is pinned', report['engine_version'].lstrip('v') == PIN)
+        temp = tempfile.TemporaryDirectory(prefix='one-p4-delivery-')
+        runtime = Path(temp.name)
+        homes = runtime/'nodes'
+        subprocess.run([str(binary), 'testnet', '--v', '4', '--n', '4', '--o', str(homes)],
+                       check=True, capture_output=True, timeout=40)
+        for item in homes.rglob('*'):
+            item.chmod(0o700 if item.is_dir() else 0o600)
+        chain = 'one-p4-delivery-' + os.urandom(6).hex()
+        rootgen = json.loads((homes/'node0/config/genesis.json').read_bytes())
+        initial = rootgen['validators']
+        for row in initial:
+            row['power'] = '10'
+        old = canonical_roster([{'public_key': key_from_genesis(r), 'power': 10} for r in initial])
+        target = canonical_roster([{'public_key': key_from_genesis(json.loads(
+            (homes/f'node{i}/config/priv_validator_key.json').read_bytes())), 'power': 10} for i in range(4, 8)])
+        admins = [Ed25519PrivateKey.generate() for _ in range(4)]
+        keys = {name: Ed25519PrivateKey.generate() for name in ('owner', 'merchant', 'raven', 'atlas', 'claim', 'decline')}
+        payer, merchant = address(public(keys['owner'])), address(public(keys['merchant']))
+        registry = {'schema': 1, 'format': GENESIS_FORMAT, 'mode': 'development-only', 'chain_id': chain,
+            'validators': old, 'administrators': {'format': 'threshold-ed25519-v1',
+            'public_keys': sorted(public(k) for k in admins), 'threshold': 3},
+            'minimum_delay_blocks': 2, 'cooldown_blocks': 1, 'minimum_validators': 4, 'maximum_power_bps': 3333}
+        genesis = {'chain_id': chain, 'asset': 'DEV', 'fee': 2, 'protocol_version': 4,
+            'allocations': [{'public_key': public(keys['owner']), 'units': 1000},
+                            {'public_key': public(keys['merchant']), 'units': 0}], 'validator_registry': registry}
+        rules = RegistryRules(registry, bound_genesis_sha256=digest(genesis))
+        gfile = runtime/'app-genesis.json'
+        gfile.write_bytes(encode(genesis))
+        rootgen.update(chain_id=chain, initial_height='1', app_state=genesis, validators=initial)
+        rootgen['consensus_params']['block'].update(max_bytes='1048576', max_gas='-1')
+        full_genesis = encode(rootgen)
+        (runtime/'engine-genesis.json').write_bytes(full_genesis)
+        (output/'engine-genesis.json').write_bytes(full_genesis)
+        ports = free_ports(16)
+        p2p, http = ports[:8], ports[8:]
+        ids = [subprocess.check_output([str(binary), 'show-node-id', '--home', str(homes/f'node{i}')], text=True).strip() for i in range(8)]
+        for i in range(8):
+            home = homes/f'node{i}'
+            (home/'config/genesis.json').write_bytes(full_genesis)
+            private = runtime/f'app{i}'
+            private.mkdir(mode=0o700)
+            sock = private/'a.sock'
+            conf = home/'config/config.toml'
+            conf.write_text(patch_toml(conf.read_text(), {
+                'proxy_app': f'unix://{sock}', 'abci': 'socket',
+                'rpc.laddr': f'tcp://127.0.0.1:{http[i]}', 'rpc.unsafe': False,
+                'p2p.laddr': f'tcp://127.0.0.1:{p2p[i]}',
+                'p2p.persistent_peers': ','.join(f'{ids[j]}@127.0.0.1:{p2p[j]}' for j in range(8) if j != i),
+                'p2p.addr_book_strict': False, 'p2p.allow_duplicate_ip': True, 'p2p.pex': False,
+                'consensus.timeout_commit': '2s', 'mempool.max_tx_bytes': 65536}))
+            log = (runtime/f'app{i}.log').open('wb'); handles.append(log)
+            apps.append(subprocess.Popen([sys.executable, str(ROOT/'scripts/serve_abci_p4.py'),
+                '--genesis', str(gfile), '--genesis-sha256', hashlib.sha256(gfile.read_bytes()).hexdigest(),
+                '--database', str(private/'state.sqlite'), '--socket', str(sock)], stdout=log, stderr=log))
+            wait_until(lambda: sock.exists(), 15)
+        for i in range(8):
+            log = (runtime/f'engine{i}.log').open('wb'); handles.append(log)
+            engines.append(subprocess.Popen([str(binary), 'start', '--home', str(homes/f'node{i}')], stdout=log, stderr=log))
+        def height(i=4):
+            if engines[i].poll() is not None:
+                raise RuntimeError(f'engine {i} exited')
+            return int(rpc(http[i], 'status')['sync_info']['latest_block_height'])
+        wait_until(lambda: all(height(i) >= 2 for i in range(8)), 80)
+        check('four validators and four future validators advance', all(height(i) >= 2 for i in range(8)))
+        report['initial_roster_hash'] = ValidatorSet.parse(old).hash
+        report['replacement_roster_hash'] = ValidatorSet.parse(target).hash
+        check('full replacement rosters are disjoint', not ({r['public_key'] for r in old} & {r['public_key'] for r in target}))
+        def confirmed(wire, label):
+            admission = rpc(http[4], 'broadcast_tx_sync', {'tx': base64.b64encode(wire).decode()})
+            check(label + ' admitted', type(admission['code']) is int and admission['code'] == 0)
+            result = wait_until(lambda: rpc(http[4], 'tx', {'hash': base64.b64encode(hashlib.sha256(wire).digest()).decode()}), 30)
+            check(label + ' executed', result['tx_result']['code'] == 0, {'height': result['height']})
+            return result
+        setup = []
+        for bid, names in (('studio', ('raven', 'atlas')), ('diagnostics', ('claim', 'decline'))):
+            setup.append({'type': 'budget_create', 'id': bid, 'cap': 100, 'expires': 500, 'recipients': [merchant]})
+            for name in names:
+                setup.append({'type': 'grant', 'id': name, 'public_key': public(keys[name]), 'cap': 100,
+                              'expires': 500, 'recipients': [merchant], 'budget_id': bid})
+        for nonce, op in enumerate(setup):
+            ledger = restore(genesis, app_query(http[4], '/state')['native'])
+            try:
+                wire = canonical(sign(keys['owner'], ledger.body(payer, nonce, op, valid_until=100)))
+            finally:
+                ledger.close()
+            confirmed(wire, f'setup {nonce}')
+            (output/f'setup-{nonce}.json').write_bytes(wire)
+        first = rpc(http[4], 'commit', {'height': '1'})['signed_header']['header']
+        policy = {'schema': 1, 'format': POLICY_FORMAT, 'genesis_sha256': hashlib.sha256(full_genesis).hexdigest(),
+            'anchor_height': 1, 'anchor_hash': header_hash(first).hex(), 'anchor_time': first['time'],
+            'trust_period_seconds': 3600, 'max_clock_drift_seconds': 5, 'expected_block_version': 11}
+        (output/'policy.json').write_bytes(encode(policy))
+        report['trust_origin'] = 'private operator-created genesis and first committed header of this disposable engine network'
+        proxy = Proxy(http[4])
+        wallet = P4Wallet(runtime/'wallet.sqlite', full_genesis, policy, create=True)
+        proof = collect_evidence(proxy.endpoint, full_genesis, policy, time.time_ns())['evidence']
+        wallet.sync(proof, expected_revision=None)
+        delivery = P4Delivery(runtime/'wallet.sqlite', runtime/'delivery.sqlite', full_genesis, policy, proxy.endpoint, create=True)
+        password = os.urandom(32)
+        for name in ('raven', 'atlas', 'claim', 'decline'):
+            path = runtime/f'{name}.pem'
+            path.write_bytes(keys[name].private_bytes(ser.Encoding.PEM, ser.PrivateFormat.PKCS8, ser.BestAvailableEncryption(password)))
+            path.chmod(0o600)
+        def selection(name):
+            return {'payer': payer, 'grant_id': name}
+        def sign_decision(name, units, valid_until=None):
+            if valid_until is None:
+                valid_until = wallet.status()['state_height'] + 30
+            review = wallet.prepare(payer=payer, recipient=merchant, units=units, valid_until=valid_until, grant_id=name)
+            return wallet.approve(review['review'], review['confirmation'], vault=runtime/f'{name}.pem', password=password)['decision_id']
+        def rows():
+            return tuple(wallet.db.iterdump())
+        def stage(label):
+            status = wallet.status()
+            report['stages'].append({'stage': label, 'wallet': status, 'submissions': len(proxy.submissions)})
+            return status
+        def refused(action):
+            try:
+                action()
+            except ValueError:
+                return True
+            return False
+        raven = sign_decision('raven', 58)
+        with patch('p4_wallet._load_vault', side_effect=AssertionError('overcommit reached key unlock')):
+            check('overcommit refuses before key unlock', refused(lambda: sign_decision('atlas', 39)))
+        atlas = sign_decision('atlas', 38)
+        originals = {name: wallet.recover(did, **selection(name)) for name, did in (('raven', raven), ('atlas', atlas))}
+        for name in ('raven', 'atlas'):
+            (runtime/f'{name}.pem').unlink()
+        check('two fee-inclusive holds exactly fill shared budget', int(stage('both_signed')['pending_debit_units']) == 100)
+        def crash(did, name, phase, review=None):
+            cfg = {'runtime': str(runtime), 'policy': policy, 'endpoint': proxy.endpoint,
+                'decision_id': did, 'payer': payer, 'grant': name, 'revision': wallet.status()['revision'], 'review': review}
+            path = runtime/'fault.json'; path.write_bytes(encode(cfg))
+            child = subprocess.run([sys.executable, str(Path(__file__).resolve()), '--fault-config', str(path),
+                                    '--fault-phase', phase], capture_output=True, timeout=40)
+            raw = child.stdout + child.stderr
+            if b'PRIVATE KEY' in raw or b'-----BEGIN ' in raw:
+                (output/f'{phase}.log').write_bytes(b'[suppressed sensitive child log]\n')
+                raise ValueError('sensitive child process output refused')
+            (output/f'{phase}.log').write_bytes(raw[:MAX_LOG].replace(str(runtime).encode(), b'<private-run>').replace(str(ROOT).encode(), b'<source>'))
+            check(phase + ' child exits at exact boundary', child.returncode == {'after_claim': 73, 'after_submission': 74, 'after_wallet_sync': 75}[phase], {'exit_code': child.returncode})
+        review = delivery.prepare(raven, **selection('raven'))
+        crash(raven, 'raven', 'after_submission', review)
+        check('first original submitted once and downstream response dropped after successful CheckTx',
+            proxy.submissions == [originals['raven']] and proxy.observations[0]['downstream_dropped'] and proxy.observations[0]['upstream_result']['code'] == 0)
+        delivery.close(); wallet.close()
+        wallet = P4Wallet(runtime/'wallet.sqlite', full_genesis, policy)
+        delivery = P4Delivery(runtime/'wallet.sqlite', runtime/'delivery.sqlite', full_genesis, policy, proxy.endpoint)
+        check('reopened dispatch remains unknown and cannot resend', delivery.inspect(raven, **selection('raven'))['transport_observation'] == 'unresolved'
+              and refused(lambda: delivery.send(review['review'], review['confirmation'])))
+        wait_until(lambda: rpc(http[4], 'tx', {'hash': base64.b64encode(hashlib.sha256(originals['raven']).digest()).decode()}), 30)
+        before = rows(); result = delivery.collect(raven, **selection('raven'))
+        check('first receipt requires native execution and collection leaves every wallet row unchanged', result['status'] == 'receipt_collected' and rows() == before)
+        stage('raven_collected')
+        crash(raven, 'raven', 'after_wallet_sync')
+        delivery.close(); wallet.close()
+        wallet = P4Wallet(runtime/'wallet.sqlite', full_genesis, policy)
+        delivery = P4Delivery(runtime/'wallet.sqlite', runtime/'delivery.sqlite', full_genesis, policy, proxy.endpoint)
+        before = rows()
+        result = delivery.reconcile(raven, **selection('raven'), expected_revision=wallet.status()['revision'])
+        check('committed wallet sync survives lost return without another release', result['status'] == 'already_recorded' and rows() == before and int(wallet.status()['pending_debit_units']) == 40)
+        stage('raven_reconciled')
+        current = height(); emission = current + 6
+        body = rules.body(app_query(http[4], '/registry-state'), {'kind': 'schedule', 'emitted_height': emission, 'target_validators': target}, valid_from=1, valid_until=current+4)
+        material = rules.signing_bytes(body)
+        adminwire = encode({'body': body, 'approvals': sorted([{'public_key': public(k), 'signature': k.sign(material).hex()} for k in admins[:3]], key=lambda r: r['public_key'])})
+        confirmed(adminwire, 'full validator turnover')
+        (output/'turnover.json').write_bytes(adminwire)
+        wait_until(lambda: all(height(i) >= emission+3 for i in range(8)), 80)
+        headers = [rpc(http[4], 'commit', {'height': str(emission+n)})['signed_header'] for n in (1, 2, 3)]
+        check('real signed headers announce and activate full replacement', headers[0]['header']['next_validators_hash'].lower() == report['replacement_roster_hash']
+            and all(h['header']['validators_hash'].lower() == report['replacement_roster_hash'] for h in headers[1:]))
+        votes = app_query(http[4], f'/block/{emission+3}')['last_commit_votes']
+        expected_voters = {v.address.hex(): v.power for v in ValidatorSet.parse(target).validators}
+        actual_voters = {v['address']: v['power'] for v in votes}
+        check('actual H+3 commit votes contain only replacement roster with quorum',
+            actual_voters == expected_voters and len(actual_voters) == len(votes)
+            and 3*sum(v['power'] for v in votes if v['block_id_flag'] == 2) > 2*sum(expected_voters.values()), votes)
+        for i in range(4):
+            stop(engines[i]); stop(apps[i])
+        at = height(); wait_until(lambda: all(height(i) >= at+1 for i in range(4, 8)), 30)
+        check('replacement validators advance after all old validators stop', all(height(i) >= at+1 for i in range(4, 8)))
+        proof = collect_evidence(proxy.endpoint, full_genesis, policy, time.time_ns())['evidence']
+        wallet.sync(proof, expected_revision=wallet.status()['revision'])
+        check('turnover import retains second original signature and hold', wallet.recover(atlas, **selection('atlas')) == originals['atlas']
+            and wallet.status()['registry_epoch'] == 1 and int(wallet.status()['pending_debit_units']) == 40)
+        stage('full_turnover_imported')
+        review = delivery.prepare(atlas, **selection('atlas'))
+        result = delivery.send(review['review'], review['confirmation'])
+        check('second original admitted under replacement roster', result['transport_observation'] == 'endpoint_admitted' and not result['execution_proven'])
+        wait_until(lambda: rpc(http[4], 'tx', {'hash': base64.b64encode(hashlib.sha256(originals['atlas']).digest()).decode()}), 30)
+        before = rows(); result = delivery.collect(atlas, **selection('atlas'))
+        check('second collection leaves every logical wallet row and hold unchanged', result['status'] == 'receipt_collected' and rows() == before)
+        stage('atlas_collected')
+        result = delivery.reconcile(atlas, **selection('atlas'), expected_revision=wallet.status()['revision'])
+        check('explicit second reconciliation releases only matching hold', result['status'] == 'wallet_reconciled' and int(wallet.status()['pending_debit_units']) == 0)
+        stage('both_reconciled')
+        before = rows()
+        result = delivery.reconcile(raven, **selection('raven'), expected_revision=wallet.status()['revision'])
+        check('earlier receipt under later roster checkpoint is already recorded without rollback', result['status'] == 'already_recorded' and rows() == before)
+        check('exactly two principal original wires submitted', proxy.submissions == [originals['raven'], originals['atlas']])
+        for name, did in (('raven', raven), ('atlas', atlas)):
+            (output/f'{name}-signed.json').write_bytes(originals[name])
+            (output/f'{name}-receipt-evidence.json').write_bytes(encode(delivery.export_receipt(did, **selection(name))))
+        state = app_query(http[4], '/state')['native']
+        balances = {a[0]: a[4] for a in state['accounts']}
+        studio = next(b for b in state['budgets'] if b[0] == payer+'::studio')
+        setup_fees = len(setup)*genesis['fee']; payment_fees = 2*genesis['fee']; transferred = 58+38
+        check('account budget and fees conserve actual genesis arithmetic', balances[payer] == 1000-setup_fees-transferred-payment_fees
+            and balances[merchant] == transferred and studio[4] == transferred+payment_fees
+            and balances[FEE_ACCOUNT] == setup_fees+payment_fees and sum(balances.values()) == 1000)
+        report['arithmetic'] = {'initial_payer': 1000, 'setup_operations': len(setup), 'setup_fees': setup_fees,
+            'payment_fees': payment_fees, 'transferred': transferred, 'payer_final': balances[payer], 'merchant_final': balances[merchant], 'studio_spent': studio[4]}
+        claim = sign_decision('claim', 1)
+        decline = sign_decision('decline', 1, valid_until=wallet.status()['state_height']+3)
+        decline_wire = wallet.recover(decline, **selection('decline'))
+        for name, did in (('claim', claim), ('decline', decline)):
+            (output/f'{name}-signed.json').write_bytes(wallet.recover(did, **selection(name)))
+            (runtime/f'{name}.pem').unlink()
+        claim_review = delivery.prepare(claim, **selection('claim'))
+        before_count = len(proxy.submissions)
+        crash(claim, 'claim', 'after_claim', claim_review)
+        check('claim-before-I/O crash sends zero bytes and remains unknown', len(proxy.submissions) == before_count
+            and delivery.inspect(claim, **selection('claim'))['transport_observation'] == 'unresolved'
+            and refused(lambda: delivery.send(claim_review['review'], claim_review['confirmation'])))
+        decline_review = delivery.prepare(decline, **selection('decline'))
+        wait_until(lambda: height() > decline_review['review']['valid_until'], 30)
+        before = rows(); result = delivery.send(decline_review['review'], decline_review['confirmation'])
+        check('actual engine decline preserves hold and consumes attempt', result['transport_observation'] == 'endpoint_declined'
+            and rows() == before and refused(lambda: delivery.send(decline_review['review'], decline_review['confirmation'])))
+        result = delivery.collect(decline, **selection('decline'))
+        check('declined payment has no positive receipt and collection cannot retire hold', result['status'] == 'unavailable' and rows() == before)
+        check('diagnostic claims retain six units without changing settled main budget', int(wallet.status()['pending_debit_units']) == 6
+            and next(b for b in wallet.status()['budgets'] if b['id'] == payer+'::studio')['spent'] == '100')
+        check('total broadcasts are exactly two originals and one declined diagnostic',
+            proxy.submissions == [originals['raven'], originals['atlas'], decline_wire]
+            and type(proxy.observations[-1]['upstream_result']['code']) is int
+            and proxy.observations[-1]['upstream_result']['code'] != 0)
+        report['diagnostics'] = {'claim_submissions': 0, 'declined_submissions': 1, 'unresolved_hold_units': 6,
+            'principal_submissions': 2, 'total_proxy_submissions': len(proxy.submissions)}
+        report['status'] = 'passed'
+    except BaseException as exc:
+        report['status'] = 'failed'
+        report['reason'] = f'{type(exc).__name__}: {exc}'
+        import traceback
+        report['traceback'] = traceback.format_exc().replace(str(ROOT), '<source>').replace(str(runtime), '<private-run>')
+    finally:
+        if delivery is not None: delivery.close()
+        if wallet is not None: wallet.close()
+        if proxy is not None:
+            proxy.close()
+            (output/'submissions.json').write_bytes(encode(proxy.observations))
+        for process in engines + apps: stop(process)
+        for handle in handles: handle.close()
+        logs = []
+        if runtime is not None:
+            for path in sorted(runtime.glob('*.log')):
+                raw = path.read_bytes()
+                truncated = len(raw) > MAX_LOG
+                if b'PRIVATE KEY' in raw or b'-----BEGIN ' in raw:
+                    raw = b'[suppressed sensitive process log]\n'
+                    report['status'] = 'failed'; report['reason'] = 'sensitive process log refused'
+                else:
+                    raw = raw[:MAX_LOG].replace(str(runtime).encode(), b'<private-run>').replace(str(ROOT).encode(), b'<source>')
+                (output/path.name).write_bytes(raw)
+                logs.append({'path': path.name, 'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(), 'truncated': truncated})
+        report['logs'] = logs
+        if temp is not None: temp.cleanup()
+        report['source_dirty_after'] = bool(git('status', '--porcelain'))
+        report['source_qualified'] = not report['source_dirty_before'] and not report['source_dirty_after'] and report['source_commit'] == git('rev-parse', 'HEAD')
+        report['engine_sha256_after'] = hashlib.sha256(binary.read_bytes()).hexdigest() if binary.is_file() else None
+        report['finished_at'] = datetime.now(timezone.utc).isoformat()
+        (output/'result.json').write_text(json.dumps(report, indent=2)+'\n')
+    return report
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--engine'); p.add_argument('--engine-sha256'); p.add_argument('--output', type=Path)
+    p.add_argument('--fault-config', type=Path)
+    p.add_argument('--fault-phase', choices=('after_claim', 'after_submission', 'after_wallet_sync'))
+    args = p.parse_args()
+    if args.fault_config:
+        process_fault(args.fault_config, args.fault_phase)
+    else:
+        if not args.engine or not args.engine_sha256 or not args.output: p.error('engine, hash and output are required')
+        result = run(args.engine, args.engine_sha256, args.output)
+        print(json.dumps({k: result.get(k) for k in ('status', 'reason', 'source_qualified')}))
+        raise SystemExit(0 if result['status'] == 'passed' else 1)
