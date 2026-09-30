@@ -3,7 +3,9 @@
 The three additive components are `tools/protocol4-client`,
 `tools/protocol4-wallet`, and `tools/protocol4-delivery`. Their supplied trees
 are preserved exactly from the P4 delivery handoff on PR28 `b73a88c`.
-The separate PR29 node-recovery work is not incorporated by this branch.
+This candidate now also includes the deliberately reconciled PR29 recovery tools;
+see [P4 recovery integration](P4_RECOVERY_INTEGRATION.md) for source lineage,
+new acceptance checks, and the separate real-engine profiles.
 
 The read client verifies the complete bounded signed-header chain and replays
 native payments plus authorized validator changes. The wallet signs a reviewed
