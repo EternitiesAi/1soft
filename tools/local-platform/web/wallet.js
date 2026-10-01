@@ -34,6 +34,9 @@ function paymentProgress(e,inspected,live){
   }else if(attempted){title='Payment outcome unknown';tone='warning';
     detail='A submission attempt is recorded. Its response is not execution proof; missing evidence does not mean unpaid.';
     next='Collect receipt evidence for the original signed payment. Do not send it again.';
+  }else if(signed&&e.invoice&&!e.request_open){title='Invoice expired';tone='warning';
+    detail='The original signed payment and obligation remain retained. Quote expiry cannot establish that it is unpaid.';
+    next='Recover the original payment or collect exact execution evidence. A new submission is unavailable.';
   }else if(signed){title='Signed and reserved';
     detail='The original signed payment and fee-inclusive obligation are retained. No verified execution receipt is displayed.';
     next='Review one submission of the original signed bytes before sending.';
@@ -41,7 +44,7 @@ function paymentProgress(e,inspected,live){
     detail='A review is bound to this request, but a signature is not recorded in the inspected wallet.';
     next='Inspect the original review and signing role. Approval must match its retained context.';
   }else{title=e.request_open?'Unsigned request':'Unsigned request expired';
-    detail='This is payment intent. It authenticates neither a merchant nor payment execution.';
+    detail=e.invoice?'This is a retained merchant quote. Approving its terms and native payment is still required; execution and fulfillment are unproven.':'This is payment intent. It authenticates neither a merchant nor payment execution.';
     next=e.request_open?'Review the signing role, recipient, amount and fee before unlocking.':'This expired unsigned request cannot be approved.';
   }
   const steps=[['Review',bound,'Retained','Required'],['Signature',signed,'Original retained','Unrecorded'],
@@ -87,14 +90,14 @@ if(typeof document!=='undefined'){
     $('request-form').querySelector('button').disabled=!viewAvailable||busy;$('import').disabled=!viewAvailable||busy;
     $('refresh').disabled=!live||busy;$('sync').disabled=!live||busy;
     $('prepare').disabled=!live||!e||!e.request_open||signed||busy;
-    $('sign').disabled=!payment||!current(payment.context)||!$('sign-check').checked||$('password').value.length<16||!live||busy;
-    $('submission-review').disabled=!signed||e.stage==='recorded'||e.stage==='recorded_historical'||!!e.delivery?.attempt_recorded||e.delivery?.receipt_status==='verified_historical_receipt'||!live||busy;
-    $('send').disabled=!dispatch||!current(dispatch.context)||!$('send-check').checked||!live||busy;
+    $('sign').disabled=!payment||!current(payment.context)||!$('sign-check').checked||(!!e?.invoice&&(!$('terms-check').checked||!payment?.terms_json||!e.request_open))||$('password').value.length<16||!live||busy;
+    $('submission-review').disabled=!signed||e.stage==='recorded'||e.stage==='recorded_historical'||!!e.delivery?.attempt_recorded||e.delivery?.receipt_status==='verified_historical_receipt'||(!!e.invoice&&!e.request_open)||!live||busy;
+    $('send').disabled=!dispatch||!current(dispatch.context)||!$('send-check').checked||(!!e?.invoice&&!e.request_open)||!live||busy;
     $('collect').disabled=!signed||!live||busy;
     $('reconcile').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||e?.stage==='recorded'||!live||busy;
     $('retain').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||!live||busy;
   }
-  function clearReviews(){generation++;payment=null;dispatch=null;$('password').value='';$('sign-check').checked=false;$('send-check').checked=false;show('payment-review',false);show('dispatch-review',false);}
+  function clearReviews(){generation++;payment=null;dispatch=null;$('password').value='';$('sign-check').checked=false;$('terms-check').checked=false;$('terms-facts').replaceChildren();text('terms-digest','');show('merchant-terms-review',false);$('send-check').checked=false;show('payment-review',false);show('dispatch-review',false);}
   async function reload(){const next=await get('/api/state');state=next;clearReviews();viewAvailable=true;render();}
   function render(){const live=viewAvailable&&state.current_evidence_available,w=live?state.wallet:null,l=live?state.ledger:null;
     $('indicator').classList.toggle('verified',live);text('network-status',live?'Verified retained observation':'Current evidence unavailable');
@@ -106,9 +109,11 @@ if(typeof document!=='undefined'){
     text('budget-text',b?`${formatUnits(b.cap)} cap · ${formatUnits(b.spent)} recorded spent · ${formatUnits(b.pending_debit_units)} pending. All agent lanes share this journal.`:'Current budget observation unavailable.');
     if(!$('recipient').value&&l?.grants[0]?.recipients[0])$('recipient').value=l.grants[0].recipients[0];
     const oldRole=$('role').value;$('role').replaceChildren();for(const r of roles){const option=document.createElement('option');option.value=r;option.textContent=r==='owner'?'Owner · treasury':`${r[0].toUpperCase()+r.slice(1)} · agent grant`;$('role').append(option);}if(roles.includes(oldRole))$('role').value=oldRole;
-    text('request-count',`${state.requests.length} requests`);const list=$('requests');list.replaceChildren();
+    const merchantMode=state.payment_mode==='committed_merchant_invoices';show('unsigned-compose',!merchantMode);show('merchant-inbox-info',merchantMode);
+    text('hidden-requests',state.hidden_generic_request_count?`${state.hidden_generic_request_count} generic requests are outside this invoice view. Treasury and budget totals include every obligation in the shared wallet.`:'Treasury and budget totals include every obligation in the shared wallet.');
+    text('request-count',`${state.requests.length} ${merchantMode?'invoices':'requests'}`);const list=$('requests');list.replaceChildren();
     for(const e of [...state.requests].reverse()){const button=document.createElement('button');button.className='request-item';button.classList.toggle('selected',e.request_id===selected);
-      const title=document.createElement('strong'),amount=document.createElement('b'),stage=document.createElement('span');title.textContent=e.request.note||'Payment request';amount.textContent=formatUnits(e.request.units);
+      const title=document.createElement('strong'),amount=document.createElement('b'),stage=document.createElement('span');title.textContent=e.invoice?'Merchant invoice':e.request.note||'Payment request';amount.textContent=formatUnits(e.request.units);
       stage.textContent=STAGES[e.stage]+(!viewAvailable?' · retained snapshot':e.request_open?'':' · request expired');button.append(title,amount,stage);button.addEventListener('click',()=>{if(busy)return;selected=e.request_id;clearReviews();renderDetail();render();});list.append(button);}
     show('empty',state.requests.length===0);renderDetail();
     const table=$('payments');table.replaceChildren();for(const p of (l?.payments||[]).slice(-24).reverse()){const tr=document.createElement('tr');for(const value of [p.height,p.grant_id||'Owner',shortId(p.recipient),formatUnits(p.units),formatUnits(p.fee_units),shortId(p.native_txid)]){const td=document.createElement('td');td.textContent=value;tr.append(td);}tr.lastChild.title=p.native_txid;table.append(tr);}
@@ -117,7 +122,8 @@ if(typeof document!=='undefined'){
     const validators=$('validators');validators.replaceChildren();for(const [i,v]of(l?.registry.active||[]).entries()){const box=document.createElement('div');box.className='validator';const label=document.createElement('p'),key=document.createElement('strong'),power=document.createElement('p');label.textContent='Validator '+(i+1);key.textContent=shortId(v.public_key);power.textContent='Voting power '+v.power;box.append(label,key,power);validators.append(box);}controls();
   }
   function renderDetail(){const e=entry();show('detail',!!e);if(!e)return;const signed=['signed_reserved','recorded','recorded_historical'].includes(e.stage);
-    text('request-note',e.request.note||'Payment request');text('request-id',e.request_id);$('request-download').href='/api/request/'+e.request_id;
+    text('request-note',e.invoice?'Merchant invoice':e.request.note||'Payment request');
+    show('invoice-detail',!!e.invoice);if(e.invoice)facts('invoice-facts',[['Merchant origin',e.invoice.merchant_origin],['Resource',e.invoice.resource_url],['Public resource digest',e.invoice.resource_sha256],['Native invoice commitment',e.invoice.invoice_commitment],['Quote expires',deadline(e.invoice.expires_ns)]]);text('request-id',e.request_id);$('request-download').href='/api/request/'+e.request_id;
     facts('request-facts',[['Recipient',e.request.recipient],['Requested',formatUnits(e.request.units)],['Request expires',deadline(String(e.request.expires_ns))],['Stage',STAGES[e.stage]],...(e.decision_id?[['Decision',e.decision_id]]:[])]);
     const progress=paymentProgress(e,viewAvailable,viewAvailable&&state.current_evidence_available);
     text('progress-title',progress.title);text('progress-detail',progress.detail);text('progress-next',progress.next);
@@ -138,11 +144,17 @@ if(typeof document!=='undefined'){
   $('prepare').addEventListener('click',()=>run(async()=>{clearReviews();const context=capture($('role').value);
     const prepared=await post('prepare',{request_id:context.request_id,role:context.role,valid_until:Math.min(512,state.wallet.state_height+32)});
     requireCurrent(context);if(prepared.request_id!==context.request_id||prepared.role!==context.role)throw Error('Returned review belongs to another request or role.');
+    const e=entry();if(e.invoice){const t=prepared.terms_summary;
+      if(typeof prepared.terms_json!=='string'||!prepared.terms_json||typeof prepared.terms_confirmation!=='string'||!t||t.request_id!==context.request_id||t.role!==context.role||t.native_confirmation!==prepared.confirmation||t.quote_sha256!==e.invoice.quote_sha256||t.invoice_commitment!==e.invoice.invoice_commitment||t.resource_sha256!==e.invoice.resource_sha256)throw Error('Returned merchant terms differ from the selected invoice.');
+      facts('terms-facts',[['Merchant origin',t.merchant_origin],['Resource',t.resource_url],['Recipient',t.recipient],['Invoice amount',formatUnits(t.amount_units)],['Public resource digest',t.resource_sha256],['Native invoice commitment',t.invoice_commitment],['Quote expires',deadline(t.expires_ns)]]);text('terms-digest',prepared.terms_confirmation);show('merchant-terms-review',true);
+    }else if(prepared.terms_json)throw Error('Merchant consent returned for a generic request.');
     payment={...prepared,context};const s=payment.summary;
     facts('payment-facts',[['Role',context.role==='owner'?'Owner · treasury':context.role[0].toUpperCase()+context.role.slice(1)+' · agent grant'],['Recipient',s.recipient],['Amount',formatUnits(s.units)],['Fee',formatUnits(s.fee_units)],['Total debit',formatUnits(s.debit_units)],['Valid through','Block '+s.valid_until],['Source','Wallet block '+s.state_height]]);text('payment-digest',payment.confirmation);show('payment-review',true);text('sign','Sign and reserve '+formatUnits(s.debit_units));tell('Review the exact payment. Signing will reserve the total debit without sending it.');}));
-  $('sign-check').addEventListener('change',controls);$('password').addEventListener('input',controls);$('send-check').addEventListener('change',controls);
+  $('sign-check').addEventListener('change',controls);$('terms-check').addEventListener('change',controls);$('password').addEventListener('input',controls);$('send-check').addEventListener('change',controls);
   $('sign').addEventListener('click',()=>run(async()=>{const p=payment;requireCurrent(p?.context);const password=$('password').value;$('password').value='';payment=null;show('payment-review',false);
-    try{const q=await post('sign',{request_id:p.context.request_id,role:p.context.role,review_json:p.review_json,confirmation:p.confirmation,password});await reload();tell(`Original signed decision retained: ${q.decision_id}. Submission has not been attempted.`);}finally{$('password').value='';}}));
+    try{const body={request_id:p.context.request_id,role:p.context.role,review_json:p.review_json,confirmation:p.confirmation,password};
+      if(p.terms_json){if(!$('terms-check').checked)throw Error('Explicit merchant terms consent is required.');body.terms_json=p.terms_json;body.terms_confirmation=p.terms_confirmation;}
+      const q=await post(p.terms_json?'sign-invoice':'sign',body);await reload();tell(`Original signed decision retained: ${q.decision_id}. Submission has not been attempted.`);}finally{$('password').value='';}}));
   $('submission-review').addEventListener('click',()=>run(async()=>{clearReviews();const context=capture();
     const prepared=await post('submission-review',{request_id:context.request_id});requireCurrent(context);
     if(prepared.request_id!==context.request_id)throw Error('Returned submission review belongs to another request.');
