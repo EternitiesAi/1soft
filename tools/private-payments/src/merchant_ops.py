@@ -68,6 +68,7 @@ class MerchantOps:
              'validated finite DEV merchant recipient pool required')
         allocated = {address(row['public_key']) for row in genesis['allocations']}
         need(set(pool) <= allocated, 'configured pool recipient is absent from native genesis')
+        self.invoice_capable = genesis.get('invoice_commitment_version') == 1
         self.recipients = tuple(pool)
         self.network_id = '1soft:local-' + config['genesis_sha256'][:24]
         self._context()
@@ -145,7 +146,8 @@ class MerchantOps:
         expectation = NativePaymentExpectation(merchant_origin, merchant_origin + resource_path,
             self.network_id, ASSET, self.network.config['genesis_sha256'], self.recipients[index], amount_units)
         required = make_payment_required(expectation, created_ns=now, expires_ns=expires_ns,
-            quote_nonce=secrets.token_hex(32), description=description, mime_type=mime_type)
+            quote_nonce=secrets.token_hex(32), description=description, mime_type=mime_type,
+            resource_sha256=hashlib.sha256(resource).hexdigest() if self.invoice_capable else None)
         with self.operation(), self.book() as book:
             rows = self._rows(book)
             need(not any(row['expectation'].resource_url == expectation.resource_url for row in rows),

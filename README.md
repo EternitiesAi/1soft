@@ -32,6 +32,31 @@ wallet holds intact until explicit reconciliation. See
 [protocol-4 development scope](docs/PROTOCOL4_DEVELOPMENT.md).
 
 
+## Signed invoice payments
+
+The fresh **v3 local merchant workspace** supports native signed invoice terms.
+Its owner, Raven and Atlas payments bind the exact quote, public resource digest,
+chain, merchant, amount and lifetime in the original native signature. The
+merchant replays the payment and checks that commitment before releasing the
+resource. Private invoice content remains locally encrypted; the ledger remains
+public. Existing workspaces are preserved and cannot enable this capability by
+repinning their files. See [native invoice commitments](docs/NATIVE_INVOICE_COMMITMENTS.md).
+
+```sh
+python tools/private-payments/scripts/1soft_merchant_network.py init \
+  --workspace NEW_PRIVATE_DIRECTORY --engine PINNED_COMETBFT \
+  --recipient-count 3 --invoice-commitments
+python tools/private-payments/scripts/qualify_native_invoice.py \
+  --engine PINNED_COMETBFT --output NEW_QUALIFICATION_DIRECTORY
+```
+
+The candidate qualifier checks the exact changed-file map against `a09afbf`, all
+component suites, official Go vectors and local validator journeys. Historical
+byte-seal scripts and manifests below belong to their earlier parent revisions;
+they intentionally refuse this modified native/caller candidate. The qualification
+result records execution status. Local tests do not establish production privacy,
+custody, economics or independent operator readiness.
+
 ## Node bootstrap
 
 Format-1 ABCI state sync can now serve and restore a bounded complete application

@@ -26,7 +26,7 @@ from p4_receipt_capsule import MAX_CAPSULE_BYTES, encode_capsule, parse_capsule
 from payment_x402 import (MAX_REQUIRED_HEADER, MAX_SIGNATURE_HEADER,
     NativePaymentExpectation, TrustedMerchantAssignment, _decode, _expectation,
     _sha, _wire, make_payment_signature, parse_payment_required,
-    parse_payment_response, verify_merchant_payment)
+    parse_payment_response, verify_merchant_payment, invoice_binding)
 
 APPLICATION_ID = 0x31504D42
 FORMAT = '1soft/private-merchant-book/v1'
@@ -187,6 +187,10 @@ class MerchantBook:
                  recipient not in recipients and _sha(_resource(resource)) == resource_hash,
                  'merchant quote identity, recipient uniqueness or resource changed')
             need(expectation.genesis_sha256 == self.policy['genesis_sha256'], 'merchant quote changes genesis')
+            invoice=quote.get('invoice_terms')
+            if invoice is not None:
+                need(self.native_genesis.get('invoice_commitment_version')==1 and
+                     invoice['resource_sha256']==resource_hash,'retained invoice capability or resource digest differs')
             recipients.add(recipient)
             entries[qid] = dict(quote=quote, required=header, expectation=expectation,
                 resource=resource, resource_sha256=resource_hash, retained_ns=retained,
@@ -195,7 +199,8 @@ class MerchantBook:
         for qid, payer, wire, wire_hash, signer, evidence_raw, evidence_id, enrolled in self.db.execute(
                 'SELECT * FROM enrollments ORDER BY rowid'):
             need(qid in entries and entries[qid]['enrollment'] is None, 'unknown or duplicate merchant enrollment')
-            row = entries[qid]; _wire(wire, row['expectation'], payer)
+            row = entries[qid]; packet = _wire(wire, row['expectation'], payer)
+            invoice_binding(packet, row['quote'].get('invoice_terms'))
             hash_text(wire_hash); hash_text(signer); hash_text(evidence_id); integer(enrolled, row['retained_ns'], last)
             _, original_evidence = _evidence(evidence_raw)
             need(_sha(wire) == wire_hash and wire_hash not in enrolled_wires and
@@ -243,6 +248,10 @@ class MerchantBook:
         quote = parse_payment_required(required_header, expectation, now_ns=now)
         expectation_raw = encode(asdict(expectation)); resource_hash = _sha(resource); qid = quote['quote_sha256']
         need(expectation.genesis_sha256 == self.policy['genesis_sha256'], 'quote belongs to another genesis')
+        invoice=quote.get('invoice_terms')
+        if invoice is not None:
+            need(self.native_genesis.get('invoice_commitment_version')==1 and
+                 invoice['resource_sha256']==resource_hash,'invoice capability or resource digest differs')
         with self.atomic():
             _, entries = self._catalog(now)
             if qid in entries:
@@ -293,6 +302,7 @@ class MerchantBook:
                 bytes.fromhex(packet['signature']), DOMAIN + canonical(body))
         except (InvalidSignature, ValueError) as exc:
             raise ValueError('enrolled native wire signature is invalid under independently verified key') from exc
+        invoice_binding(packet,row['quote'].get('invoice_terms'))
         return signer, raw, report['evidence_id']
 
     def enroll_wire(self, quote_id, payer, wire, *, evidence):

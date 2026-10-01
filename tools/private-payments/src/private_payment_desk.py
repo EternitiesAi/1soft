@@ -2,6 +2,7 @@
 import hashlib
 
 from block_application import encode
+from invoice_terms import terms_commitment
 from p4_evidence import content_id, hash_text, need
 from platform_service import PlatformService
 from invoice_book import InvoiceBook
@@ -41,25 +42,44 @@ class PrivatePaymentDesk:
                  'live merchant invoice identity differs')
         return row, e
 
+    def _native_terms(self, rid):
+        row,e=self._selected(rid,live=True)
+        q=parse_payment_required(row['required_header'],e,now_ns=self.platform.clock())
+        invoice=q.get('invoice_terms')
+        if invoice is not None:
+            from p4_evidence import p4_genesis
+            g,_=p4_genesis(self.platform.genesis,self.platform.policy['genesis_sha256'])
+            need(g.get('invoice_commitment_version')==1,'invoice requires explicit fresh genesis capability')
+        return invoice
+
     def _terms(self, rid, role, native_confirmation):
         row, e = self._selected(rid, live=True); hash_text(native_confirmation)
-        return {'schema': 1, 'format': '1soft/private-payment-consent/v1',
+        result = {'schema': 1, 'format': '1soft/private-payment-consent/v1',
             'request_id': rid, 'quote_sha256': row['quote_sha256'],
             'merchant_origin': e.merchant_origin, 'resource_url': e.resource_url,
             'network': e.network, 'asset': e.asset, 'recipient': e.recipient,
             'amount_units': e.amount_units, 'genesis_sha256': e.genesis_sha256,
             'role': role, 'native_confirmation': native_confirmation,
             'onchain_privacy': False, 'native_signature_authenticates_resource': False}
+        invoice=self._native_terms(rid)
+        if invoice is not None:
+            result.update(format='1soft/private-payment-consent/v2',
+                resource_sha256=invoice['resource_sha256'],invoice_commitment=terms_commitment(invoice),
+                created_ns=invoice['created_ns'],expires_ns=invoice['expires_ns'],
+                native_invoice_commitment_required=True)
+        return result
 
     def prepare(self, rid, role, *, valid_until):
         self._selected(rid, live=True)
-        prepared = self.platform.prepare(rid, role, valid_until=valid_until)
+        prepared = self.platform.prepare(rid, role, valid_until=valid_until,invoice_terms=self._native_terms(rid))
         terms = self._terms(rid, role, prepared['confirmation'])
         return {**prepared, 'terms': terms, 'terms_confirmation': content_id(terms)}
 
     def approve(self, rid, role, review, confirmation, terms_confirmation, *, payment_password):
         hash_text(terms_confirmation)
         need(content_id(review) == confirmation, 'native review confirmation differs')
+        invoice=self._native_terms(rid)
+        need(encode(review.get('invoice_terms'))==encode(invoice),'native review changes retained invoice terms')
         terms = self._terms(rid, role, confirmation)
         need(content_id(terms) == terms_confirmation, 'merchant terms confirmation differs')
         return self.platform.approve(rid, role, review, confirmation, password=payment_password)

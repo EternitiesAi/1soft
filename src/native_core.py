@@ -146,17 +146,24 @@ class NativeLedger:
         require(type(genesis) is dict and set(genesis) in
                 (GENESIS_FIELDS, GENESIS_FIELDS | {"protocol_version"},
                  GENESIS_FIELDS | {"protocol_version", "state_commitment"},
-                 P4_GENESIS_FIELDS),
+                 P4_GENESIS_FIELDS, P4_GENESIS_FIELDS | {"invoice_commitment_version"}),
                 "unexpected or missing genesis fields")
         self.protocol_version = genesis.get("protocol_version", 1)
         require(type(self.protocol_version) is int and self.protocol_version in (1, 2, 3, 4),
                 "unsupported genesis protocol version")
         if self.protocol_version == 4:
-            require(set(genesis) == P4_GENESIS_FIELDS, "protocol 4 requires a fresh composite genesis")
+            require(set(genesis) in (P4_GENESIS_FIELDS,
+                    P4_GENESIS_FIELDS | {"invoice_commitment_version"}),
+                    "protocol 4 requires a fresh composite genesis")
             from registry_rules_core import RegistryRules
             policy = RegistryRules(genesis["validator_registry"])
             require(policy.genesis["chain_id"] == genesis["chain_id"],
                     "monetary and validator chain identities differ")
+        if "invoice_commitment_version" in genesis:
+            require(self.protocol_version == 4 and
+                    type(genesis["invoice_commitment_version"]) is int and
+                    genesis["invoice_commitment_version"] == 1,
+                    "unsupported fresh invoice commitment capability")
         if "state_commitment" in genesis:
             require(self.protocol_version == 3 and genesis["state_commitment"] == "smt-v1",
                     "unsupported state commitment; use an explicit fresh protocol-3 genesis")
@@ -309,7 +316,15 @@ class NativeLedger:
             required = fee
             budget = None
             if op["type"] == "transfer":
-                fields(op, {"type","to","units"})
+                committed = "invoice_commitment" in op
+                require(not committed or self.genesis.get("invoice_commitment_version") == 1,
+                        "invoice commitment requires explicit fresh genesis capability")
+                fields(op, {"type","to","units"} |
+                       ({"invoice_commitment"} if committed else set()))
+                if committed:
+                    require(type(op["invoice_commitment"]) is str and
+                            HEX_KEY.fullmatch(op["invoice_commitment"]) is not None,
+                            "invalid invoice commitment")
                 identifier(op["to"]); integer(op["units"], minimum=1)
                 require(op["to"] != owner["id"] and op["to"] != FEE_ACCOUNT, "invalid recipient")
                 self._account(op["to"])

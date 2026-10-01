@@ -103,7 +103,10 @@ def stop_owned_web(web, thread, *, workers, errors, seconds=5):
 
 def source_snapshot(source=None):
     if source is not None:
-        from release_check import source_checked
+        if source.get('qualification_format') == '1soft/native-invoice-candidate/v1':
+            from native_invoice_qualification import source_checked
+        else:
+            from release_check import source_checked
         actual = source_checked(source)
         return {k: actual[k] for k in ('commit', 'tree', 'source_id', 'tracked_files')}
     # Development runs include new bytes and explicitly cannot qualify a release.

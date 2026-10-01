@@ -23,6 +23,7 @@ from block_application import encode, restore
 from commit_verifier import exact, load_json
 from native_core import (BODY_FIELDS, DOMAIN, FEE_ACCOUNT, MAX_UNITS, canonical,
                          digest, identifier, public, sign)
+from invoice_terms import terms_checked, terms_commitment
 from offline_signer import _load_vault
 from p4_evidence import (MAX_EVIDENCE_BYTES, check_clock, content_id, extends,
                          freeze, hash_text, integer, need, p4_genesis,
@@ -32,6 +33,7 @@ from validator_witness import nanos
 
 APPLICATION_ID = 0x31503457
 REVIEW_FORMAT = '1soft/p4-transfer-review/v1'
+INVOICE_REVIEW_FORMAT = '1soft/p4-invoice-transfer-review/v1'
 MAX_OBSERVATIONS = 32
 MAX_PAYLOAD = 64 * 1024 * 1024
 MAX_DECISIONS = 256
@@ -74,7 +76,7 @@ def fresh(evidence, policy, now_ns, previous_ns=None):
 
 
 def transfer_review(evidence, report, prior, wallet_id, policy_id, *, payer,
-                    recipient, units, valid_until, grant_id=''):
+                    recipient, units, valid_until, grant_id='', invoice_terms=None, genesis_sha256=None):
     """Internal: report must have been reverified from the supplied evidence."""
     identifier(payer); identifier(recipient)
     integer(units, 1, MAX_UNITS)
@@ -91,6 +93,13 @@ def transfer_review(evidence, report, prior, wallet_id, policy_id, *, payer,
                  d['review']['body']['grant_id'] == grant_id for d in held),
          'this owner/grant has an unresolved signed transfer; recover or reconcile it')
     g = evidence['state']['genesis']; fee = g['fee']; debit = units + fee
+    invoice = None
+    if invoice_terms is not None:
+        need(g.get('invoice_commitment_version') == 1 and genesis_sha256 is not None,
+             'invoice review requires explicit fresh genesis capability')
+        need(g['asset'] == 'DEV', 'invoice asset differs from authenticated native asset')
+        invoice = terms_checked(invoice_terms, genesis_sha256=genesis_sha256,
+                                recipient=recipient, units=units)
     integer(debit, 1, MAX_UNITS)
     ledger = restore(g, evidence['state']['native'])
     try:
@@ -117,9 +126,11 @@ def transfer_review(evidence, report, prior, wallet_id, policy_id, *, payer,
                  'shared budget funds already committed')
             need(grant['spent'] + debit <= grant['cap'], 'individual grant cap exceeded')
         signer = grant if grant is not None else owner
-        body = ledger.body(payer, signer['nonce'], {'type': 'transfer', 'to': recipient, 'units': units},
+        op = {'type': 'transfer', 'to': recipient, 'units': units}
+        if invoice is not None: op['invoice_commitment'] = terms_commitment(invoice)
+        body = ledger.body(payer, signer['nonce'], op,
                            grant_id=grant_id, valid_until=valid_until)
-        return {'schema': 1, 'format': REVIEW_FORMAT, 'wallet_id': wallet_id, 'policy_id': policy_id,
+        result = {'schema': 1, 'format': REVIEW_FORMAT, 'wallet_id': wallet_id, 'policy_id': policy_id,
                 'evidence_id': report['evidence_id'],
                 'revision': revision(wallet_id, policy_id, report['evidence_id'], prior),
                 'state_height': height, 'header_hash': report['header_hash'],
@@ -128,8 +139,30 @@ def transfer_review(evidence, report, prior, wallet_id, policy_id, *, payer,
                 'budget_id': None if budget is None else budget['id'],
                 'debit_units': str(debit), 'account_pending_units': str(account_held),
                 'budget_pending_units': str(budget_held)}
+        if invoice is not None:
+            result.update(format=INVOICE_REVIEW_FORMAT, invoice_terms=invoice)
+        return result
     finally:
         ledger.close()
+
+
+def invoice_review_context(review, genesis, genesis_sha256, now_ns):
+    body = review['body']; op = body['op']
+    invoice = review.get('invoice_terms')
+    if review.get('format') == INVOICE_REVIEW_FORMAT:
+        need(genesis.get('invoice_commitment_version') == 1 and invoice is not None,
+             'invoice review requires explicit fresh genesis capability')
+        exact(op, {'type','to','units','invoice_commitment'}, 'committed transfer operation')
+        need(genesis['asset'] == 'DEV', 'invoice asset differs from authenticated native asset')
+        value = terms_checked(invoice, genesis_sha256=genesis_sha256,
+                              recipient=op['to'], units=op['units'], now_ns=now_ns)
+        need(op['invoice_commitment'] == terms_commitment(value),
+             'native operation changes reviewed invoice commitment')
+        return value
+    need(review.get('format') == REVIEW_FORMAT and invoice is None and 'invoice_terms' not in review,
+         'unsupported transfer review format')
+    exact(op, {'type','to','units'}, 'transfer operation')
+    return None
 
 
 class P4Wallet:
@@ -271,11 +304,14 @@ class P4Wallet:
             last_proof_seq = raw_by_id[proof][0]
             fresh(e, self.policy, d['signed_ns'])
             body = review['body']; exact(body, BODY_FIELDS, 'reviewed transfer body')
-            op = body['op']; exact(op, {'type','to','units'}, 'transfer operation')
+            op = body['op']
+            invoice = invoice_review_context(review, e['state']['genesis'],
+                self.policy['genesis_sha256'], d['signed_ns'])
             need(op['type'] == 'transfer', 'wallet only supports transfers')
             expected = transfer_review(e, r, decisions[:n], wallet_id, self.policy_id,
                 payer=body['sender'], recipient=op['to'], units=op['units'],
-                valid_until=body['valid_until'], grant_id=body['grant_id'])
+                valid_until=body['valid_until'], grant_id=body['grant_id'],
+                invoice_terms=invoice, genesis_sha256=self.policy['genesis_sha256'])
             need(encode(review) == encode(expected), 'stored review differs from verified origin')
             wire = bytes.fromhex(d['wire_hex']); packet = load_json(wire, max_bytes=16384)
             exact(packet, {'body','signature'}, 'signed transfer')
@@ -349,13 +385,15 @@ class P4Wallet:
                     'latest_state_guaranteed':False, 'spending_authorized':False,
                     'coordination_scope':'this local journal only', 'broadcast':False}
 
-    def prepare(self, *, payer, recipient, units, valid_until, grant_id=''):
+    def prepare(self, *, payer, recipient, units, valid_until, grant_id='', invoice_terms=None):
         with self.atomic(write=False):
             wallet_id, e, report, decisions, latest_ns = self._load()
             fresh(e,self.policy,self.clock(),latest_ns)
             need(len(decisions) < MAX_DECISIONS,'wallet decision capacity reached')
             review = transfer_review(e,report,decisions,wallet_id,self.policy_id,payer=payer,
-                recipient=recipient,units=units,valid_until=valid_until,grant_id=grant_id)
+                recipient=recipient,units=units,valid_until=valid_until,grant_id=grant_id,
+                invoice_terms=invoice_terms,genesis_sha256=self.policy['genesis_sha256'])
+            invoice_review_context(review,e['state']['genesis'],self.policy['genesis_sha256'],self.clock())
             fresh(e,self.policy,self.clock(),latest_ns)
             return {'review':review,'confirmation':content_id(review),
                     'reserved':False,'signed':False,'broadcast':False}
@@ -369,22 +407,27 @@ class P4Wallet:
             need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
             now = self.clock(); fresh(e,self.policy,now,latest_ns)
             body = review['body']; exact(body, BODY_FIELDS, 'reviewed body')
-            op = body['op']; exact(op, {'type','to','units'}, 'transfer operation')
+            op = body['op']
+            invoice = invoice_review_context(review,e['state']['genesis'],
+                self.policy['genesis_sha256'],now)
             need(op['type']=='transfer','wallet only supports transfers')
             expected = transfer_review(e,report,decisions,wallet_id,self.policy_id,
                 payer=body['sender'],recipient=op['to'],units=op['units'],
-                valid_until=body['valid_until'],grant_id=body['grant_id'])
+                valid_until=body['valid_until'],grant_id=body['grant_id'],
+                invoice_terms=invoice,genesis_sha256=self.policy['genesis_sha256'])
             need(encode(review)==encode(expected),'reviewed wallet state or transfer changed; review again')
             # No password/key access occurs until evidence, reservations and review
             # have all passed within the one writer transaction.
             key = _load_vault(Path(vault),password)
             need(public(key)==review['signer_public_key'],'vault does not control the reviewed role')
             fresh(e,self.policy,self.clock(),now)
+            invoice_review_context(review,e['state']['genesis'],self.policy['genesis_sha256'],self.clock())
             packet = sign(key,body)
             ledger = restore(e['state']['genesis'],e['state']['native'])
             try: ledger.apply(packet,height=report['state_height']+1)
             finally: ledger.close()
             signed = self.clock(); fresh(e,self.policy,signed,now)
+            invoice_review_context(review,e['state']['genesis'],self.policy['genesis_sha256'],signed)
             decision = {'id':confirmation,'review':review,
                         'wire_hex':canonical(packet).hex(),'signed_ns':signed}
             self.db.execute('INSERT INTO decisions VALUES (?,?,?,?)',
