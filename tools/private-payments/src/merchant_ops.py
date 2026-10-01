@@ -184,6 +184,17 @@ class MerchantOps:
         with self.operation(), self.book() as book:
             return book.enroll_wire(quote_id, payer, wire, evidence=evidence)
 
+    def export_proof(self, quote_id, *, proof_out):
+        """Export exact public paid evidence to one new private file."""
+        hash_text(quote_id); target = private_output(proof_out)
+        with self.operation(), self.book(read_only=True) as book:
+            raw = book.export_proof(quote_id)
+            private_new(target, raw)
+        return {'status':'original_merchant_proof_exported', 'quote_sha256':quote_id,
+            'proof_out':str(target), 'proof_sha256':hashlib.sha256(raw).hexdigest(),
+            'spending_authority':False, 'wallet_reservations_changed':False,
+            'full_public_ledger_disclosed':True, 'onchain_privacy':False}
+
     def serve(self, quote_ids, *, session_file, seconds, port=None):
         integer(seconds, 1, 300)
         target = private_output(session_file)

@@ -42,3 +42,8 @@ there is no reset/repair command.
 The [committed merchant browser](../../docs/MERCHANT_INVOICE_BROWSER.md) adds a
 guarded local view of retained v2 quotes, with separate merchant/native consent
 and historical original-wire recovery. Its listener never owns network lifecycle.
+
+[Portable merchant proofs](../../docs/PORTABLE_MERCHANT_PROOF.md) export retained
+committed invoice/payment/resource evidence with unchanged original bytes. The
+standalone offline checker requires separate trust and intent pins and an explicit
+historical time; it grants no spending or service-delivery authority.

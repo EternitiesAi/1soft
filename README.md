@@ -61,6 +61,12 @@ resource. Private invoice content remains locally encrypted; the ledger remains
 public. Existing workspaces are preserved and cannot enable this capability by
 repinning their files. See [native invoice commitments](docs/NATIVE_INVOICE_COMMITMENTS.md).
 
+Merchants can [export portable payment proofs](docs/PORTABLE_MERCHANT_PROOF.md)
+containing the original committed terms, signed payment, native receipt and public
+content. A separate offline checker replays them under independently supplied
+trust and invoice pins. This proves payment/content binding, with no external
+service delivery or on-chain privacy claim.
+
 ```sh
 python tools/private-payments/scripts/1soft_merchant_network.py init \
   --workspace NEW_PRIVATE_DIRECTORY --engine PINNED_COMETBFT \

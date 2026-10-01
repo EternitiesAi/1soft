@@ -34,6 +34,8 @@ remain available. See [browser payment recovery](BROWSER_PAYMENT_RECOVERY.md).
 
 A wallet receipt does not establish merchant fulfillment. The merchant's existing
 independent replay, enrollment and fulfillment rules still own resource delivery.
+The merchant can separately [export portable payment/content evidence](PORTABLE_MERCHANT_PROOF.md)
+for offline verification under independently retained trust and invoice pins.
 Encrypted local invoice content is application-data encryption; **the native
 ledger and portable history capsules remain public**. There is no on-chain privacy,
 production custody, real-funds service or independent-operator security claim.
