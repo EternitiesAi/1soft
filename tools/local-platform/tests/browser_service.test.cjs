@@ -7,6 +7,24 @@ const test=require('node:test');const assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');const readline=require('node:readline');
 const {chromium}=require(process.env.ONE_BROWSER_TEST_DRIVER||'playwright-core');
 const PUBLIC_FIXTURE_PASSWORD='fixture passphrase not for funds';
+async function waitForLoopback(origin){
+  // WSL's Windows loopback forwarding can lag the actual server listen event.
+  // Inspect only the same guarded GET asset; never retry a financial action.
+  const http=require('node:http'),limit=Date.now()+10000;
+  while(true){
+    try{
+      const status=await new Promise((resolve,reject)=>{
+        const r=http.get(origin+'/',response=>{response.resume();response.once('end',()=>resolve(response.statusCode));});
+        r.once('error',reject);r.setTimeout(1000,()=>r.destroy(Error('loopback readiness timed out')));
+      });
+      assert.equal(status,200,'same guarded loopback asset refused');return;
+    }catch(e){
+      if(e.code!=='ECONNREFUSED'||Date.now()>=limit)throw e;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+  }
+}
+
 test('Chromium completes the guarded service flow with one original native payment',async t=>{
   const root=process.env.ONE_BROWSER_SERVICE_ROOT,python=process.env.ONE_BROWSER_SERVICE_PYTHON;
   assert.ok(root&&python,'explicit existing WSL source/Python required; no auto-install');
@@ -25,11 +43,14 @@ test('Chromium completes the guarded service flow with one original native payme
     let timer;const code=await Promise.race([closed,new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('owned fixture cleanup timed out')),15000))]).finally(()=>clearTimeout(timer));
     for(const r of stopped)assert.equal(r.status,'fulfilled');
     assert.equal(code,0,stderr.join(''));assert.equal(stderr.join(''),'');
-    assert.equal(lines.at(-1).owned_cleanup,true);assert.equal(lines.find(x=>'submissions'in x).submissions,1);
-    t.diagnostic('owned Chromium contexts and native service fixture closed; one native submission');
+    assert.equal(lines.at(-1).owned_cleanup,true);
+    const submissions=lines.find(x=>'submissions'in x).submissions;
+    t.diagnostic('owned Chromium contexts and native service fixture closed; native submissions '+submissions);
+    assert.equal(submissions,1);
   });
   let timer;const fixture=await Promise.race([ready,closed.then(code=>{throw Error('fixture exited before ready: '+code+' '+stderr.join(''));}),new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('owned fixture startup timed out')),15000))]).finally(()=>clearTimeout(timer));
   assert.match(fixture.scope,/no CometBFT/);
+  await waitForLoopback(fixture.origin);
   browser=await chromium.launch({headless:true,executablePath:process.env.ONE_BROWSER_TEST_EXECUTABLE});
   t.diagnostic('Chromium '+browser.version()+'; playwright-core '+require(require('node:path').join(process.env.ONE_BROWSER_TEST_DRIVER||'playwright-core','package.json')).version);
   context=await browser.newContext({viewport:{width:1280,height:900}});const page=await context.newPage();page.setDefaultTimeout(5000);
