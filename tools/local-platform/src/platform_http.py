@@ -19,6 +19,7 @@ POST_FIELDS={
     '/api/import-request':{'request_json'},
     '/api/prepare':{'request_id','role','valid_until'},
     '/api/sign':{'request_id','role','review_json','confirmation','password'},
+    '/api/sign-invoice':{'request_id','role','review_json','confirmation','terms_json','terms_confirmation','password'},
     '/api/submission-review':{'request_id'},
     '/api/submit':{'request_id','review_json','confirmation'},
     '/api/collect':{'request_id'},'/api/retain':{'request_id'},
@@ -48,8 +49,15 @@ def public_review(prepared):
         summary={k:str(review[k]) for k in ('decision_id','payer','grant_id','wire_sha256',
                  'endpoint','valid_until','debit_units','state_height','registry_epoch')}
     # Opaque canonical text avoids loss of 64-bit amounts in JavaScript JSON numbers.
-    return {k:v for k,v in prepared.items() if k!='review'}|{
+    result = {k:v for k,v in prepared.items() if k not in ('review','terms')}|{
         'review_json':encode(review).decode('utf-8'),'summary':summary}
+    if 'terms' in prepared:
+        terms=prepared['terms']
+        result.update(terms_json=encode(terms).decode('utf-8'),
+            terms_summary={k:str(terms[k]) for k in ('request_id','quote_sha256','merchant_origin',
+                'resource_url','network','asset','recipient','amount_units','genesis_sha256','role',
+                'native_confirmation','resource_sha256','invoice_commitment','created_ns','expires_ns')})
+    return result
 
 
 def server(service_factory,*,port=0):
@@ -128,6 +136,8 @@ def server(service_factory,*,port=0):
                 q=load_json(raw,max_bytes=MAX_BODY)
                 need(type(q) is dict and set(q)==fields,'request fields differ')
                 with service_factory() as svc:
+                    if self.path in ('/api/create-request','/api/import-request'):
+                        need(getattr(svc,'allow_unsigned_requests',True),'retained merchant invoices required')
                     if self.path=='/api/create-request':
                         life=integer(q['lifetime_seconds'],1,86400);now=svc.clock()
                         result=svc.add_request(new_request(svc.policy['genesis_sha256'],q['recipient'],q['units'],
@@ -142,6 +152,13 @@ def server(service_factory,*,port=0):
                         password=q.pop('password').encode('utf-8')
                         try:result=svc.approve(q['request_id'],q['role'],canonical_review(q['review_json']),
                                                q['confirmation'],password=password)
+                        finally:password=b''
+                    elif self.path=='/api/sign-invoice':
+                        need(callable(getattr(svc,'approve_invoice',None)),'merchant browser context required')
+                        need(type(q['password']) is str,'vault password text required')
+                        password=q.pop('password').encode('utf-8')
+                        try:result=svc.approve_invoice(q['request_id'],q['role'],canonical_review(q['review_json']),
+                            q['confirmation'],canonical_review(q['terms_json']),q['terms_confirmation'],password=password)
                         finally:password=b''
                     elif self.path=='/api/submission-review':result=public_review(svc.submission_review(q['request_id']))
                     elif self.path=='/api/submit':

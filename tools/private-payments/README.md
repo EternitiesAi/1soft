@@ -38,3 +38,7 @@ Invoice-data and payment passwords use terminal
 input only. Decrypted content is written only to an explicitly selected new private
 file. Preserve the original data vault, invoice store and sole financial journal;
 there is no reset/repair command.
+
+The [committed merchant browser](../../docs/MERCHANT_INVOICE_BROWSER.md) adds a
+guarded local view of retained v2 quotes, with separate merchant/native consent
+and historical original-wire recovery. Its listener never owns network lifecycle.

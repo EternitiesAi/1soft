@@ -25,6 +25,14 @@ function initial(){return {schema:1,format:'1soft/local-platform-state/v1',asset
   genesis_sha256:'b'.repeat(64),policy_id:'c'.repeat(64),
   limits:{rpc_height:64,offline_height:512,wallet_observations:32,wallet_decisions:256,requests:64,receipt_capsules:32,trust_renewal:false},
   real_funds_supported:false,automatic_resend:false,public_deployment:false};}
+function invoiceState(){const s=initial();s.payment_mode='committed_merchant_invoices';s.hidden_generic_request_count=2;
+  s.requests[0].request.created_ns='1700000000000000001';s.requests[0].request.expires_ns='4102444800000000001';
+  s.requests[0].invoice={merchant_origin:'https://merchant.example',resource_url:'https://merchant.example/premium',
+    resource_sha256:'7'.repeat(64),invoice_commitment:'8'.repeat(64),quote_sha256:'6'.repeat(64),
+    created_ns:'1700000000000000001',expires_ns:'4102444800000000001',onchain_privacy:false};return s;}
+function invoicePrepared(q){const p=prepared(q);p.terms_json='{"request_id":"'+q.request_id+'","role":"'+q.role+'","expires_ns":4102444800000000001}';
+  p.terms_confirmation='5'.repeat(64);p.terms_summary={...invoiceState().requests[0].invoice,
+    request_id:q.request_id,role:q.role,native_confirmation:p.confirmation,amount_units:'7',recipient:RECIPIENT};return p;}
 function signed(state){state.requests[0].decision_id=DID;state.requests[0].stage='signed_reserved';
   state.requests[0].delivery={attempt_recorded:false,transport_observation:'not_attempted',receipt_status:'unavailable'};
   state.wallet.pending_debit_units='9';state.wallet.accounts[0].uncommitted_units='985';}
@@ -43,12 +51,13 @@ async function fixture(t,{state=initial(),delayPrepare=false,lostSign=false,lost
     if(req.url==='/api/session'){respond(200,{csrf:'key-free-fixture',development_only:true});return;}
     if(req.url==='/api/state'){
       calls.push({path:req.url,method:req.method});
-      if(failInspection&&calls.some(c=>c.path==='/api/sign'))respond(503,{message:'Fixture inspection unavailable.'});else respond(200,state);return;}
+      if(failInspection&&calls.some(c=>['/api/sign','/api/sign-invoice'].includes(c.path)))respond(503,{message:'Fixture inspection unavailable.'});else respond(200,state);return;}
     if(req.method!=='POST'){respond(404,{message:'Fixture route unavailable.'});return;}
     let raw='';for await(const part of req)raw+=part;const q=JSON.parse(raw);calls.push({path:req.url,method:req.method,body:q});
     if(req.url==='/api/prepare'){
-      const value=prepared(q);if(delayPrepare){releasePrepare=()=>respond(200,value);prepareReceived();}else respond(200,value);return;}
-    if(req.url==='/api/sign'){
+      const value=state.payment_mode?invoicePrepared(q):prepared(q);if(delayPrepare){releasePrepare=()=>respond(200,value);prepareReceived();}else respond(200,value);return;}
+    if(req.url==='/api/sign'||req.url==='/api/sign-invoice'){
+      if(state.payment_mode){assert.equal(req.url,'/api/sign-invoice');assert.equal(q.terms_json,invoicePrepared(q).terms_json);assert.equal(q.terms_confirmation,'5'.repeat(64));}
       assert.equal(q.request_id,RID);assert.equal(q.role,'owner');assert.equal(q.review_json,JSON.stringify(JSON.parse(q.review_json)));
       signed(state);if(lostSign)loseReturn(res);else respond(200,{decision_id:DID,broadcast:false});return;}
     if(req.url==='/api/submission-review'){
@@ -198,4 +207,67 @@ test('ledger-reconciled execution does not invent a collected delivery receipt',
   assert.equal(await f.page.locator('#submission-review').isDisabled(),true);
   assert.doesNotMatch(await f.page.locator('#delivery-status').textContent(),/outcome unknown/i);
   assert.deepEqual(f.errors,[]);
+});
+
+
+test('merchant invoice requires both terms and native debit consent',async t=>{
+  const f=await fixture(t,{state:invoiceState()});
+  assert.equal(await f.page.locator('#request-form').isVisible(),false);
+  assert.match(await f.page.locator('#invoice-facts').textContent(),/https:\/\/merchant.example\/premium/);
+  await f.page.locator('#prepare').click();await f.page.locator('#payment-review').waitFor({state:'visible'});
+  assert.match(await f.page.locator('#terms-facts').textContent(),/https:\/\/merchant.example\/premium/);
+  await f.page.locator('#sign-check').check();await f.page.locator('#password').fill('fixture-password-only');
+  assert.equal(await f.page.locator('#sign').isDisabled(),true);
+  await f.page.locator('#terms-check').check();assert.equal(await f.page.locator('#sign').isDisabled(),false);
+  await f.page.locator('#sign').click();await f.page.waitForFunction(()=>document.querySelector('#feedback').textContent.startsWith('Original signed decision'));
+  const sign=f.calls.find(c=>c.path==='/api/sign-invoice');assert.ok(sign);
+  assert.equal(sign.body.terms_json,invoicePrepared({request_id:RID,role:'owner'}).terms_json);
+  assert.equal(f.calls.filter(c=>c.path==='/api/sign').length,0);assert.deepEqual(f.errors,[]);
+});
+test('changing the signing role clears both merchant consent and native consent',async t=>{
+  const f=await fixture(t,{state:invoiceState()});await f.page.locator('#prepare').click();
+  await f.page.locator('#payment-review').waitFor({state:'visible'});
+  await f.page.locator('#sign-check').check();await f.page.locator('#terms-check').check();
+  await f.page.locator('#password').fill('fixture-password-only');await f.page.locator('#role').selectOption('raven');
+  assert.equal(await f.page.locator('#terms-check').isChecked(),false);
+  assert.equal(await f.page.locator('#sign-check').isChecked(),false);
+  assert.equal(await f.page.locator('#password').inputValue(),'');assert.equal(await f.page.locator('#sign').isDisabled(),true);
+  assert.equal(await f.page.locator('#payment-review').isVisible(),false);assert.deepEqual(f.errors,[]);
+});
+test('lost merchant signature return inspects once and never repeats either approval',async t=>{
+  const f=await fixture(t,{state:invoiceState(),lostSign:true});await f.page.locator('#prepare').click();
+  await f.page.locator('#payment-review').waitFor({state:'visible'});
+  await f.page.locator('#sign-check').check();await f.page.locator('#terms-check').check();
+  await f.page.locator('#password').fill('fixture-password-only');await f.page.locator('#sign').click();
+  await f.page.waitForFunction(()=>!document.querySelector('#feedback').textContent.startsWith('Working'));
+  assert.deepEqual(f.calls.filter(c=>c.method==='POST').map(c=>c.path),['/api/prepare','/api/sign-invoice']);
+  assert.equal(f.calls.filter(c=>c.path==='/api/state').length,2);
+  assert.equal(await f.page.locator('#password').inputValue(),'');
+  assert.equal(await f.page.locator('#terms-check').isChecked(),false);
+  assert.match(await f.page.locator('#pending').textContent(),/9 DEV/);assert.deepEqual(f.errors,[]);
+});
+test('unavailable inspection after merchant signing locks both consents',async t=>{
+  const f=await fixture(t,{state:invoiceState(),lostSign:true,failInspection:true});
+  await f.page.locator('#prepare').click();await f.page.locator('#payment-review').waitFor({state:'visible'});
+  await f.page.locator('#sign-check').check();await f.page.locator('#terms-check').check();
+  await f.page.locator('#password').fill('fixture-password-only');await f.page.locator('#sign').click();
+  await f.page.waitForFunction(()=>!document.querySelector('#feedback').textContent.startsWith('Working'));
+  assert.equal(await f.page.locator('#prepare').isDisabled(),true);assert.equal(await f.page.locator('#sign').isDisabled(),true);
+  assert.equal(await f.page.locator('#terms-check').isChecked(),false);assert.equal(await f.page.locator('#pending').textContent(),'Unavailable');
+  assert.equal(f.calls.filter(c=>c.path==='/api/sign-invoice').length,1);assert.deepEqual(f.errors,[]);
+});
+test('a late merchant review cannot restore consents after a role change',async t=>{
+  const f=await fixture(t,{state:invoiceState(),delayPrepare:true});await f.page.locator('#prepare').click();await f.prepareSeen;
+  assert.equal(await f.page.locator('#terms-check').isDisabled(),true);
+  await f.page.evaluate(()=>{const role=document.querySelector('#role');role.value='raven';role.dispatchEvent(new Event('change'));});
+  f.release();await f.page.waitForFunction(()=>!document.querySelector('#feedback').textContent.startsWith('Working'));
+  assert.equal(await f.page.locator('#payment-review').isVisible(),false);assert.equal(await f.page.locator('#sign').isDisabled(),true);
+  assert.deepEqual(f.errors,[]);
+});
+test('expired merchant invoice keeps recovery and collection but refuses new submission',async t=>{
+  const state=invoiceState();signed(state);state.requests[0].request_open=false;
+  const f=await fixture(t,{state});assert.equal(await f.page.locator('#submission-review').isDisabled(),true);
+  assert.equal(await f.page.locator('#collect').isDisabled(),false);
+  assert.equal(await f.page.locator('#original-download').getAttribute('href'),'/api/original/'+RID);
+  assert.match(await f.page.locator('#progress-next').textContent(),/expired|original|evidence/i);assert.deepEqual(f.errors,[]);
 });

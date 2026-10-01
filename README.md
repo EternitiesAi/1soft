@@ -42,6 +42,15 @@ guarded-service browser journey have bounded fixture checks; native consensus
 evidence remains tied to its earlier exact source. See
 [browser payment recovery](docs/BROWSER_PAYMENT_RECOVERY.md).
 
+## Merchant checkout in the browser
+
+The local invoice wallet shows the merchant's public terms beside the native
+payment review and requires both approvals before signing. It preserves the
+original payment through interrupted responses, expiry and historical recovery.
+The browser never decrypts private invoice content. Merchant fulfillment remains
+independently verified. See [the merchant browser guide](docs/MERCHANT_INVOICE_BROWSER.md)
+for the configured v3 workspace, local launch command and exact verification scope.
+
 ## Signed invoice payments
 
 The fresh **v3 local merchant workspace** supports native signed invoice terms.
