@@ -32,6 +32,16 @@ wallet holds intact until explicit reconciliation. See
 [protocol-4 development scope](docs/PROTOCOL4_DEVELOPMENT.md).
 
 
+## Follow the original payment
+
+The local browser wallet locks pending reviews to their request and signing role,
+inspects the saved wallet after a lost response, and shows the next action for the
+original payment. Unknown outcomes, collected receipts, reconciled execution and
+historical authority remain distinct. Desktop/mobile rendering and an actual
+guarded-service browser journey have bounded fixture checks; native consensus
+evidence remains tied to its earlier exact source. See
+[browser payment recovery](docs/BROWSER_PAYMENT_RECOVERY.md).
+
 ## Signed invoice payments
 
 The fresh **v3 local merchant workspace** supports native signed invoice terms.
