@@ -114,7 +114,7 @@ def main():
                     exporter_journals_unchanged=True,output_collision_preserved=True))
             assert svc.wallet.db.execute('SELECT count(*) FROM decisions').fetchone()[0]==3
             assert svc.delivery.db.execute('SELECT count(*) FROM attempts').fetchone()[0]==3
-            svc.sync(expected_revision=svc.state()['wallet']['revision'])
+            desk.reconcile(rid,expected_revision=svc.state()['wallet']['revision'])
             state=svc.state();assert state['wallet']['pending_debit_units']=='0'
             treasury=next(a for a in state['wallet']['accounts'] if a['id']==net.config['roles']['owner']['payer'])
             assert treasury['recorded_balance']=='957'
@@ -126,6 +126,10 @@ def main():
     except BaseException as exc:
         report.update(status='failed',error_type=type(exc).__name__);private_new(output/'failure.log',traceback.format_exc().encode())
     finally:
+        # Startup can fail after only some handles are appended to the network.
+        # Capture every owned handle even if start()/stop() never return.
+        children=list({id(child):child for child in
+            children+([] if net is None else list(net.apps)+list(net.engines))}.values())
         if net is not None:
             try:
                 stop=net.stop();report['native_shutdown']=stop
@@ -135,7 +139,9 @@ def main():
             if child.poll() is None:
                 try:child.terminate();child.wait(5)
                 except BaseException:
-                    report['cleanup_errors'].append('owned_child_required_kill');child.kill();child.wait(5)
+                    report['cleanup_errors'].append('owned_child_required_kill')
+                    try:child.kill();child.wait(5)
+                    except BaseException:report['cleanup_errors'].append('owned_child_cleanup_failed')
         if net is not None:
             for name in [f'{kind}{i}.log' for kind in ('app','engine') for i in range(4)]:
                 try:
