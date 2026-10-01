@@ -165,10 +165,10 @@ def groups():
     result=dict(legacy.base.GROUPS)
     for tool in ('client','wallet','delivery','recovery','explorer','receipts'):
         name='p4_'+tool;directory='tools/protocol4-'+tool+'/tests'
-        result[name]=(directory,'test_*.py',[directory])
+        result[name]=(directory,'test_*.py',[directory,str(Path(directory).parent/'src'),str(Path(directory).parent/'scripts')])
     for name,directory in (('local_platform','tools/local-platform/tests'),
                            ('private_payments','tools/private-payments/tests')):
-        result[name]=(directory,'test_*.py',[directory])
+        result[name]=(directory,'test_*.py',[directory,str(Path(directory).parent/'src'),str(Path(directory).parent/'scripts')])
     return result
 
 def worker(group,output,source_id,run_id):
@@ -208,7 +208,7 @@ def _qualify_checked(engine,output):
     output=Path(output).absolute();need(not output.is_relative_to(ROOT),'outside-source output required')
     need(not any(p.is_symlink() for p in (output,*output.parents)),'aliased output refused')
     report=dict(schema=1,format=QUALIFICATION_FORMAT,status='running',source=reduced(source),
-        run_id=run_id,gates=[],python_tests=0,javascript_tests=0,go_response_vectors=0,
+        run_id=run_id,gates=[],python_tests=0,javascript_tests=0,go_response_vectors=0,local_automated_qualification=False,
         historical_445_file_byte_seal_claimed=False,changed_parent_paths=[],
         onchain_privacy=False,production_custody=False,independent_security_review=False,
         independent_hosts=False,public_release_ready=False,real_funds_ready=False)
@@ -276,6 +276,14 @@ def _qualify_checked(engine,output):
     except Exception as exc:
         report.update(status='failed',error_type=type(exc).__name__,error_message=str(exc),
             error_frames=[dict(file=Path(f.filename).name,line=f.lineno,function=f.name) for f in traceback.extract_tb(exc.__traceback__)])
+    if report['status']!='passed':
+        assessed={g['name'] for g in report['gates']}|{n for n in ('legacy-javascript','local-javascript') if n in report}
+        if report['go_response_vectors']==4:assessed.add('official-go-vectors')
+        required=list(groups())+['legacy-javascript','local-javascript','official-go-vectors',
+            'p4-baseline','p4-delivery','p4-ledger-receipts','bootstrap-after-turnover','commit-reply-loss-at-emission',
+            'local-product','local-cli','private-consensus','merchant-legacy','invoice-consensus']
+        report['unassessed_gates']=[n for n in required if n not in assessed]
+        report['failed_gates']=[g['name'] for g in report['gates'] if g['passed'] is False]
     private_new(output/'result.json',encode(report));return report
 
 def actual_matches(report,source,run_id,name,directory=None):
