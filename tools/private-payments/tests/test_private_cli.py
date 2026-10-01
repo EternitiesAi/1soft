@@ -221,4 +221,33 @@ class WalletCliTests(unittest.TestCase):
         self.assertEqual(1, len(self.fixture.fx.submissions))
 
 
+    def test_workspace_dispatch_uses_version_factory_without_lifecycle(self):
+        from contextlib import nullcontext
+        rid = self.fixture.imported()
+        fixture = self.fixture
+        class Network:
+            config = {'genesis_sha256': fixture.service.policy['genesis_sha256']}
+            clock = fixture.service.clock
+            def ready(inner): return True
+            def service(inner): return nullcontext(fixture.service)
+            def start(inner): raise AssertionError('payer started engines')
+            def bootstrap(inner, **kw): raise AssertionError('payer bootstrapped')
+            def stop(inner): raise AssertionError('payer stopped engines')
+        args = self.args('prepare', rid, role='raven', valid_until=30, output=self.root/'dispatched-review')
+        with patch.object(CLI, 'network_for_workspace', return_value=Network()) as factory:
+            result = CLI.execute(args)
+        factory.assert_called_once_with(args.workspace, args.engine)
+        self.assertEqual(rid, result['request_id']); self.assertFalse(result['signed'])
+        self.assertEqual('0', fixture.service.state()['wallet']['pending_debit_units'])
+
+    def test_unready_dispatched_workspace_refuses_before_invoice_unlock_or_service(self):
+        from types import SimpleNamespace
+        args = self.args('recover', 'a'*64, output=self.root/'not-created')
+        network = SimpleNamespace(ready=lambda: False, service=lambda: (_ for _ in ()).throw(AssertionError('service reached')))
+        with patch.object(CLI, 'network_for_workspace', return_value=network), \
+             patch.object(CLI, 'open_invoice_storage', side_effect=AssertionError('invoice store reached')):
+            with self.assertRaises(ValueError): CLI.execute(args)
+        self.assertFalse(args.output.exists())
+
+
 if __name__ == '__main__': unittest.main()
