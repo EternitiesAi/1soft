@@ -94,11 +94,11 @@ class PlatformService:
 
     def add_request(self,value):return self.book.add(value)
 
-    def prepare(self,rid,role,*,valid_until):
+    def prepare(self,rid,role,*,valid_until,invoice_terms=None):
         row=self._role(role);entry=self.book.selected(rid)
         req=parse_request(entry['request'],self.policy['genesis_sha256'],now_ns=self.clock())
         prepared=self.wallet.prepare(payer=row['payer'],recipient=req['recipient'],
-            units=int(req['units']),valid_until=valid_until,grant_id=row['grant_id'])
+            units=int(req['units']),valid_until=valid_until,grant_id=row['grant_id'],invoice_terms=invoice_terms)
         if entry['review'] is not None:
             need(encode(entry['review'])==encode(prepared['review']),
                  'request is bound to an earlier review; inspect original decision')
@@ -120,7 +120,7 @@ class PlatformService:
                      'saved decision binding differs')
                 return {'status':'original_signed_decision_retained','decision_id':confirmation,
                         'broadcast':False,'signing_performed':False}
-        current=self.prepare(rid,role,valid_until=body['valid_until'])
+        current=self.prepare(rid,role,valid_until=body['valid_until'],invoice_terms=value.get('invoice_terms'))
         need(encode(current['review'])==encode(value) and current['confirmation']==confirmation,
              'wallet or requested payment changed; review again')
         self.book.bind_review(rid,value)  # Durable correlation before any key access.

@@ -16,6 +16,7 @@ from urllib.parse import unquote_to_bytes, urlsplit
 
 from commit_verifier import b64, encode, exact, load_json
 from native_core import BODY_FIELDS, MAX_UNITS, canonical, identifier
+from invoice_terms import terms_checked, terms_commitment
 from p4_evidence import hash_text, integer, need
 from p4_receipt_capsule import encode_capsule, parse_capsule, verify_capsule
 from payment_requests import MAX_LIFETIME_NS, RequestBook, new_request, request_id
@@ -23,6 +24,7 @@ from payment_requests import MAX_LIFETIME_NS, RequestBook, new_request, request_
 SCHEME = '1soft-p4'
 ASSET = '1soft:DEV'
 OFFER_FORMAT = '1soft/x402-native-offer/v1'
+COMMITTED_OFFER_FORMAT = '1soft/x402-native-offer/v2'
 PAYLOAD_FORMAT = '1soft/x402-native-payment/v1'
 MAX_REQUIRED_HEADER = 8192
 MAX_SIGNATURE_HEADER = 32768
@@ -234,8 +236,12 @@ def _offer(value, expectation, now_ns):
          terms['asset'] == expectation.asset, 'unsupported scheme, network or asset')
     need(_units(terms['amount']) == expectation.amount_units and
          _account(terms['payTo']) == expectation.recipient, 'quoted recipient or amount differs')
-    extra = terms['extra']; exact(extra, EXTRA_FIELDS, 'native quote extra')
-    need(extra['format'] == OFFER_FORMAT and extra['nativeAsset'] == 'DEV' and
+    extra = terms['extra']
+    need(type(extra) is dict, 'native quote extra required')
+    committed = extra.get('format') == COMMITTED_OFFER_FORMAT
+    exact(extra, EXTRA_FIELDS | ({'resourceSha256'} if committed else set()), 'native quote extra')
+    if committed: hash_text(extra['resourceSha256'])
+    need(extra['format'] in (OFFER_FORMAT, COMMITTED_OFFER_FORMAT) and extra['nativeAsset'] == 'DEV' and
          extra['assetTransferMethod'] == 'p4-capsule' and extra['paymentFlow'] == 'upfront',
          'unsupported experimental native mechanism or payment flow')
     need(hash_text(extra['genesisSha256']) == expectation.genesis_sha256 and
@@ -251,7 +257,7 @@ def _offer(value, expectation, now_ns):
 
 
 def make_payment_required(expectation, *, created_ns, expires_ns, quote_nonce,
-                          description='', mime_type='application/octet-stream'):
+                          description='', mime_type='application/octet-stream', resource_sha256=None):
     """Create canonical v2 PaymentRequired; an offer never authorizes spending."""
     e = _expectation(expectation)
     start = integer(created_ns, 1); end = integer(expires_ns, start + 1)
@@ -263,6 +269,9 @@ def make_payment_required(expectation, *, created_ns, expires_ns, quote_nonce,
                   'merchantOrigin': e.merchant_origin, 'nativeAsset': 'DEV',
                   'createdNs': start, 'expiresNs': end, 'quoteNonce': quote_nonce,
                   'assetTransferMethod': 'p4-capsule', 'paymentFlow': 'upfront'}}]}
+    if resource_sha256 is not None:
+        hash_text(resource_sha256)
+        value['accepts'][0]['extra'].update(format=COMMITTED_OFFER_FORMAT,resourceSha256=resource_sha256)
     _offer(value, e, start)
     return _header(value, MAX_REQUIRED_HEADER)
 
@@ -275,8 +284,15 @@ def parse_payment_required(required_header, expectation, *, now_ns):
     extra = offer['accepts'][0]['extra']; quote_id = _sha(raw)
     request = new_request(e.genesis_sha256, e.recipient, e.amount_units,
         created_ns=extra['createdNs'], expires_ns=extra['expiresNs'], note='x402 quote ' + quote_id)
-    return {'offer': offer, 'quote_sha256': quote_id, 'request': request,
+    result = {'offer': offer, 'quote_sha256': quote_id, 'request': request,
             'request_id': request_id(request), 'spending_authority': False}
+    if extra['format'] == COMMITTED_OFFER_FORMAT:
+        result['invoice_terms'] = terms_checked(dict(schema=1,format='1soft/invoice-terms/v1',
+            quote_sha256=quote_id,genesis_sha256=e.genesis_sha256,merchant_origin=e.merchant_origin,
+            resource_url=e.resource_url,resource_sha256=extra['resourceSha256'],network=e.network,
+            asset=e.asset,recipient=e.recipient,amount_units=e.amount_units,
+            created_ns=extra['createdNs'],expires_ns=extra['expiresNs']))
+    return result
 
 
 def retain_payment_request(book, required_header, expectation, *, now_ns):
@@ -302,11 +318,24 @@ def _wire(raw, expectation, payer):
     if body['grant_id']: identifier(body['grant_id'])
     need(type(packet['signature']) is str and
          re.fullmatch(r'[0-9a-f]{128}', packet['signature']) is not None, 'native signature encoding required')
-    op = body['op']; exact(op, {'type', 'to', 'units'}, 'native transfer')
+    op = body['op']
+    need(type(op) is dict, 'native transfer required')
+    exact(op, {'type','to','units'} | ({'invoice_commitment'} if 'invoice_commitment' in op else set()), 'native transfer')
+    if 'invoice_commitment' in op: hash_text(op['invoice_commitment'])
     need(op['type'] == 'transfer' and op['to'] == expectation.recipient and
          str(integer(op['units'], 1, MAX_UNITS)) == expectation.amount_units,
          'original wire changes quoted transfer')
     return packet
+
+
+def invoice_binding(packet, invoice):
+    op = packet['body']['op']
+    if invoice is None:
+        need('invoice_commitment' not in op, 'legacy quote cannot interpret an invoice commitment')
+        return False
+    need(op.get('invoice_commitment') == terms_commitment(invoice),
+         'native invoice commitment differs from exact merchant terms')
+    return True
 
 
 def _capsule_bytes(value, expectation, exact_wire, payer):
@@ -320,11 +349,12 @@ def make_payment_signature(*, required_header, expectation, exact_wire, capsule,
     """Wrap original payment material; structural binding is NOT paid proof.
 
     The full capsule goes in a separately bounded local fixture body. Its digest
-    binds the original bytes here. The native signature does not sign this quote
-    or resource: immutable unique-recipient assignment is separately required.
+    binds the original bytes here. For v2 offers the native signature binds the
+    complete invoice preimage through its commitment; v1 offers remain unbound.
+    Positive execution and immutable merchant consumption are separately required.
     """
     q = parse_payment_required(required_header, expectation, now_ns=now_ns)
-    _wire(exact_wire, expectation, payer)
+    invoice_binding(_wire(exact_wire, expectation, payer), q.get('invoice_terms'))
     _, capsule_raw = _capsule_bytes(capsule, expectation, exact_wire, payer)
     value = {'x402Version': 2, 'resource': q['offer']['resource'],
              'accepted': q['offer']['accepts'][0], 'payload': {
@@ -370,6 +400,11 @@ def verify_merchant_payment(*, signature_header, required_header, expectation, a
     need(proof['genesis_sha256'] == expectation.genesis_sha256 and proof['asset'] == 'DEV' and
          proof['recipient'] == expectation.recipient and proof['amount_units'] == expectation.amount_units and
          proof['payer'] == payer, 'verified native receipt differs from authenticated quote')
+    invoice = q.get('invoice_terms')
+    if invoice is not None:
+        need(checked_capsule['evidence']['state']['genesis'].get('invoice_commitment_version') == 1,
+             'invoice commitment requires verified fresh genesis capability')
+    bound = invoice_binding(_wire(exact_wire, expectation, payer), invoice)
     response = {'success': True, 'transaction': proof['binding']['native_txid'],
         'network': expectation.network, 'payer': payer, 'amount': expectation.amount_units,
         'extensions': {SCHEME: {'quoteSha256': q['quote_sha256'], 'wireSha256': wire_hash,
@@ -381,7 +416,7 @@ def verify_merchant_payment(*, signature_header, required_header, expectation, a
         'receipt_report': proof, 'payment_response_header': _header(response, MAX_RESPONSE_HEADER),
         'merchant_consumption_required': True, 'merchant_replay_checked': False,
         'resource_delivery_authorized': False, 'wallet_reservations_changed': False,
-        'external_settlement_verified': False, 'native_signature_authenticates_resource': False,
+        'external_settlement_verified': False, 'native_signature_authenticates_resource': bound,
         'full_public_ledger_disclosed': True}
 
 

@@ -41,7 +41,10 @@ def parser():
         p = sub.add_parser(command)
         p.add_argument('--workspace', type=path_argument, required=True)
         p.add_argument('--engine', type=path_argument, required=True)
-        if command == 'init': p.add_argument('--recipient-count', type=int, default=3)
+        if command == 'init':
+            p.add_argument('--recipient-count', type=int, default=3)
+            p.add_argument('--invoice-commitments', action='store_true',
+                help='create a fresh v3 workspace with native signed invoice terms')
         else: p.add_argument('--seconds', type=int, default=60,
             help='1-300 second operating window, including startup; shutdown has separate bounded waits')
     return result
@@ -134,7 +137,8 @@ def execute(args):
     need(args.command == 'init', 'unsupported development network operation')
     count = integer(args.recipient_count, MIN_RECIPIENTS, MAX_RECIPIENTS)
     secret = password(confirm=True)
-    try: q = initialize(args.workspace, args.engine, password=secret, recipient_count=count)
+    options = {'invoice_commitments': True} if args.invoice_commitments else {}
+    try: q = initialize(args.workspace, args.engine, password=secret, recipient_count=count, **options)
     finally: secret = None
     return {'status': 'merchant_development_workspace_initialized',
         'genesis_sha256': q['genesis_sha256'], 'endpoint': q['endpoint'],

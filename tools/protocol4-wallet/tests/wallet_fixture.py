@@ -20,7 +20,7 @@ from p4_evidence import FORMAT,POLICY_FORMAT
 PASSWORD=b'fixture passphrase not for funds'
 
 class Chain:
-    def __init__(self, root, *, budget=100, balance=1000):
+    def __init__(self, root, *, budget=100, balance=1000, invoice_commitments=False, native_asset='DEV'):
         self.root=Path(root); self.keys=[Ed25519PrivateKey.from_private_bytes(bytes([i])*32) for i in range(181,199)]
         self.admins=[Ed25519PrivateKey.from_private_bytes(bytes([i])*32) for i in range(171,175)]
         self.owner=Ed25519PrivateKey.from_private_bytes(b'\x8e'*32)
@@ -34,9 +34,10 @@ class Chain:
             'validators':self.roster,'administrators':{'format':'threshold-ed25519-v1',
             'public_keys':sorted(public(k) for k in self.admins),'threshold':3},
             'minimum_delay_blocks':2,'cooldown_blocks':1,'minimum_validators':4,'maximum_power_bps':3333}
-        self.g={'chain_id':rg['chain_id'],'asset':'DEV','fee':2,'protocol_version':4,
+        self.g={'chain_id':rg['chain_id'],'asset':native_asset,'fee':2,'protocol_version':4,
             'allocations':[{'public_key':public(self.owner),'units':balance},
                            {'public_key':public(self.merchant_key),'units':0}], 'validator_registry':rg}
+        if invoice_commitments:self.g['invoice_commitment_version']=1
         engine={'chain_id':self.g['chain_id'],'initial_height':'1','app_state':self.g,'validators':[
             {'address':v.address.hex().upper(),'pub_key':{'type':'tendermint/PubKeyEd25519',
             'value':base64.b64encode(v.public_key).decode()},'power':str(v.power),'name':'FIXTURE'}

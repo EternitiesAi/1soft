@@ -4,6 +4,7 @@ Runs real command callers, four local validators and independently replayed
 public receipts. No public network, real funds or production privacy claim.
 """
 import base64
+from dataclasses import asdict, replace
 from contextlib import ExitStack
 import hashlib
 import http.client
@@ -19,6 +20,8 @@ import traceback
 import uuid
 
 from block_application import encode, restore
+from invoice_terms import terms_commitment
+from native_invoice_qualification import INVOICE_CHECKS,invoice_report_matches
 from commit_verifier import load_json
 from invoice_book import open_invoice_storage
 from local_devnet import ROOT, PIN_SHA, private_new, read_private, rpc, wait, verify_engine
@@ -28,7 +31,8 @@ from merchant_ops import MerchantOps
 from merchant_qualification import MERCHANT_CHECKS, actual_report_matches
 from p4_evidence import need
 from p4_receipt_capsule import verify_capsule
-from payment_x402 import NativePaymentExpectation, parse_payment_required, parse_payment_response, payment_header
+from payment_x402 import (NativePaymentExpectation,TrustedMerchantAssignment,make_payment_required,
+    parse_payment_required,parse_payment_response,payment_header,verify_merchant_payment)
 from private_acceptance import source_snapshot, stop_owned_web
 from private_cli_acceptance import terminal_command
 from private_payment_desk import PrivatePaymentDesk
@@ -81,7 +85,8 @@ def cleanup_owned_runtime(root, *, children, threads, errors):
         return False
 
 
-def run_merchant(engine,output,*,source=None,run_id=None):
+def run_merchant(engine,output,*,source=None,run_id=None,invoice_commitments=False):
+    need(type(invoice_commitments) is bool,'explicit invoice capability selection required')
     output=Path(output).absolute()
     need(not output.is_relative_to(ROOT) and not output.is_symlink(),'outside-source evidence required')
     for parent in (output.parent,*output.parent.parents): need(not parent.is_symlink(),'aliased evidence parent')
@@ -104,6 +109,14 @@ def run_merchant(engine,output,*,source=None,run_id=None):
     def check(index,condition):
         name=MERCHANT_CHECKS[index]
         need(name not in {c['name'] for c in report['checks']},'duplicate actual check')
+        report['checks'].append(dict(name=name,passed=bool(condition)))
+        print(encode(dict(check=name,passed=bool(condition))).decode(),flush=True)
+        need(condition,name)
+
+    def invoice_check(index,condition):
+        need(invoice_commitments,'invoice check requires explicit fresh capability')
+        name=INVOICE_CHECKS[index]
+        need(name not in {c['name'] for c in report['checks']},'duplicate invoice check')
         report['checks'].append(dict(name=name,passed=bool(condition)))
         print(encode(dict(check=name,passed=bool(condition))).decode(),flush=True)
         need(condition,name)
@@ -144,7 +157,7 @@ def run_merchant(engine,output,*,source=None,run_id=None):
             stack.callback(remove_runtime)
             workspace=root/'network';invoices=root/'invoices'
             n_args=['--workspace',workspace,'--engine',engine]
-            cli('network','init',[*n_args,'--recipient-count',3],payment_password)
+            cli('network','init',[*n_args,'--recipient-count',3,*(['--invoice-commitments'] if invoice_commitments else [])],payment_password)
             launched=cli('network','run',[*n_args,'--seconds',1],payment_password)
             need(launched['validator_count']==4 and launched['merchant_recipient_count']==3 and
                  launched['trust_renewed'] is False and launched['owned_processes_after_cleanup']==0 and
@@ -155,6 +168,10 @@ def run_merchant(engine,output,*,source=None,run_id=None):
             genesis=read_private(workspace/'engine-genesis.json');app_genesis=load_json(read_private(workspace/'app-genesis.json'))
             check(1,app_genesis['protocol_version']==4 and app_genesis['fee']==2 and
                 [r['units'] for r in app_genesis['allocations']]==[1000,0,0,0])
+            if invoice_commitments:
+                report.update(invoice_commitment_version=1,workspace_schema=config['schema'])
+                invoice_check(0,config['schema']==3 and config['format']=='1soft/local-development-workspace/v3' and
+                    type(app_genesis.get('invoice_commitment_version')) is int and app_genesis['invoice_commitment_version']==1)
             def stop_net():
                 if net is not None:
                     for process in net.apps+net.engines:
@@ -203,8 +220,10 @@ def run_merchant(engine,output,*,source=None,run_id=None):
                 header=read_private(directory/'required.txt').decode();expected=NativePaymentExpectation(**load_json(read_private(directory/'expectation.json')))
                 quote=parse_payment_required(header,expected,now_ns=time.time_ns())
                 rows.append(dict(directory=directory,resource=resource,qid=qid,expected=expected,header=header,
-                    rid=quote['request_id'],amount=amount,role=('owner','raven','atlas')[i],route='/premium/invoice-'+str(i)))
+                    rid=quote['request_id'],amount=amount,role=('owner','raven','atlas')[i],route='/premium/invoice-'+str(i),terms=quote.get('invoice_terms')))
             check(5,all(row['expected'].recipient==config['merchant_recipients'][i] and row['expected'].amount_units==row['amount'] for i,row in enumerate(rows)))
+            if invoice_commitments:
+                invoice_check(1,all(r['terms'] is not None and r['terms']['resource_sha256']==hashlib.sha256(r['resource']).hexdigest() for r in rows))
             inspected=cli('merchant','inspect',n_args)
             check(6,inspected['assigned_recipient_count']==3 and len({r['expected'].recipient for r in rows})==3)
             def exhausted():
@@ -255,6 +274,9 @@ def run_merchant(engine,output,*,source=None,run_id=None):
                     cli('private','recover',[*base_args,'--request-id',rid,'--output',directory/'wire.json'])
                     row['wire']=read_private(directory/'wire.json');row['wire_hash']=hashlib.sha256(row['wire']).hexdigest()
                     row['ciphertext']=invoice.envelope(rid)
+                    if invoice_commitments:
+                        row['signed_terms_match']=(prepared['review']['invoice_terms']==row['terms'] and
+                            load_json(row['wire'])['body']['op']['invoice_commitment']==terms_commitment(row['terms']))
                     independent=svc.store.export(svc.store.current()['evidence_id'])
                     private_new(directory/'enrollment-evidence.json',encode(independent))
                     enrolled=cli('merchant','enroll-wire',[*n_args,'--quote-id',row['qid'],'--payer',payer,
@@ -274,10 +296,57 @@ def run_merchant(engine,output,*,source=None,run_id=None):
                     need(verified['native_execution_replayed'] is True and verified['amount_units']==row['amount'] and
                         verified['fee_units']=='2' and verified['recipient']==row['expected'].recipient and
                         verified['grant_id']==config['roles'][role]['grant_id'],'independent native payment terms replay')
+                    if invoice_commitments:
+                        row['generic_capsule_unclaimed']=verified.get('native_signature_authenticates_resource',False) is False
                     report['payments'].append(dict(role=role,recipient=verified['recipient'],units=verified['amount_units'],fee=verified['fee_units'],
                         request_id=rid,quote_sha256=row['qid'],wire_sha256=row['wire_hash'],native_txid=verified['binding']['native_txid'],capsule_sha256=cid))
+                    if invoice_commitments:
+                        report['payments'][-1].update(invoice_commitment=terms_commitment(row['terms']),resource_sha256=row['terms']['resource_sha256'])
                     for name,raw in (('wire',row['wire']),('capsule',row['capsule']),('envelope',row['ciphertext'])):
                         private_new(output/(name+'-'+role+'.json'),raw)
+                if invoice_commitments:
+                    invoice_check(2,all(r['signed_terms_match'] for r in rows))
+                    invoice_check(3,all(r['generic_capsule_unclaimed'] for r in rows))
+                    positives=[]
+                    for row in rows:
+                        assignment=TrustedMerchantAssignment(row['qid'],row['rid'],row['expected'].recipient,payer,row['wire_hash'])
+                        row['verification_ns']=time.time_ns()
+                        positive=verify_merchant_payment(signature_header=row['signature'],required_header=row['header'],
+                            expectation=row['expected'],assignment=assignment,exact_wire=row['wire'],capsule=row['capsule'],
+                            genesis_bytes=genesis,policy=policy,payer=payer,now_ns=row['verification_ns'])
+                        positives.append(positive['native_signature_authenticates_resource'] is True)
+                        artifact=encode(dict(schema=1,required_header=row['header'],expectation=asdict(row['expected']),
+                            invoice_terms=row['terms'],public_resource=base64.b64encode(row['resource']).decode('ascii'),
+                            resource_sha256=hashlib.sha256(row['resource']).hexdigest(),payment_signature_header=row['signature'],
+                            historical_verification_ns=row['verification_ns']))
+                        need(all(secret not in artifact for secret in forbidden),'private data in public invoice proof')
+                        name='public-invoice-'+row['role']+'.json';private_new(output/name,artifact)
+                        payment=next(p for p in report['payments'] if p['role']==row['role'])
+                        payment.update(invoice_artifact=name,invoice_artifact_sha256=hashlib.sha256(artifact).hexdigest())
+                    invoice_check(4,all(positives));report['native_signature_authenticates_resource']=True
+                    original=rows[0];other=replace(original['expected'],resource_url=origin+'/different-exact-invoice')
+                    other_header=make_payment_required(other,created_ns=original['terms']['created_ns'],
+                        expires_ns=original['terms']['expires_ns'],quote_nonce=secrets.token_hex(32),resource_sha256=hashlib.sha256(b'Different public resource').hexdigest())
+                    quote=parse_payment_required(other_header,other,now_ns=time.time_ns())
+                    wrapper=load_json(base64.b64decode(original['signature'],validate=True))
+                    wrapper.update(resource=quote['offer']['resource'],accepted=quote['offer']['accepts'][0])
+                    wrapper['payload'].update(quoteSha256=quote['quote_sha256'],requestId=quote['request_id'])
+                    wrong=base64.b64encode(encode(wrapper)).decode('ascii')
+                    assignment=TrustedMerchantAssignment(quote['quote_sha256'],quote['request_id'],other.recipient,payer,original['wire_hash'])
+                    refused=False;wrong_verification_ns=time.time_ns()
+                    try:
+                        verify_merchant_payment(signature_header=wrong,required_header=other_header,expectation=other,
+                            assignment=assignment,exact_wire=original['wire'],capsule=original['capsule'],genesis_bytes=genesis,
+                            policy=policy,payer=payer,now_ns=wrong_verification_ns)
+                    except ValueError as exc:refused='commitment' in str(exc)
+                    invoice_check(5,refused and other.recipient==original['expected'].recipient and other.amount_units==original['amount'])
+                    negative=encode(dict(schema=1,original_role=original['role'],required_header=other_header,
+                        expectation=asdict(other),payment_signature_header=wrong,original_wire_sha256=original['wire_hash'],
+                        original_capsule_sha256=original['cid'],historical_verification_ns=wrong_verification_ns,
+                        refused_for_commitment=refused))
+                    need(all(secret not in negative for secret in forbidden),'private data in negative public proof')
+                    private_new(output/'wrong-invoice-proof.json',negative)
+                    report['wrong_invoice_proof_sha256']=hashlib.sha256(negative).hexdigest()
                 check(13,len(report['payments'])==3 and all(c['password_prompts']==1 for c in report['cli_calls'] if c['command']=='approve'))
                 check(14,svc.state()['wallet']['pending_debit_units']=='37' and svc.wallet.db.execute('SELECT count(*) FROM decisions').fetchone()[0]==3)
                 check(15,all(r['enrollment']['wire_sha256']==rows[i]['wire_hash'] for i,r in enumerate(ops.inspect()['quotes'])))
@@ -330,6 +399,8 @@ def run_merchant(engine,output,*,source=None,run_id=None):
                         '--request-id',row['rid'],'--output',row['directory']/'cold-private.json'],invoice_password)
                     decrypted.append(load_json(read_private(row['directory']/'cold-private.json'))==content[i])
                 check(28,all(recovered));check(29,all(decrypted))
+                if invoice_commitments:
+                    invoice_check(6,all(recovered) and all(load_json(read_private(r['directory']/'cold-wire.json'))['body']['op']['invoice_commitment']==terms_commitment(r['terms']) for r in rows))
                 cold=cli('merchant','inspect',n_args)
                 check(30,cold==before_inspection)
                 with ops.book() as book:
@@ -358,8 +429,10 @@ def run_merchant(engine,output,*,source=None,run_id=None):
         report['owned_processes_after_cleanup'],report['owned_threads_after_cleanup']=owned_remaining(children,threads,errors=report['cleanup_errors'])
         check(36,report['owned_processes_after_cleanup']==report['owned_threads_after_cleanup']==0 and not report['cleanup_errors'])
         report['status']='passed'
-        if source is not None:need(actual_report_matches(report,{k:source[k] for k in ('commit','tree','source_id','tracked_files')},report['run_id']),'complete attributed merchant report')
-        else:need(len(report['checks'])==len(MERCHANT_CHECKS) and all(c['passed'] for c in report['checks']),'complete exploratory checks')
+        if source is not None:
+            predicate=invoice_report_matches if invoice_commitments else actual_report_matches
+            need(predicate(report,{k:source[k] for k in ('commit','tree','source_id','tracked_files')},report['run_id']),'complete attributed merchant report')
+        else:need(len(report['checks'])==len(MERCHANT_CHECKS)+(len(INVOICE_CHECKS) if invoice_commitments else 0) and all(c['passed'] for c in report['checks']),'complete exploratory checks')
     except Exception as exc:
         report.update(status='failed',error_type=type(exc).__name__,error_frames=[dict(file=Path(f.filename).name,line=f.lineno,function=f.name) for f in traceback.extract_tb(exc.__traceback__)])
     finally:

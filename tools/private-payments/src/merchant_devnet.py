@@ -31,6 +31,8 @@ from validator_sets_core import canonical_roster
 
 FORMAT = '1soft/local-development-workspace/v2'
 READY_FORMAT = '1soft/local-development-ready/v2'
+INVOICE_FORMAT = '1soft/local-development-workspace/v3'
+INVOICE_READY_FORMAT = '1soft/local-development-ready/v3'
 MIN_RECIPIENTS = 2
 MAX_RECIPIENTS = 16
 PUBLIC_KEYS_FILE = 'development-keys.json'
@@ -66,8 +68,9 @@ def _public_keys(root, count):
     return keys
 
 
-def initialize(workspace, engine, *, password, recipient_count=3):
+def initialize(workspace, engine, *, password, recipient_count=3, invoice_commitments=False):
     """Create a new private dev workspace only; partial output is never repaired."""
+    need(type(invoice_commitments) is bool, 'explicit boolean invoice capability required')
     count = _count(recipient_count); _password(password)
     root = Path(workspace).absolute()
     need(not root.is_relative_to(ROOT), 'development workspace must be outside source')
@@ -101,6 +104,7 @@ def initialize(workspace, engine, *, password, recipient_count=3):
         'allocations': [{'public_key': keys['owner'], 'units': 1000},
                        *({'public_key': keys[f'merchant{i}'], 'units': 0} for i in range(count))],
         'validator_registry': registry}
+    if invoice_commitments: genesis['invoice_commitment_version'] = 1
     private_new(root/'app-genesis.json', encode(genesis))
     engine_genesis.update(chain_id=chain, initial_height='1', app_state=genesis, validators=initial)
     engine_genesis['consensus_params']['block'].update(max_bytes='1048576', max_gas='-1')
@@ -122,7 +126,8 @@ def initialize(workspace, engine, *, password, recipient_count=3):
             'consensus.timeout_commit': '4s', 'mempool.max_tx_bytes': 65536}), encoding='utf-8')
     roles = {name: dict(payer=payer, grant_id='' if name == 'owner' else name, vault=name+'.pem')
              for name in ('owner', 'raven', 'atlas')}
-    config = {'schema': 2, 'format': FORMAT, 'chain_id': chain,
+    config = {'schema': 3 if invoice_commitments else 2,
+        'format': INVOICE_FORMAT if invoice_commitments else FORMAT, 'chain_id': chain,
         'genesis_sha256': hashlib.sha256(full).hexdigest(),
         'native_sha256': hashlib.sha256(encode(genesis)).hexdigest(), 'engine_sha256': PIN_SHA,
         'ports': ports, 'endpoint': f'http://127.0.0.1:{http[0]}/', 'roles': roles,
@@ -171,7 +176,8 @@ def load_configuration(workspace):
     q = load_json(raw)
     need(type(q) is dict and set(q) == {'schema', 'format', 'chain_id', 'genesis_sha256', 'native_sha256',
          'engine_sha256', 'ports', 'endpoint', 'roles', 'merchant', 'merchant_recipients', 'files'} and
-         type(q['schema']) is int and q['schema'] == 2 and q['format'] == FORMAT and encode(q) == raw,
+         type(q['schema']) is int and (q['schema'], q['format']) in
+         ((2, FORMAT), (3, INVOICE_FORMAT)) and encode(q) == raw,
          'merchant workspace configuration differs')
     pool = q['merchant_recipients']; need(type(pool) is list, 'bounded ordered recipient pool required')
     count = _count(len(pool))
@@ -190,6 +196,9 @@ def load_configuration(workspace):
     g, _ = p4_genesis(full, q['genesis_sha256'])
     need(encode(load_json(full)) == full and g['asset'] == 'DEV' and g['chain_id'] == q['chain_id'] and
          g['fee'] == 2 and g['protocol_version'] == 4, 'development genesis required')
+    need((q['schema'] == 2 and 'invoice_commitment_version' not in g) or
+         (q['schema'] == 3 and type(g.get('invoice_commitment_version')) is int and
+          g['invoice_commitment_version'] == 1), 'workspace/native invoice capability differs')
     need(read_private(root/'app-genesis.json') == encode(g) and
          hashlib.sha256(encode(g)).hexdigest() == q['native_sha256'], 'native genesis differs')
     expected_allocations = [{'public_key': keys['owner'], 'units': 1000},
@@ -258,7 +267,8 @@ class MerchantNetwork(LocalNetwork):
         need(not p.is_symlink(), 'workspace readiness file is linked')
         if not p.exists(): return False
         raw = read_private(p); q = load_json(raw)
-        expected = {'schema': 2, 'format': READY_FORMAT,
+        expected = {'schema': self.config['schema'],
+            'format': INVOICE_READY_FORMAT if self.config['schema'] == 3 else READY_FORMAT,
             'workspace_sha256': hashlib.sha256(read_private(self.root/'workspace.json')).hexdigest(),
             'policy_sha256': hashlib.sha256(read_private(self.root/'policy.json')).hexdigest()}
         need(q == expected and type(q.get('schema')) is int and encode(q) == raw,
@@ -357,7 +367,8 @@ class MerchantNetwork(LocalNetwork):
                                  self.policy(), self.clock())['evidence']
         with self.service(create=True) as svc:
             svc.import_checkpoint(proof, expected_tip=None); svc.sync(expected_revision=None)
-        ready = encode({'schema': 2, 'format': READY_FORMAT,
+        ready = encode({'schema': self.config['schema'],
+            'format': INVOICE_READY_FORMAT if self.config['schema'] == 3 else READY_FORMAT,
             'workspace_sha256': hashlib.sha256(read_private(self.root/'workspace.json')).hexdigest(),
             'policy_sha256': hashlib.sha256(read_private(policy_path)).hexdigest()})
         private_new(self.root/'READY.json', ready)
@@ -374,6 +385,6 @@ def network_for_workspace(workspace, engine, *, clock=time.time_ns):
     selected = q.get('format')
     if selected == '1soft/local-development-workspace/v1':
         return LocalNetwork(workspace, engine, clock=clock)
-    if selected == FORMAT:
+    if selected in (FORMAT, INVOICE_FORMAT):
         return MerchantNetwork(workspace, engine, clock=clock)
     raise ValueError('unsupported development workspace format')

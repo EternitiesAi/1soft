@@ -9,6 +9,7 @@ import time
 from block_application import encode
 from commit_verifier import load_json
 from native_core import identifier, MAX_UNITS
+from invoice_terms import terms_checked, terms_commitment
 from p4_evidence import freeze, hash_text, integer, need, content_id
 from p4_read_store import private_path
 
@@ -68,10 +69,19 @@ def parse_request(value,genesis_sha256,*,now_ns,historical=False):
 def _review(value,request):
     value=freeze(value,32768)
     need(value.get('schema')==1 and type(value.get('schema')) is int and
-         value.get('format')=='1soft/p4-transfer-review/v1','transfer review required')
+         value.get('format') in ('1soft/p4-transfer-review/v1','1soft/p4-invoice-transfer-review/v1'),'transfer review required')
     hash_text(value['wallet_id']);hash_text(value['policy_id'])
     op=value['body']['op']
-    need(type(op) is dict and set(op)=={'type','to','units'} and op['type']=='transfer', 'transfer operation required')
+    committed=value['format']=='1soft/p4-invoice-transfer-review/v1'
+    need(type(op) is dict and set(op)==({'type','to','units','invoice_commitment'} if committed else {'type','to','units'}) and op['type']=='transfer', 'transfer operation required')
+    if committed:
+        terms=terms_checked(value['invoice_terms'],genesis_sha256=request['genesis_sha256'],
+                            recipient=request['recipient'],units=int(request['units']))
+        need(op['invoice_commitment']==terms_commitment(terms) and
+             request['note']=='x402 quote '+terms['quote_sha256'] and
+             request['created_ns']==terms['created_ns'] and request['expires_ns']==terms['expires_ns'],
+             'invoice review changes original quote identity or lifetime')
+    else:need('invoice_terms' not in value,'plain transfer review cannot carry invoice terms')
     integer(op['units'],1,MAX_UNITS)
     need(op['to']==request['recipient'] and op['units']==int(request['units']),'review changes requested payment')
     return value
