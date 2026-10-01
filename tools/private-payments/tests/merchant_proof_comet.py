@@ -66,7 +66,7 @@ def main():
                 rid=desk.import_invoice(quote['required_header'],quote['expectation'],
                     dict(description='private fixture brief',contact='private@example.invalid',content='PRIVATE_CONTENT_SENTINEL'),
                     invoice_password=PASSWORD)['request_id']
-                prepared=desk.prepare(rid,role,valid_until=svc.state()['wallet']['state_height']+64)
+                prepared=desk.prepare(rid,role,valid_until=svc.state()['wallet']['state_height']+32)
                 desk.approve(rid,role,prepared['review'],prepared['confirmation'],prepared['terms_confirmation'],payment_password=PASSWORD)
                 wire=desk.recover(rid);body=json.loads(wire)['body'];chosen=net.config['roles'][role]
                 assert body['sender']==chosen['payer'] and body['grant_id']==chosen['grant_id']
