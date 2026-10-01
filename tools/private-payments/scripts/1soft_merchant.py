@@ -52,10 +52,10 @@ def output_path(path):
 def parser():
     result = MerchantParser(description=__doc__)
     sub = result.add_subparsers(dest='command', required=True, parser_class=MerchantParser)
-    for command in ('init-book', 'add-quote', 'inspect', 'export-quote', 'enroll-wire', 'serve'):
+    for command in ('init-book', 'add-quote', 'inspect', 'export-quote', 'export-proof', 'enroll-wire', 'serve'):
         p = sub.add_parser(command)
         for name in ('workspace', 'engine'): p.add_argument('--' + name, type=path_argument, required=True)
-        if command in ('export-quote', 'enroll-wire'): p.add_argument('--quote-id', required=True)
+        if command in ('export-quote', 'export-proof', 'enroll-wire'): p.add_argument('--quote-id', required=True)
         if command == 'add-quote':
             p.add_argument('--recipient-index', type=int, required=True)
             p.add_argument('--origin', required=True)
@@ -71,6 +71,7 @@ def parser():
         if command == 'export-quote':
             p.add_argument('--required-out', type=path_argument, required=True)
             p.add_argument('--expectation-out', type=path_argument, required=True)
+        if command == 'export-proof': p.add_argument('--proof-out', type=path_argument, required=True)
         if command == 'enroll-wire':
             p.add_argument('--payer', required=True)
             p.add_argument('--wire', type=path_argument, required=True)
@@ -88,7 +89,8 @@ def parser():
 
 def execute(args):
     command = args.command; resource = wire = evidence = None
-    if command in ('export-quote', 'enroll-wire'): hash_text(args.quote_id)
+    if command in ('export-quote', 'export-proof', 'enroll-wire'): hash_text(args.quote_id)
+    if command == 'export-proof': output_path(args.proof_out)
     if command == 'export-quote':
         required = output_path(args.required_out); expected = output_path(args.expectation_out)
         need(required != expected, 'quote output files must be distinct')
@@ -123,6 +125,7 @@ def execute(args):
             expires_ns=args.expires_ns, description=args.description, mime_type=args.mime_type)
     if command == 'export-quote':
         return ops.export_quote(args.quote_id, required_out=args.required_out, expectation_out=args.expectation_out)
+    if command == 'export-proof': return ops.export_proof(args.quote_id, proof_out=args.proof_out)
     if command == 'enroll-wire':
         return ops.enroll_wire(args.quote_id, payer=args.payer, wire=wire, evidence=evidence)
     if command == 'serve':

@@ -38,7 +38,7 @@ class MerchantCLITests(unittest.TestCase):
     def test_help_exposes_only_explicit_local_merchant_operations(self):
         result = self.run_cli('--help')
         self.assertEqual(result.returncode, 0)
-        for command in ('init-book', 'add-quote', 'inspect', 'export-quote', 'enroll-wire', 'serve'):
+        for command in ('init-book', 'add-quote', 'inspect', 'export-quote', 'export-proof', 'enroll-wire', 'serve'):
             self.assertIn(command.encode(), result.stdout)
         self.assertFalse((self.root / 'merchant.sqlite').exists())
 
@@ -65,6 +65,12 @@ class MerchantCLITests(unittest.TestCase):
         self.assert_refused(result)
         self.assertEqual(read_private(out), b'original private material')
         self.assertFalse((self.root / 'other').exists())
+
+    def test_proof_export_preserves_existing_output_before_engine_access(self):
+        out = self.root / 'retained'; private_new(out, b'original public evidence')
+        result = self.run_cli('export-proof', *self.context(), '--quote-id', 'a'*64, '--proof-out', out)
+        self.assert_refused(result)
+        self.assertEqual(read_private(out), b'original public evidence')
 
     def test_serve_bounds_and_session_no_overwrite_precede_any_server_binding(self):
         session = self.root / 'session'; private_new(session, b'original session')

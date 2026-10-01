@@ -401,6 +401,28 @@ class MerchantBook:
             _, entries = self._catalog(self._now()); need(quote_id in entries, 'merchant quote unavailable')
             return self._display(quote_id, entries[quote_id])
 
+    def export_proof(self, quote_id):
+        """Read-only original public evidence, reverified at retained fulfillment.
+
+        Export neither consumes again nor signs, submits, renews trust or retires
+        a wallet hold. The local book supplies its own independently retained
+        intent; recipients of this bundle must supply separate trust/intent pins.
+        """
+        from merchant_proof import make_merchant_proof
+        hash_text(quote_id)
+        with self.atomic(write=False):
+            _, entries = self._catalog(self._now())
+            need(quote_id in entries, 'merchant quote unavailable')
+            row = entries[quote_id]; enrollment = row['enrollment']; saved = row['fulfillment']
+            need(enrollment is not None and saved is not None, 'original completed fulfillment required')
+            assignment = TrustedMerchantAssignment(quote_id,row['quote']['request_id'],
+                row['expectation'].recipient,enrollment['payer'],enrollment['wire_sha256'])
+            return make_merchant_proof(required_header=row['required'], exact_wire=enrollment['wire'],
+                capsule=saved['capsule'], signature_header=saved['signature_header'],
+                response_header=saved['payment_response_header'], resource=saved['resource'],
+                genesis_bytes=self.genesis, policy=self.policy, expectation=row['expectation'],
+                assignment=assignment, now_ns=saved['fulfilled_ns'])
+
     def entries(self):
         with self.atomic(write=False):
             _, entries = self._catalog(self._now())
