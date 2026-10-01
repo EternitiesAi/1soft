@@ -20,7 +20,8 @@ from block_application import encode
 from commit_verifier import load_json
 from invoice_book import initialize_invoice_storage, open_invoice_storage
 from invoice_privacy import MAX_PLAINTEXT_BYTES, MAX_ENVELOPE_BYTES
-from local_devnet import LocalNetwork, private_new, read_private
+from local_devnet import private_new, read_private
+from merchant_devnet import network_for_workspace
 from native_core import identifier
 from p4_evidence import content_id, hash_text, integer, need
 from p4_read_store import private_path
@@ -256,7 +257,7 @@ def execute(args):
                          status='invoice_plaintext_written_to_private_file', sensitive=True)
     # Connect to an already initialized ready workspace; no engine start,
     # bootstrap, trust renewal or stop is reachable from this entry point.
-    network = LocalNetwork(args.workspace, args.engine)
+    network = network_for_workspace(args.workspace, args.engine)
     need(network.ready(), 'existing ready native workspace required')
     with network.service() as service:
         with open_invoice_storage(args.invoices, network.config['genesis_sha256'], clock=network.clock) as invoices:

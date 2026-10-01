@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from p4_fixture import build, bundle
 from p4_receipt_capsule import encode_capsule, make_capsule, MAX_CAPSULE_BYTES
@@ -227,6 +228,104 @@ class MerchantHTTPTests(unittest.TestCase):
             self.request(path='/not-the-resource/' + self.token)
         self.assertEqual(output.getvalue(), '')
         with self.assertRaises(ValueError): merchant_http.server(self.factory, session_token='short')
+
+    def multi_routes(self, *, configure=True, duplicate_path=False, empty_query=False):
+        self.http.shutdown(); self.thread.join(timeout=6); self.http.server_close()
+        del self.thread
+        self.path = self.root / 'multi.sqlite'
+        with self.factory(create=True): pass
+        self.http = merchant_http.server(self.factory, session_token=self.token)
+        rows = []
+        for i, recipient in enumerate((self.case['merchant'], self.case['payer'])):
+            path = '/public/one' if i == 0 or duplicate_path else '/public/two'
+            if empty_query and i == 0: path += '?'
+            expectation = NativePaymentExpectation(self.http.origin, self.http.origin + path,
+                '1soft:http-fixture', '1soft:DEV', self.case['policy']['genesis_sha256'], recipient, '38')
+            required = make_payment_required(expectation, created_ns=self.now - 10**9,
+                expires_ns=self.now + 59 * 10**9, quote_nonce=str(i + 1) * 64,
+                mime_type='text/plain')
+            with self.factory() as book:
+                qid = book.add_quote(required, expectation, resource=b'Public result ' + str(i + 1).encode())['quote_sha256']
+                if i == 0: book.enroll_wire(qid, self.case['payer'], self.wire, evidence=bundle(self.case, 6))
+            rows.append((qid, required, expectation))
+        self.quote_id, self.required, self.expectation = rows[0]
+        if configure:
+            self.http.configure_quotes(tuple(row[0] for row in rows))
+            self.start_multi()
+        return rows
+
+    def start_multi(self):
+        self.thread = threading.Thread(target=self.http.serve_forever,
+            kwargs={'poll_interval': 0.01}, daemon=True)
+        self.thread.start()
+
+    def test_multiple_static_routes_return_their_own_offer_without_consumption(self):
+        rows = self.multi_routes()
+        for path, row in zip(('/public/one', '/public/two'), rows):
+            code, headers, body = self.request(path=path)
+            self.assertEqual(code, 402)
+            self.assertEqual(dict(headers)['PAYMENT-REQUIRED'], row[1])
+            self.assertNotIn(b'Public result', body)
+        with self.factory() as book:
+            self.assertEqual(book.db.execute('SELECT count(*) FROM fulfillments').fetchone()[0], 0)
+        self.assertEqual(self.request(path='/public/two?quote_id=' + rows[0][0])[0], 404)
+        with self.assertRaises(ValueError): self.http.configure_quote(rows[0][0])
+
+    def test_proof_on_another_static_route_cannot_rebundle_or_poison_first_route(self):
+        rows = self.multi_routes()
+        headers = {'X-1soft-Merchant-Session': self.token, 'Content-Type': 'application/json',
+                   'PAYMENT-SIGNATURE': self.signature()}
+        code, _, body = self.request('POST', path='/public/two', body=self.capsule, headers=headers)
+        self.assertEqual(code, 400); self.assertNotIn(b'Public result', body)
+        first = self.request('POST', path='/public/one', body=self.capsule, headers=headers)
+        second = self.request('POST', path='/public/one', body=self.capsule, headers=headers)
+        self.assertEqual(first[0], 200); self.assertEqual(first[2], b'Public result 1')
+        self.assertEqual(first[2], second[2])
+        self.assertEqual(dict(first[1])['PAYMENT-RESPONSE'], dict(second[1])['PAYMENT-RESPONSE'])
+        with self.factory() as book:
+            self.assertIsNone(book.selected(rows[1][0])['fulfillment'])
+            self.assertEqual(book.db.execute('SELECT count(*) FROM fulfillments').fetchone()[0], 1)
+
+    def test_duplicate_static_paths_fail_atomically_before_any_route_is_fixed(self):
+        rows = self.multi_routes(configure=False, duplicate_path=True)
+        with self.assertRaises(ValueError): self.http.configure_quotes(tuple(r[0] for r in rows))
+        self.http.configure_quote(rows[0][0]); self.start_multi()
+        code, headers, _ = self.request(path='/public/one')
+        self.assertEqual(code, 402); self.assertEqual(dict(headers)['PAYMENT-REQUIRED'], rows[0][1])
+
+    def test_route_configuration_never_drops_original_empty_query_spelling(self):
+        rows = self.multi_routes(configure=False, empty_query=True)
+        with self.assertRaises(ValueError): self.http.configure_quote(rows[0][0])
+        self.http.configure_quote(rows[1][0]); self.start_multi()
+        self.assertEqual(self.request(path='/public/two')[0], 402)
+
+    def test_static_route_configuration_is_bounded_unique_and_never_incremental(self):
+        rows = self.multi_routes(configure=False)
+        for ids in ((), [rows[0][0]], (rows[0][0], rows[0][0]), tuple('a' * 64 for _ in range(65))):
+            with self.subTest(count=len(ids)):
+                with self.assertRaises(ValueError): self.http.configure_quotes(ids)
+        self.http.configure_quotes(tuple(r[0] for r in rows)); self.start_multi()
+        with self.assertRaises(ValueError): self.http.configure_quotes((rows[0][0],))
+        self.assertEqual(self.request(path='/public/two')[0], 402)
+
+    def test_slow_headers_cannot_extend_the_total_socket_read_budget(self):
+        response = b''
+        with patch.object(merchant_http, 'SOCKET_TIMEOUT_SECONDS', 0.1):
+            with socket.create_connection(('127.0.0.1', self.http.server_port), timeout=2) as sock:
+                sock.sendall(b'GET /premium/report?edition=1 HTTP/1.0\r\n')
+                try:
+                    for line in (('Host: 127.0.0.1:' + str(self.http.server_port) + '\r\n').encode(),
+                            ('X-1soft-Merchant-Session: ' + self.token + '\r\n').encode(), b'\r\n'):
+                        time.sleep(0.07); sock.sendall(line)
+                    while True:
+                        part = sock.recv(65536)
+                        if not part: break
+                        response += part
+                except OSError: pass
+        self.assertNotIn(b'PAYMENT-REQUIRED', response)
+        self.assertNotIn(self.resource, response)
+        self.assertEqual(self.request()[0], 402)
+        with self.factory() as book: self.assertIsNone(book.selected(self.quote_id)['fulfillment'])
 
 
 if __name__ == '__main__': unittest.main()

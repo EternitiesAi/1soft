@@ -1,20 +1,23 @@
 """Synchronous bounded loopback merchant fixture; public full-ledger transport.
 
-One trusted retained quote, one handler at a time, and no signing, dispatch or
+One fixed set of trusted retained routes, one handler at a time, and no signing, dispatch or
 wire enrollment endpoint. The local session token authenticates fixture access;
 it is neither merchant identity nor payment proof and is never served or logged.
 """
 from __future__ import annotations
 
 import hmac
+import io
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import re
 import sqlite3
+import time
+from types import MappingProxyType
 from urllib.parse import urlsplit
 
 from p4_evidence import hash_text, integer, need
 from p4_receipt_capsule import MAX_CAPSULE_BYTES, parse_capsule
-from merchant_book import MerchantBook, MAX_RESOURCE_BYTES
+from merchant_book import MerchantBook, MAX_QUOTES, MAX_RESOURCE_BYTES
 from payment_x402 import MAX_SIGNATURE_HEADER, payment_header, parse_payment_required
 
 MAX_HEADER_COUNT = 64
@@ -24,12 +27,28 @@ ERROR_BODY = b'{"error":"request_refused"}'
 CSP = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 
 
+class _DeadlineReader(io.RawIOBase):
+    """Absolute socket-read budget: progress cannot extend the deadline."""
+    def __init__(self, connection, deadline):
+        super().__init__(); self.connection = connection; self.deadline = deadline
+
+    def readable(self): return True
+
+    def readinto(self, buffer):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0: raise TimeoutError('bounded merchant request read expired')
+        self.connection.settimeout(min(SOCKET_TIMEOUT_SECONDS, remaining))
+        return self.connection.recv_into(buffer)
+
+
 def server(book_factory, *, session_token, port=0, quote_id=None):
-    """Bind literal loopback; configure one immutable trusted quote before serving.
+    """Bind literal loopback; configure immutable trusted routes before serving.
 
     Supply a fresh independent secrets.token_hex(32) token for each process.
     With an ephemeral port, retain a quote at returned_server.origin, then call
-    returned_server.configure_quote(quote_id) exactly once. No client selects it.
+    returned_server.configure_quote(quote_id), or configure_quotes(tuple_of_ids),
+    exactly once. Each exact resource path selects its retained quote; a client
+    cannot supply a quote ID or add a route.
     The factory must return the same context-managed MerchantBook per request.
     """
     need(callable(book_factory) and type(session_token) is str and
@@ -45,6 +64,10 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
         def setup(self):
             super().setup()
             self.connection.settimeout(SOCKET_TIMEOUT_SECONDS)
+            deadline = min(time.monotonic() + SOCKET_TIMEOUT_SECONDS,
+                           getattr(self.server, 'request_deadline', float('inf')))
+            self.rfile.close()
+            self.rfile = io.BufferedReader(_DeadlineReader(self.connection, deadline))
 
         def __getattr__(self, name):
             # BaseHTTPRequestHandler otherwise emits a method-reflecting 501.
@@ -115,15 +138,16 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
             return rows
 
         def _route(self):
-            if self.server._quote is None:
+            if self.server._quotes is None:
                 self._reply(503, ERROR_BODY); return False
-            if self.path != self.server._quote['path']:
+            self._selected = self.server._quotes.get(self.path)
+            if self._selected is None:
                 self._reply(404, ERROR_BODY); return False
             return True
 
         def _book(self, book):
             need(type(book) is MerchantBook, 'trusted merchant book required')
-            fixed = self.server._quote
+            fixed = self._selected
             need((book.path, book.policy_id, book.policy['genesis_sha256']) == fixed['book_context'],
                  'merchant book factory changed original context')
             selected = book.selected(fixed['quote_id'])
@@ -165,11 +189,11 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
                 parse_capsule(raw)
                 with book_factory() as book:
                     self._book(book)
-                    result = book.fulfill(self.server._quote['quote_id'], signature, raw)
+                    result = book.fulfill(self._selected['quote_id'], signature, raw)
                 resource = result['resource']
                 need(type(resource) is bytes and 0 < len(resource) <= MAX_RESOURCE_BYTES,
                      'bounded retained local result required')
-                self._reply(200, resource, self.server._quote['mime'],
+                self._reply(200, resource, self._selected['mime'],
                             payment=('PAYMENT-RESPONSE', result['payment_response_header']))
             except (ValueError, KeyError, TypeError, OSError, sqlite3.DatabaseError):
                 self._reply(400, ERROR_BODY)
@@ -183,7 +207,8 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
         request_queue_size = 4
 
         def __init__(self):
-            self._quote = None
+            self._quotes = None
+            self._used = False
             super().__init__(('127.0.0.1', port), Handler)
 
         @property
@@ -191,22 +216,39 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
 
         def handle_error(self, *_): pass
 
+        def get_request(self):
+            self._used = True
+            return super().get_request()
+
         def configure_quote(self, selected_quote_id):
             """Trusted once-only setup, before serving; never reachable over HTTP."""
-            need(self._quote is None, 'merchant HTTP quote is already fixed')
-            hash_text(selected_quote_id)
+            self.configure_quotes((selected_quote_id,))
+
+        def configure_quotes(self, selected_quote_ids):
+            """Atomically fix unique exact routes from one retained merchant book."""
+            need(self._quotes is None and not self._used, 'merchant HTTP routes are already fixed or used')
+            need(type(selected_quote_ids) is tuple and 1 <= len(selected_quote_ids) <= MAX_QUOTES,
+                 'bounded nonempty tuple of independently selected merchant quotes required')
+            for qid in selected_quote_ids: hash_text(qid)
+            need(len(set(selected_quote_ids)) == len(selected_quote_ids), 'duplicate fixed quote ID')
+            routes = {}
             with book_factory() as book:
                 need(type(book) is MerchantBook, 'trusted merchant book factory required')
-                selected = book.selected(selected_quote_id)
-                expectation = selected['expectation']
-                need(expectation.merchant_origin == self.origin, 'retained quote does not use this exact loopback origin')
-                checked = parse_payment_required(selected['required_header'], expectation, now_ns=book.clock())
-                parsed = urlsplit(expectation.resource_url)
-                path = parsed.path + ('?' + parsed.query if parsed.query else '')
-                self._quote = {'quote_id': selected_quote_id, 'path': path, 'expectation': expectation,
-                    'required_header': selected['required_header'], 'resource_sha256': selected['resource_sha256'],
-                    'mime': checked['offer']['resource'].get('mimeType', 'application/octet-stream'),
-                    'book_context': (book.path, book.policy_id, book.policy['genesis_sha256'])}
+                for selected_quote_id in selected_quote_ids:
+                    selected = book.selected(selected_quote_id)
+                    expectation = selected['expectation']
+                    need(expectation.merchant_origin == self.origin, 'retained quote does not use this exact loopback origin')
+                    checked = parse_payment_required(selected['required_header'], expectation, now_ns=book.clock())
+                    parsed = urlsplit(expectation.resource_url)
+                    path = parsed.path + ('?' + parsed.query if parsed.query else '')
+                    need(expectation.resource_url == self.origin + path,
+                         'retained resource URL cannot change spelling when selecting its exact route')
+                    need(path not in routes, 'two retained quotes cannot use the same exact HTTP route')
+                    routes[path] = MappingProxyType({'quote_id': selected_quote_id, 'path': path, 'expectation': expectation,
+                        'required_header': selected['required_header'], 'resource_sha256': selected['resource_sha256'],
+                        'mime': checked['offer']['resource'].get('mimeType', 'application/octet-stream'),
+                        'book_context': (book.path, book.policy_id, book.policy['genesis_sha256'])})
+            self._quotes = MappingProxyType(routes)
 
     bound = LocalServer()
     try:
