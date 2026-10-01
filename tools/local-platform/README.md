@@ -67,7 +67,7 @@ is refused and retained for diagnosis. There is no reset or repair switch.
    records the signature and reservation before returning. It does not submit.
 3. Review submission independently, then approve **one attempt** of those original
    signed bytes to the fixed local endpoint. An admitted response is not payment
-   proof. If the return is lost, reopen the desk and inspect the original decision;
+   proof. If the return is lost, the desk performs one read-only inspection of the original decision;
    there is no re-sign, resend, cancel or hold-release shortcut.
 4. Collect receipt evidence. An immediate collection can observe the preceding
    block, so `unavailable` means unknown and keeps the obligation. A later explicit
@@ -112,6 +112,20 @@ paths, hostile-host rollback and cross-device coordination are outside its
 guarantee. Local vault unlock assumes a trusted host; physical memory erasure and
 production browser custody are unassessed. The browser cannot choose file paths,
 genesis, policy, administrative keys or transport endpoints.
+
+## Browser recovery checks
+
+The progress display separates saved attempts, collected receipts, ledger-derived
+wallet reconciliation and historical execution. If a failed action cannot be
+inspected, current totals stay unavailable and spending actions remain disabled
+until reload succeeds. Pending reviews lock all payment fields and retain their
+captured request/role. Commands, fixture boundaries and remaining human acceptance
+checks are in [browser payment recovery](../../docs/BROWSER_PAYMENT_RECOVERY.md).
+
+The whole-source qualification command below belongs to the older local release
+revision and its unchanged 421-file inventory. It intentionally refuses later
+native invoice and browser descendants. Use the feature-specific scope and
+committed-source receipts; do not replace historical seals to obtain a pass.
 
 ## Qualify the exact committed source
 
