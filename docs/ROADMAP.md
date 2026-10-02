@@ -8,6 +8,7 @@
 | Native accounts, key rotation and scoped grants | Implemented | Production custody/recovery design and independent review remain. |
 | Protocol-3 shared agent budgets | Implemented and exercised on local validators | Preserve one canonical signing/reservation path; cross-device coordination remains open. |
 | Certified wallet, decision delivery and receipt reconciliation | Implemented development flow | Consolidate one source lineage; hardware/hostile-host custody and cross-device operation remain open. |
+| P4 encrypted journal backup and historical recovery | Implemented development component; [scope and verifier](../tools/protocol4-custody/README.md) | Recovery-only original wires, holds, attempts and saved receipts; private-key recovery, latestness and old-device fencing remain open. |
 | Actual multi-validator chain | **Passed on one-host development networks** | Repeat on independently operated hosts and retain operator/network fault evidence. |
 | Authenticated compact state/proofs | Implemented development path | Continue scale, pruning and adversarial proof testing. |
 | Bounded ABCI state sync | Implemented development path; qualify each revision with its own engine receipt | Run `run_state_sync.py` against pinned CometBFT for each candidate, then repeat across independent machines. |
