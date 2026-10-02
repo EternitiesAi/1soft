@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT/'src'), str(ROOT/'scripts'), str(ROOT/'tools/validator-transition/src')]
-for component in ('protocol4-client', 'protocol4-wallet', 'protocol4-delivery'):
+for component in ('protocol4-client', 'protocol4-wallet', 'protocol4-delivery', 'protocol4-custody'):
     sys.path.insert(0, str(ROOT/'tools'/component/'src'))
 
 from cryptography.hazmat.primitives import serialization as ser
@@ -122,7 +122,9 @@ class Proxy:
         self.thread.join(3)
 
 
-def run(engine, expected_sha256, output, *, key_rotation=False):
+def run(engine, expected_sha256, output, *, key_rotation=False, custody_format=None):
+    if custody_format is not None and (type(custody_format) is not int or custody_format != 3):
+        raise ValueError("only explicit custody format 3 is qualified by this profile")
     output = Path(output).resolve()
     if output.is_relative_to(ROOT):
         raise ValueError('acceptance output must be outside the source checkout')
@@ -290,7 +292,14 @@ def run(engine, expected_sha256, output, *, key_rotation=False):
             if b'PRIVATE KEY' in raw or b'-----BEGIN ' in raw:
                 (output/f'{phase}.log').write_bytes(b'[suppressed sensitive child log]\n')
                 raise ValueError('sensitive child process output refused')
-            (output/f'{phase}.log').write_bytes(raw[:MAX_LOG].replace(str(runtime).encode(), b'<private-run>').replace(str(ROOT).encode(), b'<source>'))
+            retained = raw[:MAX_LOG].replace(str(runtime).encode(), b'<private-run>').replace(str(ROOT).encode(), b'<source>')
+            (output/f'{phase}.log').write_bytes(retained)
+            report.setdefault('fault_child_logs', []).append({'phase': phase,
+                'original_bytes': len(raw), 'original_sha256': hashlib.sha256(raw).hexdigest(),
+                'retained_bytes': len(retained), 'retained_sha256': hashlib.sha256(retained).hexdigest(),
+                'truncated': len(raw) > MAX_LOG})
+            if len(raw) > MAX_LOG:
+                raise ValueError('client fault child log exceeded its complete-evidence bound')
             check(phase + ' child exits at exact boundary', child.returncode == {'after_claim': 73, 'after_submission': 74, 'after_wallet_sync': 75}[phase], {'exit_code': child.returncode})
         review = delivery.prepare(raven, **selection('raven'))
         crash(raven, 'raven', 'after_submission', review)
@@ -391,6 +400,68 @@ def run(engine, expected_sha256, output, *, key_rotation=False):
             and proxy.observations[-1]['upstream_result']['code'] != 0)
         report['diagnostics'] = {'claim_submissions': 0, 'declined_submissions': 1, 'unresolved_hold_units': 6,
             'principal_submissions': 2, 'total_proxy_submissions': len(proxy.submissions)}
+        if custody_format is not None:
+            from p4_custody import backup, restore_backup, RecoveryArchive
+            from p4_custody_stream import stream_pair, TABLES
+            def pair_rows(wdb, ddb):
+                return tuple(tuple((wdb if source == 0 else ddb).execute(
+                    f'SELECT * FROM {table} ORDER BY 1')) for source, table, _, _ in TABLES)
+            before_pair = pair_rows(wallet.db, delivery.db)
+            before_submissions = tuple(proxy.submissions)
+            private = runtime/'custody'
+            private.mkdir(mode=0o700)
+            bp, ap = private/'encrypted-v3.backup', private/'historical.sqlite'
+            secret = os.urandom(32)
+            saved = backup(delivery, bp, secret, format_version=custody_format)
+            check('custody backup explicitly uses format 3', saved['backup_format_version'] == 3)
+            restored = restore_backup(bp, ap, full_genesis, policy, secret)
+            check('custody restore preserves the original snapshot identity',
+                  restored['backup_format_version'] == 3 and restored['snapshot_id'] == saved['snapshot_id'])
+            with RecoveryArchive(ap, full_genesis, policy) as archive:
+                view = archive.inspect()
+                with stream_pair(archive._chunks) as pair:
+                    check('custody restores every exact cell of all seven tables',
+                          pair_rows(pair[0], pair[1]) == before_pair)
+                check('custody retains both original principal signatures after key removal',
+                      all(archive.recover(did, **selection(name)) == originals[name]
+                          for name, did in (('raven', raven), ('atlas', atlas))))
+                check('custody retains exact receipts across full validator turnover',
+                      all(encode(archive.export_receipt(did, **selection(name))) ==
+                          encode(delivery.export_receipt(did, **selection(name)))
+                          for name, did in (('raven', raven), ('atlas', atlas))))
+                recovered = {r['id']: r for r in view['decisions']}
+                check('custody preserves the unresolved and declined holds without resend',
+                      view['pending_debit_units'] == '6' and
+                      recovered[claim]['transport_observation'] == 'unresolved' and
+                      recovered[decline]['transport_observation'] == 'endpoint_declined' and
+                      all(not row['safe_to_resend'] for row in view['decisions']))
+                check('custody remains historical without authority or trust renewal',
+                      all(view[field] is False for field in ('signing_enabled', 'dispatch_enabled',
+                          'current_spending_authority', 'trust_policy_renewed',
+                          'old_device_fenced', 'latestness_established')))
+            def activation_refused(factory):
+                try:
+                    with factory():
+                        return False
+                except ValueError:
+                    return True
+            check('custody archive refuses both active wallet and delivery constructors',
+                  activation_refused(lambda: P4Wallet(ap, full_genesis, policy)) and
+                  activation_refused(lambda: P4Delivery(ap, private/'active-delivery.sqlite',
+                      full_genesis, policy, proxy.endpoint, create=True)) and
+                  not (private/'active-delivery.sqlite').exists())
+            check('custody leaves the source journals and all submissions unchanged',
+                  pair_rows(wallet.db, delivery.db) == before_pair and
+                  tuple(proxy.submissions) == before_submissions)
+            check('custody encrypted backup and plaintext archive have private permissions',
+                  bp.stat().st_mode & 0o077 == 0 and ap.stat().st_mode & 0o077 == 0)
+            report['custody'] = {'assessed': True, 'backup_format_version': custody_format,
+                'backup_bytes': bp.stat().st_size, 'backup_sha256': hashlib.sha256(bp.read_bytes()).hexdigest(),
+                'archive_bytes': ap.stat().st_size, 'archive_sha256': hashlib.sha256(ap.read_bytes()).hexdigest(),
+                'snapshot_id': saved['snapshot_id'], 'exact_table_rows_preserved': True,
+                'principal_receipts_preserved': 2, 'pending_debit_units': view['pending_debit_units'],
+                'new_submissions': 0, 'source_journals_changed': False,
+                'independent_hosts': False, 'production_custody_certified': False}
         if key_rotation:
             # Extend the complete existing acceptance profile. Its checks and
             # six units of unresolved diagnostic holds remain unchanged.
@@ -503,11 +574,13 @@ if __name__ == '__main__':
     p.add_argument('--fault-config', type=Path)
     p.add_argument('--fault-phase', choices=('after_claim', 'after_submission', 'after_wallet_sync'))
     p.add_argument('--key-rotation',action='store_true',help='also qualify owner replacement and retained uncertain holds')
+    p.add_argument('--custody-format', type=int, choices=(3,),
+                   help='also qualify compact encrypted backup and historical recovery on actual validator journals')
     args = p.parse_args()
     if args.fault_config:
         process_fault(args.fault_config, args.fault_phase)
     else:
         if not args.engine or not args.engine_sha256 or not args.output: p.error('engine, hash and output are required')
-        result = run(args.engine, args.engine_sha256, args.output,key_rotation=args.key_rotation)
+        result = run(args.engine, args.engine_sha256, args.output,key_rotation=args.key_rotation,custody_format=args.custody_format)
         print(json.dumps({k: result.get(k) for k in ('status', 'reason', 'source_qualified')}))
         raise SystemExit(0 if result['status'] == 'passed' else 1)

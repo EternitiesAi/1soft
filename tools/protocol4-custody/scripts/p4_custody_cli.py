@@ -57,8 +57,8 @@ def main():
     save = commands.add_parser('backup', help='encrypted complete wallet/delivery snapshot')
     for name in ('wallet','delivery','output'): save.add_argument('--'+name, required=True, type=Path)
     save.add_argument('--endpoint', required=True, help='exact endpoint stored in the bound journal; no network call')
-    save.add_argument('--format', choices=('auto','1','2'), default='auto',
-                      help='auto keeps small backups v1 and selects bounded v2 for larger admitted pairs')
+    save.add_argument('--format', choices=('auto','1','2','3'), default='auto',
+                      help='auto keeps small backups v1 and selects v2 for larger pairs; explicit 3 compresses losslessly')
     restore = commands.add_parser('restore', help='create a recovery-only archive, never an active wallet')
     for name in ('backup','output'): restore.add_argument('--'+name, required=True, type=Path)
     view = commands.add_parser('status', help='historical holds and dispatch claims; no current authority')

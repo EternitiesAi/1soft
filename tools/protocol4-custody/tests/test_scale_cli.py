@@ -25,7 +25,7 @@ class FormatCliTests(unittest.TestCase):
         self.assertFalse(view['dispatch_enabled'])
 
     def test_unsupported_format_refuses_before_any_artifact(self):
-        result=self.cli([*self.backup_args(),'--format','3'])
+        result=self.cli([*self.backup_args(),'--format','4'])
         self.assertNotEqual(result.returncode,0)
         self.assertFalse(self.bp.exists())
 

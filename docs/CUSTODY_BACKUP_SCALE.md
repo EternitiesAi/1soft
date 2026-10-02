@@ -10,8 +10,10 @@ It does not prune histories or turn restored records into current authority.
 
 `backup(delivery, output, password, format_version=None)` uses the complete legacy
 format whenever it fits, then uses version 2 for a larger admitted pair or the
-separate legacy plaintext-capacity edge. Explicit versions 1 and 2 are supported;
-other selectors are refused. The CLI exposes `--format auto|1|2`. Existing v1
+separate legacy plaintext-capacity edge. Explicit versions1,2 and3 are supported; other selectors are refused. The CLI
+exposes `--format auto|1|2|3`. Version3 is an opt-in compact encrypted transport
+for the exact version2 stream; it restores the same version2 archive. See
+[compact backup format](CUSTODY_COMPRESSION.md). Existing v1
 encrypted backups and recovery archives remain readable, with their original
 snapshot IDs and original byte limits. An older implementation cannot read v2.
 
