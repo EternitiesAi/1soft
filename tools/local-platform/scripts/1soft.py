@@ -13,15 +13,12 @@ ROOT=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(ROOT/p) for p in ('src','scripts','tools/validator-transition/src',
     'tools/protocol4-client/src','tools/protocol4-wallet/src','tools/protocol4-delivery/src',
     'tools/protocol4-explorer/src','tools/protocol4-receipts/src','tools/protocol4-custody/src','tools/local-platform/src')]
-from block_application import encode
-from p4_evidence import need
-from local_devnet import initialize,LocalNetwork,load_configuration,PIN_SHA
-from platform_http import server
 
 
 def password(confirm=False):
     first=getpass.getpass('Development vault password (16+ characters): ').encode('utf-8')
-    if confirm:need(first==getpass.getpass('Repeat password: ').encode('utf-8'),'passwords differ')
+    if confirm and first!=getpass.getpass('Repeat password: ').encode('utf-8'):
+        raise ValueError('passwords differ')
     return first
 
 
@@ -35,7 +32,25 @@ def main():
         if name in ('new','start'):p.add_argument('--port',type=int,default=0)
     p=sub.add_parser('qualify');p.add_argument('--engine',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p=sub.add_parser('doctor',help='Inspect installed prerequisites without starting a network')
+    p.add_argument('--engine',type=Path)
+    p=sub.add_parser('check',help='Run the current-source local checks into a new evidence directory')
+    p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--timeout',type=int,default=600,help='Per-group seconds, 30 through 1800')
     args=parser.parse_args()
+    if args.command=='doctor':
+        import json
+        from platform_preflight import inspect_runtime
+        result=inspect_runtime(ROOT,args.engine)
+        print(json.dumps(result,sort_keys=True,separators=(',',':')))
+        return 0 if result['status']=='ready' else 1
+    if args.command=='check':
+        os.environ.pop('PYTHONPATH',None)
+        os.execv(sys.executable,[sys.executable,'-B',str(ROOT/'tools/release/check_current.py'),
+                                '--output',str(args.output),'--timeout',str(args.timeout)])
+    from block_application import encode
+    from local_devnet import initialize,LocalNetwork,load_configuration,PIN_SHA
+    from platform_http import server
     if args.command=='qualify':
         from release_check import qualify
         result=qualify(args.engine,args.output)

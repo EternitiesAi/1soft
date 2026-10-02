@@ -10,8 +10,15 @@ make a newer checkout inherit historical tests.
 With pinned Python dependencies, Git and Node already installed on Linux/WSL:
 
 ```sh
-python tools/release/check_current.py --output /private/new-current-evidence
+python tools/local-platform/scripts/1soft.py check --output "$HOME/1soft-current-check"
 ```
+
+The entry point executes `tools/release/check_current.py` with the same Python
+interpreter and returns its actual exit status. You can invoke that checker
+directly with the same `--output` argument. Output must be a new directory outside
+the checkout, with an existing parent. `doctor --engine PATH` separately checks
+installed prerequisites without executing the engine or qualifying the source.
+See the [first-run guide](LOCAL_DEMO_GUIDE.md).
 
 The command binds every tracked byte and mode to the current commit/tree before
 and after execution. Native tests and all 16 component directories run in separate
