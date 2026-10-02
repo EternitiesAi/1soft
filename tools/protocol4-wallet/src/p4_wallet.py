@@ -8,6 +8,7 @@ trusted; copied journals, external signers and hostile-host rollback are exclude
 from __future__ import annotations
 
 from contextlib import contextmanager
+import copy
 import hashlib
 import hmac
 import json
@@ -42,6 +43,39 @@ MAX_DECISIONS = 256
 MAX_AGE_SECONDS = 300
 MAX_VALIDITY_BLOCKS = 32
 ZERO = '0' * 64
+
+
+class _EvidenceAudit:
+    """One exact proof, for one audit only; never persistent financial authority.
+
+    A full miss establishes strictly increasing header times, original signatures
+    and complete native/registry execution. Every use still checks its own time.
+    The authenticated H+1 tip is the maximum header time, so its future bound
+    covers every header when repeating only the time-dependent proof checks.
+    """
+    def __init__(self, genesis, policy):
+        self.genesis = bytes(genesis)
+        self.policy = policy_checked(policy)
+        self._cached = None
+
+    def verify(self, raw, *, now_ns):
+        need(type(raw) is bytes and 0 < len(raw) <= MAX_EVIDENCE_BYTES,
+             'invalid bounded observation bytes')
+        expiry = check_clock(self.policy, now_ns)
+        cached = self._cached
+        if cached is None or cached[0] != raw:
+            e = load_json(raw, max_bytes=MAX_EVIDENCE_BYTES)
+            need(encode(e) == raw, 'wallet evidence encoding differs')
+            report = verify_evidence(e, self.genesis, self.policy, now_ns=now_ns)
+            tip = nanos(e['headers'][-1]['signed_header']['header']['time'])
+            cached = raw, e, report, tip
+            self._cached = cached  # Only complete successful verification is retained.
+        need(cached[3] <= now_ns + self.policy['max_clock_drift_seconds'] * 10**9,
+             'header is too far in the future')
+        report = copy.deepcopy(cached[2])
+        report['checked_at_ns'] = now_ns
+        report['trust_expires_ns'] = expiry
+        return copy.deepcopy(cached[1]), report
 
 
 def revision(wallet_id, policy_id, proof_id, decisions):
@@ -361,16 +395,13 @@ class P4Wallet:
         now = latest_ns if historical else self.clock()
         check_clock(self.policy, now, latest_ns)
         need(obs, 'no authenticated P4 wallet checkpoint')
-        raw_by_id = {r[1]: r for r in obs}; cache = {}
+        raw_by_id = {r[1]: r for r in obs}
+        audit = _EvidenceAudit(self.genesis, self.policy)
         def verify_at(proof_id, at):
-            key = proof_id, at
-            if key not in cache:
-                need(proof_id in raw_by_id, 'decision source evidence is missing')
-                row = raw_by_id[proof_id]
-                integer(at, row[3])
-                e = load_json(row[4], max_bytes=MAX_EVIDENCE_BYTES)
-                cache[key] = e, verify_evidence(e, self.genesis, self.policy, now_ns=at)
-            return cache[key]
+            need(proof_id in raw_by_id, 'decision source evidence is missing')
+            row = raw_by_id[proof_id]
+            integer(at, row[3])
+            return audit.verify(row[4], now_ns=at)
         # Authenticate saved signing context, exact bytes, and original reservation
         # calculation for every decision. No cached public key/status is sufficient.
         last_proof_seq = 0
