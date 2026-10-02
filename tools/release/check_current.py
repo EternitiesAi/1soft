@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import sys
 import unittest
 import uuid
@@ -43,6 +44,13 @@ GROUPS['release'] = ('tools/release/tests', 'test_*.py',
                      list(dict.fromkeys([*base.GROUPS['release'][2], *COMMON])))
 EXCLUDED = {'tools/wallet-account/tests/test_account_catchup.py':
             'optional unpublished wallet_catchup core is absent from this checkout'}
+JAVASCRIPT_GROUPS = {'reference': 'reference/kernel.test.mjs',
+                     'wallet': 'tools/local-platform/tests/wallet.test.cjs'}
+JAVASCRIPT_SCENARIOS = (
+    'tools/local-platform/tests/browser_service.test.cjs',
+    'tools/local-platform/tests/browser_workflow.test.cjs',
+    'tools/private-payments/tests/browser_comet.test.cjs',
+)
 
 
 def coverage(root):
@@ -62,8 +70,76 @@ def coverage(root):
         groups[name] = files; included.update(files)
     excluded = sorted(all_files.intersection(EXCLUDED))
     base.require(included | set(excluded) == all_files, 'uncovered test file refused')
+    js_candidates = [*(root / 'reference').rglob('*.test.*'),
+                     *(root / 'tools').glob('*/tests/**/*.test.*')]
+    js_candidates = [p for p in js_candidates if p.suffix in ('.js', '.cjs', '.mjs')]
+    base.require(all(not p.is_symlink() and p.is_file() for p in js_candidates),
+                 'aliased JavaScript test refused')
+    js_files = {p.relative_to(root).as_posix() for p in js_candidates}
+    base.require(js_files == set(JAVASCRIPT_GROUPS.values()) | set(JAVASCRIPT_SCENARIOS),
+                 'JavaScript coverage map differs from checkout')
     return {'groups': groups, 'test_files': sorted(included),
-            'excluded_test_files': excluded, 'exclusion_reasons': EXCLUDED}
+            'excluded_test_files': excluded, 'exclusion_reasons': EXCLUDED,
+            'javascript_groups': JAVASCRIPT_GROUPS,
+            'javascript_scenarios': [
+                {'path': path, 'status': 'unassessed',
+                 'reason': 'requires separate scenario qualification with an existing browser'}
+                for path in JAVASCRIPT_SCENARIOS]}
+
+
+def javascript_cases(raw, path, summary):
+    """Bind the current flat Node cases to their TAP summary and source path."""
+    cases = []
+    for line in raw.decode('utf-8', errors='strict').splitlines():
+        match = re.fullmatch(r'(ok|not ok) ([1-9][0-9]*) - (.+?)(?: # (SKIP|TODO)\b.*)?', line)
+        if match:
+            status = {'SKIP': 'skipped', 'TODO': 'todo'}.get(
+                match[4], 'passed' if match[1] == 'ok' else 'failed')
+            cases.append({'number': int(match[2]), 'name': match[3], 'status': status,
+                          'id': path + '::' + match[3]})
+    base.require([c['number'] for c in cases] == list(range(1, summary['tests'] + 1)),
+                 'JavaScript case listing differs from summary')
+    base.require(len({c['id'] for c in cases}) == len(cases), 'duplicate JavaScript case identity')
+    base.require(sum(c['status'] == 'passed' for c in cases) == summary['pass'],
+                 'JavaScript passing cases differ from summary')
+    return cases
+
+
+def javascript_checks(root, output, source, run_id, timeout):
+    """Run only the registered key-free Node units; retain each failure separately."""
+    fields = ('tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo')
+    report = {'source_id': source['source_id'], 'run_id': run_id,
+              'groups': [], 'qualified_tests': 0, **dict.fromkeys(fields, 0)}
+    for name, path in JAVASCRIPT_GROUPS.items():
+        base.require(base.source_identity(root) == source,
+                     'source changed before JavaScript group: ' + name)
+        log = output / ('javascript-' + name + '.log')
+        record = {'schema': 1, 'name': name, 'path': path,
+                  'source_id': source['source_id'], 'run_id': run_id,
+                  'commit': source['commit'], 'tree': source['tree'],
+                  'log': log.name, 'passed': False, 'test_cases': [], **dict.fromkeys(fields, 0)}
+        try:
+            process = base.run_process(['node', '--test', '--test-reporter=tap', path], root, log, timeout)
+            record.update(process)
+            raw = log.read_bytes()
+            base.require(process['log_sha256'] == base.digest(raw), 'JavaScript log hash differs')
+            js = base.javascript_result(raw)
+            record.update(js)
+            record['test_cases'] = javascript_cases(raw, path, js)
+            record['passed'] = (process['returncode'] == 0 and not process['timed_out']
+                                and not process['log_truncated'] and js['passed'])
+        except Exception as exc:
+            record['passed'] = False
+            record['error_type'] = type(exc).__name__
+        result_path = output / ('javascript-' + name + '.json')
+        base.store_json(result_path, record)
+        report['groups'].append({**record, 'result': result_path.name,
+                                 'result_sha256': base.digest(result_path.read_bytes())})
+        for key in fields: report[key] += record[key]
+        if record['passed']: report['qualified_tests'] += record['tests']
+    base.require(base.source_identity(root) == source, 'source changed during JavaScript checks')
+    report['passed'] = all(r['passed'] for r in report['groups'])
+    return report
 
 
 def worker(group, output, source_id, run_id):
@@ -114,6 +190,7 @@ def run(output, timeout=600):
               'tracked_files': source['tracked_files'], 'coverage': profile,
               'historical_manifests': 'retained as historical snapshots; no current-match claim',
               'groups': [], 'python_tests': 0, 'distinct_python_test_ids': 0,
+              'scenario_qualification': profile['javascript_scenarios'],
               'environment': {'python': sys.version.split()[0], 'platform': platform.platform(),
                               'dependencies': installed},
               **base.release_status(False)}
@@ -138,22 +215,21 @@ def run(output, timeout=600):
                 completed_ids.update(child['successful_ids'])
                 report['distinct_python_test_ids'] = len(completed_ids)
             base.store_json(output / 'progress.json', report, replace=(output / 'progress.json').exists())
-        process = base.run_process(['node', '--test', 'reference/kernel.test.mjs'], root,
-                                   output / 'javascript.log', timeout)
-        js = base.javascript_result((output / 'javascript.log').read_bytes())
-        report['javascript'] = {**js, **process}
-        js_passed = (process['returncode'] == 0 and not process['timed_out']
-                     and not process['log_truncated'] and js['passed'])
+        report['javascript'] = javascript_checks(root, output, source, run_id, timeout)
         base.require(base.source_identity(root) == source, 'source changed during local checks')
         report['source_unchanged'] = True
-        passed = all(group['passed'] for group in report['groups']) and js_passed
+        passed = all(group['passed'] for group in report['groups']) and report['javascript']['passed']
         report.update(base.release_status(passed))
     except BaseException as exc:
         report['error_type'] = type(exc).__name__
     report['incomplete_groups'] = [g for g in GROUPS if g not in {r['name'] for r in report['groups']}]
+    report['incomplete_javascript_groups'] = [
+        g for g in JAVASCRIPT_GROUPS
+        if g not in {r['name'] for r in report.get('javascript', {}).get('groups', [])}]
     base.store_json(output / 'result.json', report)
     print(json.dumps({k: report[k] for k in ('commit', 'tree', 'python_tests', 'local_checks',
-          'release_status', 'groups', 'incomplete_groups')}, indent=2), flush=True)
+          'release_status', 'groups', 'incomplete_groups', 'incomplete_javascript_groups')},
+          indent=2), flush=True)
     return 0 if report['local_checks'] == 'passed' else 1
 
 

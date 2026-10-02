@@ -8,8 +8,17 @@ python tools/release/check_current.py --output /private/new-current-evidence
 
 This profile checks every current Git byte and executable mode, pinned installed
 dependencies, the native tests, all 16 component test directories in separate
-interpreters, and the JavaScript reference. New or missing components, empty
-groups and uncovered test files refuse qualification. The sole explicit optional
+interpreters, the JavaScript reference (`reference/kernel.test.mjs`) and the
+key-free wallet units (`tools/local-platform/tests/wallet.test.cjs`). Each Node
+suite has its own `javascript-reference.log` or `javascript-wallet.log` and JSON
+outcome bound to the same source and run identity, including each actual TAP case
+name and source-qualified ID. The current flat case listing must agree with the
+summary and contain distinct identities. The combined `javascript`
+summary reports observed TAP counts, separately counts `qualified_tests` from
+passing suites, and passes only when both suites pass without skipped, cancelled,
+todo, failed, missing or incomplete results or process failures. New or missing
+components, empty groups and uncovered Python or JavaScript test files refuse
+qualification. The sole explicit optional
 exclusion is the unpublished account catch-up test described below. Test IDs,
 source identities, unique run IDs, raw logs and process deadlines are checked;
 failed groups remain visible and other unchanged-source groups still run. The
@@ -19,6 +28,15 @@ failed groups remain visible and other unchanged-source groups still run. The
 checks still leave release, real consensus, independent hosts, browser rendering,
 production custody, security and economics unassessed. No download, deployment,
 Actions, public endpoint or real funds are involved.
+
+The existing local-platform `browser_service.test.cjs` and
+`browser_workflow.test.cjs` scripts and private-payments `browser_comet.test.cjs`
+are explicitly listed in `coverage.javascript_scenarios` and
+`scenario_qualification` as **unassessed**, requiring separate scenario
+qualification with an existing browser. The Node wallet units exercise exact
+amount display, validation and stage labels; they establish no browser rendering,
+browser event flow, native payment or consensus result. This profile does not run
+the browser scripts or count them as passing tests.
 
 The older `check_release.py` below remains a historical fixed-manifest profile.
 Its manifests describe their original snapshots; an intentional later source
