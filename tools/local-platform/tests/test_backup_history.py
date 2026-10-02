@@ -3,6 +3,10 @@ from contextlib import contextmanager
 import hashlib
 import http.client
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +15,22 @@ import test_http as http_helpers
 from p4_custody import RecoveryArchive, restore_backup
 
 SECRET = b'public historical backup passphrase'
+
+
+class TransitiveCliImportTests(unittest.TestCase):
+    def test_nonbackup_private_clis_start_with_cleared_pythonpath(self):
+        root = Path(__file__).resolve().parents[3]
+        env = os.environ.copy()
+        env.pop('PYTHONPATH', None)
+        for name in ('1soft_private.py', '1soft_merchant_network.py'):
+            with self.subTest(script=name):
+                script = root / 'tools' / 'private-payments' / 'scripts' / name
+                result = subprocess.run([sys.executable, '-B', str(script), '--help'],
+                                        cwd=root, env=env, text=True,
+                                        capture_output=True, timeout=15)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertIn('usage:', result.stdout)
+                self.assertNotIn('Traceback', result.stderr)
 
 
 class HistoryServiceTests(unittest.TestCase):

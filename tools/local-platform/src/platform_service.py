@@ -25,7 +25,6 @@ from p4_explorer import project_report
 from p4_receipt_capsule import make_capsule, encode_capsule
 from p4_receipt_archive import P4ReceiptArchive
 from payment_requests import RequestBook, parse_request
-from p4_custody import backup, _private_source
 from offline_signer import _password
 
 HISTORY_CAPTURE_BYTES=8*1024*1024
@@ -91,6 +90,7 @@ class PlatformService:
     def backup_history(self,password):
         """Complete private format-3 history; the owned file lives only while streamed."""
         _password(password)
+        from p4_custody import backup, _private_source
         with tempfile.TemporaryDirectory(prefix='.1soft-history-',dir=self.root) as folder:
             output=Path(folder)/'history.p4b3'
             result=backup(self.delivery,output,password,format_version=3,
