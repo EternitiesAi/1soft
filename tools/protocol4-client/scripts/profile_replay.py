@@ -7,6 +7,7 @@ The caller supplies a clean source checkout and freezes the fixture beforehand.
 """
 from __future__ import annotations
 import argparse
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -38,7 +39,7 @@ def main():
     if before != meta['database_sha256']: raise ValueError('fixture database changed')
     if any(Path(str(database) + suffix).exists() for suffix in ('-wal', '-shm', '-journal')):
         raise ValueError('fixture must be a frozen closed database')
-    with sqlite3.connect(database.as_uri() + '?mode=ro&immutable=1', uri=True) as db:
+    with closing(sqlite3.connect(database.as_uri() + '?mode=ro&immutable=1', uri=True)) as db:
         raw = bytes(db.execute('SELECT payload FROM observations ORDER BY seq DESC LIMIT 1').fetchone()[0])
     if len(raw) != meta['evidence_bytes'] or hashlib.sha256(raw).hexdigest() != meta['evidence_sha256']:
         raise ValueError('fixture evidence changed')
