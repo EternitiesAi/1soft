@@ -29,16 +29,16 @@ This is not shielded on-chain privacy, a stablecoin, a bank account or an issued
 
 ## Two explicit development paths
 
-The protocol-1/2/3 application supports the existing `CertifiedWallet`, local
-browser wallet, invoice workspace, explorer and receipt archive. Protocol 3 adds
-shared spending budgets. Flat and opt-in `smt-v1` state commitments remain
-compatibility surfaces.
+The protocol-1/2/3 application supports the existing `CertifiedWallet`, legacy
+explorer and receipt archive. Protocol 3 adds shared spending budgets. Flat and
+opt-in `smt-v1` state commitments remain compatibility surfaces.
 
 Protocol 4 is a separate **fresh-genesis, opt-in development application** combining
 native payments and the validator registry in one SQLite commit and AppHash. Its
 read client, signing journal, decision delivery, explorer and custody tools live
-under `tools/protocol4-*`. Legacy static clients refuse P4; copying files or changing
-a policy does not activate a protocol upgrade. See [P4 scope](docs/PROTOCOL4_DEVELOPMENT.md)
+under `tools/protocol4-*`. The current local browser wallet and fresh merchant
+workspace also use the P4 signing and delivery journals. Legacy static clients
+refuse P4; copying files or changing a policy does not activate a protocol upgrade. See [P4 scope](docs/PROTOCOL4_DEVELOPMENT.md)
 and [recovery integration](docs/P4_RECOVERY_INTEGRATION.md).
 
 Use one supported shared signing journal for the same funds. Copied journals,
