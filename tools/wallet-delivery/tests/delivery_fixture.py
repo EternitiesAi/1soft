@@ -50,6 +50,7 @@ class Scenario:
         self.app = BlockApplication(self.root/'app.sqlite'); self.app.init_chain(self.genesis['chain_id'], self.genesis)
         self.headers = {}; self.blocks = {}; self.snapshots = {}; self.exposed = None
         self.lock = threading.RLock(); self.seen=[]; self.mode='drop_after_execution'; self.requests=[]
+        self.native_results=[]
         model = NativeLedger(':memory:', self.genesis)
         try:
             ops=[]
@@ -135,12 +136,16 @@ class Scenario:
                 method=request['method'];params=request['params']
                 if method=='broadcast_tx_sync':
                     raw=base64.b64decode(params['tx'],validate=True);c.seen.append(raw)
+                    code = 7 if c.mode=='decline' else 0
                     if c.mode!='decline':
                         result=c.latest_after(raw)
-                        assert result['tx_results'][0]['code']==0, result
+                        code=result['tx_results'][0]['code']
+                        c.native_results.append(code)
+                        assert code==0 or (code==1 and
+                            result['tx_results'][0]['log']=='transaction already executed'), result
                     if c.mode=='drop_after_execution':
                         self.connection.shutdown(socket.SHUT_RDWR);self.connection.close();return
-                    result={'code':7 if c.mode=='decline' else 0,
+                    result={'code':code,
                             'hash':hashlib.sha256(raw).hexdigest().upper()}
                 elif method=='abci_query':
                     assert params['path']=='/state'

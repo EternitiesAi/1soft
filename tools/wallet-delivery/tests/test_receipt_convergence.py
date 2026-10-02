@@ -40,7 +40,8 @@ class ConvergenceTests(unittest.TestCase):
             self.c.policy,self.url,create=not self.c.delivery_path.exists(),clock=lambda:self.c.clock)
 
     def collect_first(self):
-        sent=self.d.send(self.first['decision_id'],self.q['delivery_confirmation'],**self.selection())
+        reviewed=self.d.review(self.first['decision_id'],**self.selection())
+        sent=self.d.send(self.first['decision_id'],reviewed['delivery_confirmation'],**self.selection())
         self.assertEqual(sent['transport_status'],'unresolved')
         found=self.d.refresh(self.first['decision_id'],**self.selection())
         self.assertTrue(found['exact_transport_receipt_verified'])

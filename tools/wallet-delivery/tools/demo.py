@@ -61,7 +61,8 @@ def main(argv=None):
                 kw={'account':IDS[0],'grant_id':label}
                 with DecisionDelivery(c.wallet_path,c.delivery_path,c.raw,c.policy,url,create=label=='raven',clock=lambda:c.clock) as d:
                     queued=d.queue(result['decision_id'],**kw)
-                    sent=d.send(result['decision_id'],queued['delivery_confirmation'],**kw)
+                    reviewed=d.review(result['decision_id'],**kw)
+                    sent=d.send(result['decision_id'],reviewed['delivery_confirmation'],**kw)
                     assert sent['transport_status']=='unresolved'
                 report(label+'-response-lost',sent)
                 # New session recovers the SAME source decision, then reads only.

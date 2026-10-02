@@ -519,7 +519,39 @@ def run(engine: str, output: Path, protocol_version: int = 1, *, state_commitmen
                     checked(name+' uses exact wallet-signed bytes',raw==decision['raw'])
                     if decision_delivery:
                         expected_hold=100 if name=='first worker payment' else 40
-                        sent=wallet_delivery.send(decision['decision_id'],decision['confirmation'],
+                        if name=='second worker boundary payment':
+                            # Raven's verified reconciliation changed the wallet
+                            # checkpoint/inventory after both initial queue reviews.
+                            before_proxy=decision_proxy.snapshot()
+                            before_wallet=list(wallet.db.iterdump())
+                            before_dispatch=list(wallet_delivery.dispatch.db.iterdump())
+                            try:
+                                wallet_delivery.send(decision['decision_id'],decision['confirmation'],
+                                    account=decision['account'],grant_id=decision['grant_id'])
+                            except Reject as exc:
+                                checked('stale queued Atlas attempt review is explicitly refused',str(exc)==
+                                    'delivery review changed or confirmation differs; review the exact attempt again')
+                            else:
+                                raise AssertionError('stale Atlas attempt review was accepted')
+                            checked('stale Atlas review causes no RPC or journal mutation',
+                                decision_proxy.snapshot()==before_proxy and
+                                list(wallet.db.iterdump())==before_wallet and
+                                list(wallet_delivery.dispatch.db.iterdump())==before_dispatch)
+                            decision['evidence']['stale_initial_attempt_review_refused']=True
+                        reviewed=wallet_delivery.review(decision['decision_id'],
+                            account=decision['account'],grant_id=decision['grant_id'])
+                        attempt_review=reviewed['submission_review']
+                        checked(name+' fresh review binds next exact send attempt',
+                            attempt_review['operation']=='send' and attempt_review['next_attempt']==1 and
+                            attempt_review['wire_sha256']==hashlib.sha256(raw).hexdigest() and
+                            attempt_review['wallet_state_height']==wallet_observed['state']['height'])
+                        decision['evidence']['stages'].append({'stage':'attempt_reviewed',
+                            'operation':attempt_review['operation'],'next_attempt':attempt_review['next_attempt'],
+                            'wallet_state_height':attempt_review['wallet_state_height'],
+                            'wallet_header_hash':attempt_review['wallet_header_hash'],
+                            'local_obligations_digest':attempt_review['local_obligations_digest'],
+                            'confirmation_sha256':reviewed['delivery_confirmation']})
+                        sent=wallet_delivery.send(decision['decision_id'],reviewed['delivery_confirmation'],
                             account=decision['account'],grant_id=decision['grant_id'])
                         current_proxy=decision_proxy.snapshot()
                         proxy_record=current_proxy['payments'][-1] if current_proxy['payments'] else {}
