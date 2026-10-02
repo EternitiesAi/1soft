@@ -53,6 +53,11 @@ JAVASCRIPT_SCENARIOS = (
     'tools/private-payments/tests/browser_comet.test.cjs',
 )
 
+PYTHON_ENGINE_SCENARIOS = tuple(dict(
+    path='scripts/run_protocol4_state_sync.py',profile=name,status='unassessed',
+    reason='requires separate exact-source pinned-engine qualification')
+    for name in ('basic','final-apply-crash'))
+
 
 def coverage(root):
     """Refuse unknown, missing, empty or silently omitted test components."""
@@ -82,6 +87,7 @@ def coverage(root):
     return {'groups': groups, 'test_files': sorted(included),
             'excluded_test_files': excluded, 'exclusion_reasons': EXCLUDED,
             'javascript_groups': JAVASCRIPT_GROUPS,
+            'python_engine_scenarios': list(PYTHON_ENGINE_SCENARIOS),
             'javascript_scenarios': [
                 {'path': path, 'status': 'unassessed',
                  'reason': 'requires separate scenario qualification with an existing browser'}
@@ -191,7 +197,7 @@ def run(output, timeout=600):
               'tracked_files': source['tracked_files'], 'coverage': profile,
               'historical_manifests': 'retained as historical snapshots; no current-match claim',
               'groups': [], 'python_tests': 0, 'distinct_python_test_ids': 0,
-              'scenario_qualification': profile['javascript_scenarios'],
+              'scenario_qualification': profile['javascript_scenarios'] + profile['python_engine_scenarios'],
               'environment': {'python': sys.version.split()[0], 'platform': platform.platform(),
                               'dependencies': installed},
               **base.release_status(False)}

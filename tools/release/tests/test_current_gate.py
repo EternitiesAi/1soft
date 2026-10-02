@@ -119,6 +119,14 @@ class CurrentCoverageTests(unittest.TestCase):
             coverage(self.root)
 
 
+    def test_p4_engine_scenarios_are_registered_without_unit_qualification_claim(self):
+        result=coverage(self.root)
+        scenarios=result.get('python_engine_scenarios',[])
+        self.assertEqual([x['profile'] for x in scenarios],['basic','final-apply-crash'])
+        self.assertTrue(all(x['path']=='scripts/run_protocol4_state_sync.py' for x in scenarios))
+        self.assertTrue(all(x['status']=='unassessed' for x in scenarios))
+
+
 class CurrentJavascriptTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
