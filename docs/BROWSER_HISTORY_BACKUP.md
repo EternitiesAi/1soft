@@ -18,7 +18,7 @@ An export audits one complete captured pair, creates its entire encrypted file p
 
 Backup remains available when current evidence or the original fixed policy is expired. The encrypted copy preserves historical obligations; it supplies no current trusted balance or spending authority. An unverified transport outcome remains unknown. A collected receipt still needs explicit wallet reconciliation to retire its hold. Creating or restoring a backup performs neither action.
 
-Use the existing [recovery-only archive workflow](../tools/protocol4-custody/README.md) with independently selected original genesis and policy. Recovering a signed wire is not permission to resend it. Copied journals, rollback, cross-device coordination and hostile hosts remain separate unresolved custody problems.
+Follow the [operator preservation and recovery guide](OPERATOR_HISTORY_RECOVERY.md): keep the exact original full `engine-genesis.json`, original independently selected `policy.json`, encrypted download, and a separately preserved backup passphrase. `app-genesis.json` is not the full wallet genesis. Use the existing [recovery-only archive workflow](../tools/protocol4-custody/README.md) with those original inputs. Recovering a signed wire is not permission to resend it. Copied journals, rollback, cross-device coordination and hostile hosts remain separate unresolved custody problems.
 
 ## Guard and qualification scope
 

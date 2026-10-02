@@ -32,6 +32,10 @@ source and output directory must meet the existing private ownership and mode
 checks; use a directory owned by your UNIX user with mode `0700`. Outputs are new
 exclusive files with mode `0600`. No directories or signing wallets are created
 implicitly. Supply the original independently selected genesis and trust policy.
+For the standard local-development and merchant workspace, preserve the complete
+`engine-genesis.json` byte for byte; `app-genesis.json` is not a substitute. The
+[operator recovery guide](../../docs/OPERATOR_HISTORY_RECOVERY.md) lists what to
+preserve and how to inspect unresolved obligations without restoring authority.
 The endpoint must exactly match the existing delivery journal; these commands do
 not call it.
 
