@@ -57,6 +57,8 @@ def main():
     save = commands.add_parser('backup', help='encrypted complete wallet/delivery snapshot')
     for name in ('wallet','delivery','output'): save.add_argument('--'+name, required=True, type=Path)
     save.add_argument('--endpoint', required=True, help='exact endpoint stored in the bound journal; no network call')
+    save.add_argument('--format', choices=('auto','1','2'), default='auto',
+                      help='auto keeps small backups v1 and selects bounded v2 for larger admitted pairs')
     restore = commands.add_parser('restore', help='create a recovery-only archive, never an active wallet')
     for name in ('backup','output'): restore.add_argument('--'+name, required=True, type=Path)
     view = commands.add_parser('status', help='historical holds and dispatch claims; no current authority')
@@ -76,7 +78,8 @@ def main():
             # Prompt before opening journals; no SQLite lock spans a prompt.
             secret = password(confirm=True)
             with P4Delivery(args.wallet,args.delivery,genesis,policy,args.endpoint) as delivery:
-                result = backup(delivery,args.output,secret)
+                result = backup(delivery,args.output,secret,
+                                format_version=None if args.format=='auto' else int(args.format))
         elif args.command == 'restore':
             result = restore_backup(args.backup,args.output,genesis,policy,password())
         else:

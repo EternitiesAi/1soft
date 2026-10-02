@@ -82,10 +82,28 @@ The version-1 envelope uses the installed cryptography library's Scrypt
 noncanonical encoding and inflated KDF settings are refused before derivation.
 No custom encryption primitive or authenticated compression is introduced.
 
-Complete journal BLOB payload is capped at 7 MiB, plaintext at 16 MiB, encrypted
-envelope at 23 MiB and the restored archive at 17 MiB. Row limits match the current
-P4 journals. A backup over its bound is refused; no history or obligations are
-evicted to make it fit. These are development bounds, not a pruning solution.
+Version 1 retains its 7 MiB complete journal BLOB limit, 16 MiB plaintext limit,
+23 MiB encrypted envelope limit and 17 MiB archive limit. The default keeps this
+format when the complete legacy representation fits, and selects version 2 for a
+larger admitted wallet/delivery pair. `backup(..., format_version=1)` or CLI
+`backup --format 1` explicitly requests the original bounds. `--format 2` requests
+the new format; `--format auto` is the default. Current readers accept both
+versions. Older readers accept only version 1; unknown versions are refused.
+
+Version 2 preserves original BLOB bytes in a fixed typed row stream and encrypts
+at most 1 MiB per AES-GCM frame. A fresh salt and nonce prefix, the frame position,
+type and length, and an authenticated final manifest prevent frame mixing,
+reordering, duplication and incomplete-file publication. Its limits are derived
+from the unchanged current admission rules: at most 141 MiB+4096 journal BLOB
+bytes, 834 rows and 1 MiB external genesis. Bounded metadata/framing yields a
+152,329,575-byte plaintext stream, 152,340,868-byte encrypted file and
+153,591,143-byte private recovery archive ceiling. No record is pruned or evicted.
+The archive still has the recovery-only application ID and cannot activate a
+wallet or delivery journal. See [the format contract](../../docs/CUSTODY_BACKUP_SCALE.md).
+
+Encryption and row serialization use bounded buffers. Original historical audits
+and frozen archive chunks still retain bounded journal/proof data in memory;
+this is not a constant-RAM or maximum-capacity operational qualification.
 
 All inputs and outputs must be disjoint from each other's full database/sidecar
 families, including absent sidecar names. Symlinks, hardlinks and existing output
@@ -110,6 +128,13 @@ They include a real local PTY CLI flow and a forced competing wallet writer. The
 transport-loss case faults only the external submission boundary; no engine or
 public service is executed. Its receipt proves this component's local behavior,
 not consensus, independent-operator readiness or external security review.
+
+The scale case builds an admitted pair above 7 MiB using actual native transfers,
+increasing wallet observations, original approvals, a consumed unresolved claim
+and a verified receipt. It checks every decoded table row, original wires and
+receipt, continued holds and active-constructor refusal. Its disposable publicly
+known fixture vaults and databases stay in a new private directory under
+`/home/xnuonux`; package only the printed metadata receipt, never that directory.
 
 Historical components' source manifests remain intact. Their byte seals identify
 their own revisions; this verifier records the current candidate rather than

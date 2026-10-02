@@ -277,7 +277,8 @@ class CustodyTests(unittest.TestCase):
         # Lower the configured cap to exercise the exact production cap path
         # without generating an unrelated multi-megabyte committee fixture.
         with patch('p4_custody.MAX_JOURNAL_BYTES', 1):
-            with self.assertRaises(ValueError): self.api.backup(self.d, self.bp, BACKUP_PASSWORD)
+            with self.assertRaises(ValueError):
+                self.api.backup(self.d, self.bp, BACKUP_PASSWORD, format_version=1)
         self.assertFalse(self.bp.exists())
         self.assertEqual(self.rows(), before)
 

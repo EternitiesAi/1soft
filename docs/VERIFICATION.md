@@ -1,5 +1,8 @@
 # 1soft v0.16 — observed verification
 
+Current integrated checkouts use [current qualification](CURRENT_QUALIFICATION.md).
+The dated results below are preserved historical evidence for their original source.
+
 September 25, 2026. Complete local parent: `ff6f085ebde1aeace38e31970e8d8dfa20a52a31`.
 Cryptocurrency node only; no Actions, paid compute, DNS/site changes, Resident/Luna/
 Psyche changes, real funds, protected custody or public deployment.
