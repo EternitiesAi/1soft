@@ -122,7 +122,7 @@ class Proxy:
         self.thread.join(3)
 
 
-def run(engine, expected_sha256, output):
+def run(engine, expected_sha256, output, *, key_rotation=False):
     output = Path(output).resolve()
     if output.is_relative_to(ROOT):
         raise ValueError('acceptance output must be outside the source checkout')
@@ -391,6 +391,76 @@ def run(engine, expected_sha256, output):
             and proxy.observations[-1]['upstream_result']['code'] != 0)
         report['diagnostics'] = {'claim_submissions': 0, 'declined_submissions': 1, 'unresolved_hold_units': 6,
             'principal_submissions': 2, 'total_proxy_submissions': len(proxy.submissions)}
+        if key_rotation:
+            # Extend the complete existing acceptance profile. Its checks and
+            # six units of unresolved diagnostic holds remain unchanged.
+            proof=collect_evidence(proxy.endpoint,full_genesis,policy,time.time_ns())['evidence']
+            wallet.sync(proof,expected_revision=wallet.status()['revision'])
+            incoming=Ed25519PrivateKey.generate()
+            for name,key in (('owner',keys['owner']),('incoming',incoming)):
+                path=runtime/f'{name}.pem'
+                path.write_bytes(key.private_bytes(ser.Encoding.PEM,ser.PrivateFormat.PKCS8,ser.BestAvailableEncryption(password)))
+                path.chmod(0o600)
+            q=wallet.prepare_rotation(payer=payer,new_public_key=public(incoming),valid_until=wallet.status()['state_height']+30)
+            # Same-height sync can legitimately retain an earlier valid commit
+            # packet. Export the exact canonical observation used by this wallet,
+            # not a newly queried/reconstructed packet with another signature set.
+            with wallet.atomic(write=False):
+                _,observations,_,_=wallet._catalog()
+                origin=bytes(observations[-1][4])
+            check('exact rotation review source packet retained',
+                  hashlib.sha256(origin).hexdigest()==q['review']['evidence_id'])
+            (output/'rotation-origin-evidence.json').write_bytes(origin)
+            accepted=wallet.accept_rotation(q['review'],q['confirmation'],incoming_vault=runtime/'incoming.pem',password=password)
+            check('incoming rotation consent has no fee hold or owner signature',
+                  wallet.status()['pending_debit_units']=='6' and not accepted['owner_signed'])
+            decision=wallet.approve_rotation(accepted['review'],accepted['confirmation'],owner_vault=runtime/'owner.pem',password=password)
+            rotation=decision['decision_id'];selection_owner={'payer':payer,'grant_id':''}
+            rotation_wire=wallet.recover(rotation,**selection_owner)
+            check('rotation reserves exactly two additional units',wallet.status()['pending_debit_units']=='8')
+            check('pending rotation quiesces all new payer signing',refused(lambda:wallet.prepare(payer=payer,recipient=merchant,units=1,valid_until=wallet.status()['state_height']+30)))
+            q=delivery.prepare(rotation,**selection_owner);sent=delivery.send(q['review'],q['confirmation'])
+            check('exact rotation admitted under replacement validators',sent['transport_observation']=='endpoint_admitted' and not sent['execution_proven'])
+            tx=wait_until(lambda:rpc(http[4],'tx',{'hash':base64.b64encode(hashlib.sha256(rotation_wire).digest()).decode()}),30)
+            wait_until(lambda:height()>=int(tx['height'])+1,30)
+            check('rotation executes through real ABCI',tx['tx_result']['code']==0)
+            check('rotation positive receipt collected',delivery.collect(rotation,**selection_owner)['status']=='receipt_collected')
+            rotation_evidence=delivery.export_receipt(rotation,**selection_owner)
+            view=wallet.rotation_status(rotation,payer=payer,evidence=rotation_evidence)
+            check('verified rotation retires original authority at checkpoint',view['old_owner_retired_at_checkpoint'] and view['original_grants_retired_at_checkpoint'] and view['replacement_owner_active_at_checkpoint'] and view['receipt_epoch_before']==0 and view['receipt_epoch_after']==1)
+            delivery.reconcile(rotation,**selection_owner,expected_revision=wallet.status()['revision'])
+            check('rotation reconciliation preserves six unknown diagnostic units',wallet.status()['pending_debit_units']=='6')
+            state=app_query(http[4],'/state')['native'];ledger=restore(genesis,state)
+            try:
+                owner=ledger._account(payer)
+                old_owner=canonical(sign(keys['owner'],ledger.body(payer,owner['nonce'],{'type':'transfer','to':merchant,'units':1},valid_until=height()+30)))
+                old_grant=canonical(sign(keys['claim'],ledger.body(payer,0,{'type':'transfer','to':merchant,'units':1},grant_id='claim',valid_until=height()+30)))
+            finally:ledger.close()
+            for label,wire in (('old owner',old_owner),('old epoch grant',old_grant)):
+                response=rpc(http[4],'broadcast_tx_sync',{'tx':base64.b64encode(wire).decode()})
+                check(label+' rejected by actual engine CheckTx',type(response['code']) is int and response['code']!=0)
+                (output/(label.replace(' ','-')+'-checktx.json')).write_bytes(encode(response))
+            q=wallet.prepare(payer=payer,recipient=merchant,units=1,valid_until=wallet.status()['state_height']+30)
+            next_decision=wallet.approve(q['review'],q['confirmation'],vault=runtime/'incoming.pem',password=password)
+            next_id=next_decision['decision_id'];next_wire=wallet.recover(next_id,**selection_owner)
+            q=delivery.prepare(next_id,**selection_owner);delivery.send(q['review'],q['confirmation'])
+            tx=wait_until(lambda:rpc(http[4],'tx',{'hash':base64.b64encode(hashlib.sha256(next_wire).digest()).decode()}),30)
+            wait_until(lambda:height()>=int(tx['height'])+1,30)
+            check('replacement owner payment executes from same account',tx['tx_result']['code']==0 and next_decision['transaction']['body']['sender']==payer)
+            check('replacement owner receipt collected',delivery.collect(next_id,**selection_owner)['status']=='receipt_collected')
+            delivery.reconcile(next_id,**selection_owner,expected_revision=wallet.status()['revision'])
+            check('replacement payment clears only its three-unit hold',wallet.status()['pending_debit_units']=='6')
+            state=app_query(http[4],'/state')['native'];balances={a[0]:a[4] for a in state['accounts']}
+            check('rotation and replacement payment conserve all native funds',balances[payer]==report['arithmetic']['payer_final']-5 and balances[merchant]==97 and sum(balances.values())==1000)
+            for name,raw in (('rotation-signed.json',rotation_wire),('rotation-review.json',encode(accepted['review'])),
+                             ('rotation-receipt-evidence.json',encode(rotation_evidence)),('rotation-status.json',encode(view)),
+                             ('replacement-signed.json',next_wire),('replacement-receipt-evidence.json',encode(delivery.export_receipt(next_id,**selection_owner)))):
+                (output/name).write_bytes(raw)
+            report['key_rotation']={'assessed':True,'payer':payer,'rotation_decision_id':rotation,
+                'replacement_decision_id':next_id,'remaining_unknown_hold_units':6,
+                'physical_device_fenced':False,'latestness_guaranteed':False,'checked_at_ns':view['checked_at_ns'],
+                'prior_diagnostics_scope':'before key rotation','additional_positive_proxy_submissions':2,
+                'final_proxy_submissions':len(proxy.submissions),'additional_direct_negative_checktx':2}
         report['status'] = 'passed'
     except BaseException as exc:
         report['status'] = 'failed'
@@ -432,11 +502,12 @@ if __name__ == '__main__':
     p.add_argument('--engine'); p.add_argument('--engine-sha256'); p.add_argument('--output', type=Path)
     p.add_argument('--fault-config', type=Path)
     p.add_argument('--fault-phase', choices=('after_claim', 'after_submission', 'after_wallet_sync'))
+    p.add_argument('--key-rotation',action='store_true',help='also qualify owner replacement and retained uncertain holds')
     args = p.parse_args()
     if args.fault_config:
         process_fault(args.fault_config, args.fault_phase)
     else:
         if not args.engine or not args.engine_sha256 or not args.output: p.error('engine, hash and output are required')
-        result = run(args.engine, args.engine_sha256, args.output)
+        result = run(args.engine, args.engine_sha256, args.output,key_rotation=args.key_rotation)
         print(json.dumps({k: result.get(k) for k in ('status', 'reason', 'source_qualified')}))
         raise SystemExit(0 if result['status'] == 'passed' else 1)

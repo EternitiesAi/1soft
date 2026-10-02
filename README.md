@@ -40,6 +40,12 @@ transactions, spending holds and consumed delivery attempts, and can export save
 receipt evidence. It cannot sign or dispatch, establish that a backup is current,
 or fence the old signing device. Private keys are outside this backup.
 
+The live development wallet also supports [explicit owner key
+replacement](docs/P4_KEY_ROTATION.md): consent from the incoming key, approval by
+the current owner, one shared fee reservation and exact positive confirmation.
+Account identity and payment history survive rotation. Uncertain payments stay
+reserved; journal restoration alone cannot authorize replacement of a lost key.
+
 The local browser wallet locks pending reviews to their request and signing role,
 inspects the saved wallet after a lost response, and shows the next action for the
 original payment. Unknown outcomes, collected receipts, reconciled execution and
