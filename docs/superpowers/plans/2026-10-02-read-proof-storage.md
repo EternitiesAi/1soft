@@ -1,0 +1,11 @@
+# P4 compact read-proof storage implementation plan
+
+Specification: ../specs/2026-10-02-read-proof-storage-design.md
+
+1. Helper owns additive tools/protocol4-client/src/p4_storage_codec.py, p4_read_store.py version2 creation/catalog/logical projection, p4_read.py explicit selector/storage metrics and focused test_storage_format2.py/test_storage_codec.py/test_storage_format2_cli.py. Preserve v1 schema/default and shared private_path/write_new exact bytes. Start with genuine missing-format2 red tests; retain logs. Reuse all existing StoreTests semantics for2, supplement authenticated-proof tampering after rehash/reframing, declared length/tail/bomb/before-BLOB fetch/logical-byte capacity/expiry-after-compression/CAS/process-crash cases.
+2. Root owns design, docs, profiling and optional actual-validator runner flag --read-store-format2; qualify exact proof exports, original receipt/account/explorer caller behavior and no added submissions. Do not edit the frozen custody branch. Prepare one new private canonical proof dataset; freeze exact source and balanced fresh-process sample order before measuring.
+3. Independent reviewer inspects schema/decoder/resource/clock/trust contracts and all real caller paths. Address findings without weakening acceptance. Commit clean candidate and use the whole-current-source17group/38JS checker plus required affected read/explorer/validator gates. Broaden or repeat only for changes/failures/unresolved concerns/required gates.
+4. Publish branch/PR via supported existing GitHub access, merge only exact verified head, verify remote main/tree/no current Actions. Preserve original worktrees and prior packets.
+5. Include exact source/raw sanitized logs/design/reviews/paired results in the final window ZIP and CODEX_RESULT. Continue coherent valuable work until the authorized window deadline; no launch or production readiness claim.
+
+Root owns source integration, resource coordination, final qualification, publication and artifacts. Helper owns only the listed client files/tests; no paid workers, extra agents, installs or engine launches. Files are shared; do not edit Root's runner/profile/docs or old frozen branch. All private fixtures belong in new owned0700/home directories; never package keys/journals/archives/private wires or passwords.

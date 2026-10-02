@@ -21,6 +21,8 @@ from p4_evidence import (MAX_EVIDENCE_BYTES, _account_from_verified_report, chec
                          extends, freeze, hash_text, integer, need, p4_genesis,
                          policy_checked, _receipt_from_verified_report, verify_evidence)
 
+from p4_storage_codec import FRAME_BYTES, decode_payload, encode_payload
+
 APPLICATION_ID = 0x31503452
 MAX_RECORDS = 32
 MAX_STORED_BYTES = 64 * 1024 * 1024
@@ -56,11 +58,15 @@ def write_new(path, data):
 
 class P4ReadStore:
     """Append-only verified observations, distinct from every monetary journal."""
-    def __init__(self, path, genesis_bytes, policy, *, create=False, read_only=False, clock=time.time_ns):
+    def __init__(self, path, genesis_bytes, policy, *, create=False, read_only=False,
+                 clock=time.time_ns, storage_version=None):
         self.policy = policy_checked(policy)
         self.genesis = bytes(genesis_bytes)
         p4_genesis(self.genesis, self.policy['genesis_sha256'])
         need(type(create) is bool and type(read_only) is bool and not (create and read_only), 'invalid store mode')
+        need(storage_version is None or (create and type(storage_version) is int and
+             storage_version in (1, 2)), 'storage version is an explicit supported creation option only')
+        self.storage_version = (1 if storage_version is None else storage_version) if create else None
         self.policy_id = content_id(self.policy)
         self.clock = clock; self.read_only = read_only; self.db = None
         self.path = private_path(path)
@@ -79,8 +85,9 @@ class P4ReadStore:
                 with self.atomic():
                     self.db.execute(f'PRAGMA application_id={APPLICATION_ID}')
                     self.db.execute('CREATE TABLE config(id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, policy BLOB NOT NULL, policy_id TEXT NOT NULL)')
-                    self.db.execute('CREATE TABLE observations(seq INTEGER PRIMARY KEY, evidence_id TEXT UNIQUE NOT NULL, parent_id TEXT NOT NULL, checked_ns INTEGER NOT NULL, height INTEGER NOT NULL, payload BLOB NOT NULL)')
-                    self.db.execute('INSERT INTO config VALUES (1,1,?,?)', (encode(self.policy), self.policy_id))
+                    suffix = ', logical_bytes INTEGER NOT NULL' if self.storage_version == 2 else ''
+                    self.db.execute('CREATE TABLE observations(seq INTEGER PRIMARY KEY, evidence_id TEXT UNIQUE NOT NULL, parent_id TEXT NOT NULL, checked_ns INTEGER NOT NULL, height INTEGER NOT NULL, payload BLOB NOT NULL'+suffix+')')
+                    self.db.execute(f'INSERT INTO config VALUES (1,{self.storage_version},?,?)', (encode(self.policy), self.policy_id))
                 parent = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
                 try: os.fsync(parent)
                 finally: os.close(parent)
@@ -112,27 +119,67 @@ class P4ReadStore:
              'not a P4 read store; existing file not repaired')
         objects = set(self.db.execute("SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))
         need(objects == {('table','config'), ('table','observations')}, 'unsupported read-store schema')
-        expected = {'config': ('id','version','policy','policy_id'),
-                    'observations': ('seq','evidence_id','parent_id','checked_ns','height','payload')}
-        for table, columns in expected.items():
-            need(tuple(row[1] for row in self.db.execute(f'PRAGMA table_info({table})')) == columns,
-                 'read-store columns differ')
-        rows = self.db.execute('SELECT * FROM config').fetchall()
-        need(rows == [(1,1,encode(self.policy),self.policy_id)], 'read-store external policy differs')
-        count, size = self.db.execute('SELECT count(*),coalesce(sum(length(payload)),0) FROM observations').fetchone()
-        need(count <= MAX_RECORDS and size <= MAX_STORED_BYTES, 'read-store capacity exceeded')
-        rows = self.db.execute('SELECT * FROM observations ORDER BY seq').fetchall()
+        need(tuple(row[1] for row in self.db.execute('PRAGMA table_info(config)')) ==
+             ('id','version','policy','policy_id'), 'read-store columns differ')
+        config = self.db.execute('SELECT * FROM config').fetchall()
+        need(len(config) == 1 and type(config[0][1]) is int and config[0][1] in (1, 2) and
+             config[0] == (1,config[0][1],encode(self.policy),self.policy_id),
+             'read-store external policy differs')
+        version = config[0][1]
+        need(self.storage_version is None or self.storage_version == version,
+             'read-store version changed')
+        columns = ('seq','evidence_id','parent_id','checked_ns','height','payload')
+        if version == 2: columns += ('logical_bytes',)
+        need(tuple(row[1] for row in self.db.execute('PRAGMA table_info(observations)')) == columns,
+             'read-store columns differ')
+        self.storage_version = version
+        count = self.db.execute('SELECT count(*) FROM observations').fetchone()[0]
+        need(count <= MAX_RECORDS, 'read-store capacity exceeded')
+        # Inspect all typed descriptors and both byte totals BEFORE fetching any
+        # proof BLOB. Physical savings never enlarge logical admission limits.
+        extra = ',logical_bytes,typeof(logical_bytes)' if version == 2 else ''
+        descriptors = self.db.execute('SELECT seq,evidence_id,parent_id,checked_ns,height,'
+            'typeof(payload),length(payload)'+extra+' FROM observations ORDER BY seq').fetchall()
+        need(len(descriptors) == count, 'read-store catalog changed')
         prior_id, prior_height, prior_clock = ZERO, -1, nanos_anchor(self.policy)
-        for expected_seq, row in enumerate(rows, 1):
-            seq, evidence_id, parent, checked_ns, height, payload = row
+        logical_total = physical_total = 0
+        for expected_seq, descriptor in enumerate(descriptors, 1):
+            seq, evidence_id, parent, checked_ns, height, payload_type, physical = descriptor[:7]
             integer(seq, expected_seq, expected_seq); integer(height, 0, 512)
-            integer(checked_ns, prior_clock)
-            hash_text(evidence_id)
-            need(parent == prior_id and height > prior_height and type(payload) is bytes and
-                 0 < len(payload) <= MAX_EVIDENCE_BYTES and hashlib.sha256(payload).hexdigest() == evidence_id,
-                 'read-store lineage or content changed')
+            integer(checked_ns, prior_clock); hash_text(evidence_id)
+            need(parent == prior_id and height > prior_height, 'read-store lineage or content changed')
+            need(payload_type == 'blob', 'read-store payload descriptor changed')
+            logical = descriptor[7] if version == 2 else physical
+            if version == 2: need(descriptor[8] == 'integer', 'invalid logical proof length type')
+            integer(logical, 1, MAX_EVIDENCE_BYTES)
+            integer(physical, FRAME_BYTES+1 if version == 2 else 1,
+                    logical+FRAME_BYTES if version == 2 else MAX_EVIDENCE_BYTES)
+            logical_total += logical; physical_total += physical
+            need(logical_total <= MAX_STORED_BYTES and
+                 physical_total <= MAX_STORED_BYTES+(count*FRAME_BYTES if version == 2 else 0),
+                 'read-store capacity exceeded')
             prior_id, prior_height, prior_clock = evidence_id, height, checked_ns
+        payloads = self.db.execute('SELECT seq,payload FROM observations ORDER BY seq').fetchall()
+        need(len(payloads) == count, 'read-store catalog changed')
+        rows = []
+        for descriptor, (seq, payload) in zip(descriptors, payloads):
+            need(seq == descriptor[0] and type(payload) is bytes and len(payload) == descriptor[6],
+                 'read-store payload descriptor changed')
+            raw = decode_payload(payload) if version == 2 else payload
+            need(len(raw) == (descriptor[7] if version == 2 else descriptor[6]) and
+                 hashlib.sha256(raw).hexdigest() == descriptor[1],
+                 'read-store lineage or content changed')
+            rows.append((*descriptor[:5], raw))
         return rows
+
+    def storage_stats(self):
+        """Read-only physical/logical accounting; does not qualify current trust."""
+        with self.atomic(write=False):
+            rows = self._catalog()
+            physical = self.db.execute('SELECT coalesce(sum(length(payload)),0) FROM observations').fetchone()[0]
+            return {'format_version':self.storage_version, 'observations':len(rows),
+                    'logical_evidence_bytes':sum(len(row[5]) for row in rows),
+                    'stored_payload_bytes':physical, 'spending_authority':False}
 
     def _verified(self, row, now_ns):
         _, evidence_id, _, checked_ns, height, raw = row
@@ -164,13 +211,17 @@ class P4ReadStore:
             raw = encode(frozen)
             need(len(rows) < MAX_RECORDS and sum(len(row[5]) for row in rows)+len(raw) <= MAX_STORED_BYTES,
                  'read-store capacity reached; evidence not evicted')
-            # Expiry is checked again AFTER old evidence replay and immediately
+            payload = encode_payload(raw) if self.storage_version == 2 else raw
+            # Expiry is checked again AFTER old evidence replay/compression and immediately
             # before the database write. Only this derived read store changes.
             checked = self.clock(); check_clock(self.policy, checked, begin)
             if rows: check_clock(self.policy, checked, rows[-1][3])
-            self.db.execute('INSERT INTO observations VALUES (?,?,?,?,?,?)',
-                            (len(rows)+1, report['evidence_id'], actual_tip or ZERO, checked,
-                             report['state_height'], raw))
+            record = (len(rows)+1, report['evidence_id'], actual_tip or ZERO, checked,
+                      report['state_height'], payload)
+            if self.storage_version == 2:
+                self.db.execute('INSERT INTO observations VALUES (?,?,?,?,?,?,?)', (*record, len(raw)))
+            else:
+                self.db.execute('INSERT INTO observations VALUES (?,?,?,?,?,?)', record)
         return {'status': 'recorded', 'evidence_id': report['evidence_id'],
                 'state_height': report['state_height'], 'wallet_reservations_changed': False}
 

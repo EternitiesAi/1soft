@@ -34,10 +34,12 @@ def main(argv=None):
     p.add_argument('--genesis', type=Path, required=True, help='Externally pinned engine genesis bytes')
     p.add_argument('--policy', type=Path, required=True, help='Externally chosen fixed trust policy')
     subs = p.add_subparsers(dest='command', required=True)
-    for name in ('verify', 'init', 'import', 'sync', 'inspect', 'account', 'receipt', 'export'):
+    for name in ('verify', 'init', 'import', 'sync', 'inspect', 'account', 'receipt', 'export', 'storage'):
         c = subs.add_parser(name)
         if name != 'verify':
             c.add_argument('--store', type=Path, required=True, help='Separate P4 read store, never a wallet/node')
+        if name == 'init': c.add_argument('--storage-format', type=int, choices=(1, 2), default=1,
+            help='Explicit fresh read-store format; existing stores are never migrated')
         if name in ('verify', 'import'):
             c.add_argument('--evidence', type=Path, required=True)
         if name == 'sync': c.add_argument('--endpoint', required=True, help='Literal loopback HTTP development node')
@@ -60,9 +62,11 @@ def main(argv=None):
             result = summary(verify_evidence(evidence, genesis, policy, now_ns=time.time_ns()))
         else:
             with P4ReadStore(a.store, genesis, policy, create=a.command == 'init',
-                             read_only=a.command in ('inspect', 'account', 'receipt', 'export')) as store:
+                             read_only=a.command in ('inspect', 'account', 'receipt', 'export', 'storage'),
+                             storage_version=a.storage_format if a.command == 'init' else None) as store:
                 if a.command == 'init':
                     result = {'status': 'empty-read-store-created', 'wallet_created': False}
+                elif a.command == 'storage': result = store.storage_stats()
                 elif a.command == 'import':
                     tip = None if a.expected_tip == 'empty' else a.expected_tip
                     result = store.import_evidence(evidence, expected_tip=tip)
@@ -82,7 +86,7 @@ def main(argv=None):
                     result = {'status': 'evidence-exported', 'evidence_id': a.evidence_id,
                               'wallet_reservations_changed': False}
         print(json.dumps(result, indent=2))
-        return 2 if result['status'] == 'unavailable' else 0
+        return 2 if result.get('status') == 'unavailable' else 0
     except (OSError, ValueError, KeyError, TypeError, OverflowError, sqlite3.Error):
         print('P4 read refused or evidence unavailable. No payment outcome or spending authority inferred.', file=sys.stderr)
         return 2

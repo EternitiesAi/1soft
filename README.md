@@ -91,11 +91,17 @@ not prune history or change the node's execution rules. See [sequential replay](
 Complete custody format 2 uses bounded authenticated frames for journals that exceed
 the original format's complete-representation limit. Small backups still use format
 1 automatically, and old backups remain readable. Original financial audits and
-recovery-only authority remain. Explicit format3 adds bounded lossless compression
-to encrypted backups while preserving the exact format2 stream and historical
+recovery-only authority remain. Explicit format 3 adds bounded lossless compression
+to encrypted backups while preserving the exact format 2 stream and historical
 authority. See [compact backups](docs/CUSTODY_COMPRESSION.md). Maximum-capacity
 resource behavior and power-loss certification are still open. See
 [backup scale](docs/CUSTODY_BACKUP_SCALE.md).
+
+An explicit fresh read-store format 2 can retain complete canonical proof packets
+with bounded lossless compression. The existing read verifier, receipt lookup and
+explorer still consume the original bytes under the same external trust policy.
+Observation and original-byte limits remain unchanged; small compressed files do
+not admit more history. See [read-proof storage](docs/READ_PROOF_STORAGE.md).
 
 P4 retains its height-512 and bounded-history development limits. Public throughput,
 long-term history/pruning, cross-device coordination, hardware key recovery and

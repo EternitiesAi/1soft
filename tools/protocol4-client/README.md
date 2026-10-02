@@ -156,7 +156,7 @@ complete signed evidence file; the client never silently resets, skips or renews
 
 Offline evidence supports all existing P4 development heights through 512, at most
 16 MiB per document. The read store retains at most 32 observations and 64 MiB of
-payload. These are logical bounds, not total database-size or production scaling
+original canonical proof bytes, including when compressed. These are logical bounds, not total database-size or production scaling
 claims. Each observation replays full history, deliberately favoring verification
 over index efficiency in this development slice.
 
@@ -179,3 +179,18 @@ server, not a CometBFT process. A production P4 signing/reservation wallet, dedi
 explorer integration, receipt-capsule archive, real-engine P4 state sync/Commit crash,
 independent operators, security review, governance recovery, custody and economics
 remain separate. Nothing here changes P1-P3 rules or their P4 rejection gates.
+
+## Optional compact read storage
+
+The default new read store remains format 1. To create a separate fresh format 2
+store, add `--storage-format 2` to the existing `p4_read.py init` command. Existing
+stores open according to their recognized format; no migration or repair runs.
+The read-only `storage` command reports format, observation count, original logical
+evidence bytes and stored payload bytes. It gives no balance or freshness claim.
+
+Format 2 uses bounded lossless compression with raw fallback for each complete
+proof. Full verification, original content IDs, exact canonical exports, external
+policy expiry and compare-and-swap still apply. Old readers refuse the new format;
+use this version of the client and explorer. The files remain unencrypted local
+proof data. Compression provides neither encryption nor on-chain privacy. See
+[the format contract and paired qualification](../../docs/READ_PROOF_STORAGE.md).
