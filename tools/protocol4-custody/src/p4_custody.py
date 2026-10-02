@@ -34,6 +34,7 @@ MAX_PLAINTEXT_BYTES = 16*1024*1024
 MAX_BACKUP_BYTES = 23*1024*1024
 MAX_ARCHIVE_BYTES = 17*1024*1024
 KDF = {'name':'scrypt', 'n':32768, 'r':8, 'p':1, 'length':32}
+_CEILING_UNSET = object()
 
 
 class LegacyCapacityError(ValueError):
@@ -292,20 +293,35 @@ def publish_new(path, raw):
     _publish_parts(path, (raw,), MAX_BACKUP_BYTES)
 
 
-def backup(delivery, output, password, *, format_version=None):
+def backup(delivery, output, password, *, format_version=None,
+           max_capture_blob_bytes=_CEILING_UNSET, max_backup_bytes=_CEILING_UNSET):
     need(type(delivery) is P4Delivery, 'one existing bound P4 delivery pair required')
     need(format_version is None or type(format_version) is int and format_version in (1,2,3),
          'unsupported backup format selection')
+    if max_capture_blob_bytes is not _CEILING_UNSET or max_backup_bytes is not _CEILING_UNSET:
+        need(format_version == 3, 'caller ceilings require explicit backup format 3')
+        import p4_custody_compressed as compressed
+        from p4_custody_stream import MAX_PAIR_BYTES
+        for value,bound in ((max_capture_blob_bytes,MAX_PAIR_BYTES),
+                            (max_backup_bytes,compressed.MAX_BACKUP_BYTES)):
+            need(value is _CEILING_UNSET or type(value) is int and 0 < value <= bound,
+                 'caller ceiling must be an exact positive bounded integer')
+    max_capture_blob_bytes = None if max_capture_blob_bytes is _CEILING_UNSET else max_capture_blob_bytes
+    max_backup_bytes = None if max_backup_bytes is _CEILING_UNSET else max_backup_bytes
     _, _, output = separate_paths(delivery.wallet.path, delivery.path, output)
     from p4_custody_stream import blob_size, capture_pair, sealed_parts, MAX_BACKUP_BYTES as stream_bound
     if format_version == 3:
         import p4_custody_compressed as compressed
         result = {}; digest = hashlib.sha256()
         with capture_pair(delivery) as pair:
+            if max_capture_blob_bytes is not None:
+                from p4_custody_stream import captured_blob_size
+                need(captured_blob_size(pair) <= max_capture_blob_bytes,
+                     'captured journal exceeds caller ceiling; nothing evicted')
             def parts():
                 for raw in compressed.sealed_parts(pair, password, result):
                     digest.update(raw); yield raw
-            _publish_parts(output, parts(), compressed.MAX_BACKUP_BYTES)
+            _publish_parts(output, parts(), compressed.MAX_BACKUP_BYTES if max_backup_bytes is None else max_backup_bytes)
         return {'status':'encrypted-journal-backup-created','backup_format_version':3,
                 'backup_sha256':digest.hexdigest(),'snapshot_id':result['snapshot_id'],
                 'private_keys_included':False,'source_journals_changed':False,

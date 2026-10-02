@@ -19,6 +19,8 @@ from merchant_ops import MerchantOps
 from private_payment_desk import PrivatePaymentDesk
 from p4_receipt_capsule import verify_capsule
 from native_core import digest
+sys.path.insert(0,str(ROOT/'tools/local-platform/tests'))
+from backup_browser_audit import audit_download
 PASSWORD=b'fixture passphrase not for funds'
 
 
@@ -42,12 +44,13 @@ def main():
     assert not output.exists() and not output.is_relative_to(ROOT)
     output.mkdir(mode=0o700);before=inventory();verify_engine(engine)
     report=dict(schema=1,status='running',source_before=before,source_after=None,source_unchanged=False,
-        consensus_executed=False,validator_count=0,payments=[],cleanup_errors=[],
+        consensus_executed=False,validator_count=0,payments=[],backup_audits=[],cleanup_errors=[],
         real_funds=False,public_network=False,onchain_privacy=False,independent_operators=False)
     runtime=Path(tempfile.mkdtemp(prefix='one-mbrowser-'));runtime.chmod(0o700)
     net=None;listener=None;children=[];logs=None;failed=False
     try:
         workspace=runtime/'network';invoices=runtime/'invoices'
+        downloads=runtime/'downloads';downloads.mkdir(mode=0o700)
         initialize(workspace,engine,password=PASSWORD,recipient_count=3,invoice_commitments=True)
         net=MerchantNetwork(workspace,engine);net.start();children.extend(net.apps+net.engines)
         net.bootstrap(password=PASSWORD);assert len(net.apps)==len(net.engines)==4
@@ -67,13 +70,21 @@ def main():
                 resource_sha256=hashlib.sha256(resource).hexdigest(),resource=resource))
         logs=(output/'listener.log').open('xb')
         listener=subprocess.Popen([sys.executable,'-B',str(ROOT/'tools/private-payments/scripts/serve_private_wallet.py'),
-            '--workspace',str(workspace),'--engine',str(engine),'--invoices',str(invoices)],stdout=subprocess.PIPE,stderr=logs,umask=0o077)
+            '--workspace',str(workspace),'--engine',str(engine),'--invoices',str(invoices)],stdout=subprocess.PIPE,stderr=logs,umask=0o077,env={k:v for k,v in os.environ.items() if k!='PYTHONPATH'})
         children.append(listener);ready=read_line(listener)
         assert ready['status']=='committed_merchant_wallet_running' and ready['network_lifecycle_performed'] is False
         print(json.dumps(dict(schema=1,origin=ready['url'].rstrip('/'),scope='actual CometBFT 0.38.25 four local validators, guarded HTTP, native P4; newly owned DEV keys',
+            download_dir_linux=str(downloads),download_dir_windows='\\\\wsl.localhost\\Ubuntu'+str(downloads).replace('/','\\'),
             invoices=[{k:v for k,v in row.items() if k not in ('resource','quote_id')} for row in rows])),flush=True)
         # Node owns the browser. Explicit stop/EOF closes only fixture resources.
-        sys.stdin.readline()
+        for line in sys.stdin:
+            if line.strip()=='historical':break
+            q=json.loads(line)
+            assert type(q) is dict and set(q)=={'operation','filename','stage'} and q['operation']=='audit-backup'
+            audit=audit_download(net.service,downloads,q['filename'],q['stage']);report['backup_audits'].append(audit)
+            print(json.dumps({'backup_audit':audit}),flush=True)
+        else:raise AssertionError('browser must explicitly enter historical phase')
+        assert [a['stage'] for a in report['backup_audits']]==['signed-pending','receipt-complete']
         listener.terminate();listener.wait(10)
         closing=listener.stdout.read().decode()
         assert listener.returncode==0 and 'owned_http_listener_closed' in closing
@@ -112,10 +123,19 @@ def main():
         policy_before=read_private(workspace/'policy.json')
         listener=subprocess.Popen([sys.executable,'-B',str(ROOT/'tools/private-payments/tests/historical_browser_fixture.py'),
             str(time.time_ns()+7200*10**9),'--workspace',str(workspace),'--engine',str(engine),'--invoices',str(invoices)],
-            stdout=subprocess.PIPE,stderr=logs,umask=0o077)
+            stdout=subprocess.PIPE,stderr=logs,umask=0o077,env={k:v for k,v in os.environ.items() if k!='PYTHONPATH'})
         children.append(listener);historical=read_line(listener)
         from urllib.parse import urlsplit
         port=urlsplit(historical['url']).port
+        print(json.dumps({'historical_origin':historical['url'].rstrip('/')}),flush=True)
+        for line in sys.stdin:
+            if line.strip()=='stop':break
+            q=json.loads(line)
+            assert type(q) is dict and set(q)=={'operation','filename','stage'} and q['operation']=='audit-backup'
+            assert q['stage']=='historical'
+            audit=audit_download(net.service,downloads,q['filename'],q['stage']);report['backup_audits'].append(audit)
+            print(json.dumps({'backup_audit':audit}),flush=True)
+        assert [a['stage'] for a in report['backup_audits']]==['signed-pending','receipt-complete','historical']
         def get(path):
             conn=http.client.HTTPConnection('127.0.0.1',port,timeout=10)
             conn.request('GET',path);response=conn.getresponse();value=(response.status,response.read());conn.close();return value

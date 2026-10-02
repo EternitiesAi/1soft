@@ -14,15 +14,17 @@ sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(ROOT/p) for p in ('src','scripts','tools/validator-transition/src',
  'tools/protocol4-client/src','tools/protocol4-wallet/src','tools/protocol4-delivery/src',
- 'tools/protocol4-explorer/src','tools/protocol4-receipts/src','tools/local-platform/src',
+ 'tools/protocol4-explorer/src','tools/protocol4-receipts/src','tools/protocol4-custody/src','tools/local-platform/src',
  'tools/protocol4-wallet/tests','tools/protocol4-delivery/tests','tools/protocol4-client/tests')]
 from delivery_fixture import Fixture
 from platform_service import PlatformService
 from platform_http import server
+from backup_browser_audit import audit_download
 
 def main():
     with tempfile.TemporaryDirectory(prefix='1soft-browser-fixture-') as name:
         root=Path(name);root.chmod(0o700)
+        downloads=root/'downloads';downloads.mkdir(mode=0o700);audits=[]
         node=root/'node';node.mkdir(mode=0o700)
         fx=Fixture(node,mode='normal');web=None;thread=None
         try:
@@ -41,10 +43,17 @@ def main():
             thread=threading.Thread(target=lambda:web.serve_forever(poll_interval=.01),daemon=True)
             thread.start()
             print(json.dumps(dict(schema=1,origin=f'http://127.0.0.1:{web.server_port}',
+                download_dir_linux=str(downloads),download_dir_windows='\\\\wsl.localhost\\Ubuntu'+str(downloads).replace('/','\\'),
                 scope='actual P4 application and guarded API; synthetic committee/scripted RPC; no CometBFT')),flush=True)
             # EOF and explicit stop both close this fixture only.
-            sys.stdin.readline()
-            print(json.dumps(dict(schema=1,submissions=len(fx.submissions))),flush=True)
+            for line in sys.stdin:
+                if line.strip()=='stop':break
+                q=json.loads(line)
+                assert type(q) is dict and set(q)=={'operation','filename','stage'} and q['operation']=='audit-backup'
+                audit=audit_download(service,downloads,q['filename'],q['stage']);audits.append(audit)
+                print(json.dumps({'backup_audit':audit}),flush=True)
+            assert [a['stage'] for a in audits]==['signed-pending','receipt-complete']
+            print(json.dumps(dict(schema=1,submissions=len(fx.submissions),backup_audits=audits)),flush=True)
         finally:
             if web is not None:web.shutdown();web.server_close()
             if thread is not None:thread.join(2);assert not thread.is_alive()

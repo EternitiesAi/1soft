@@ -53,7 +53,36 @@ function paymentProgress(e,inspected,live){
     .map(([label,done,yes,no])=>({label,done:inspected&&done,status:inspected?(done?yes:no):'Needs inspection'}));
   return {title,detail,next,tone,steps};
 }
-if(typeof module!=='undefined')module.exports={atomic,formatUnits,shortId,deadline,STAGES,paymentProgress};
+function backupInputs(passphrase,repeat,scope){
+  const valid=value=>typeof value==='string'&&value.length<=1024&&![...value].some(c=>{const n=c.codePointAt(0);return n>=0xd800&&n<=0xdfff;})&&
+    new TextEncoder().encode(value).length>=16&&new TextEncoder().encode(value).length<=1024;
+  if(!valid(passphrase)||!valid(repeat))throw Error('Use a backup passphrase of 16–1024 UTF-8 bytes in both fields.');
+  if(passphrase!==repeat)throw Error('The backup passphrases differ. Enter both again.');
+  if(scope!==true)throw Error('Confirm the complete shared-history scope before downloading.');
+  return {passphrase,repeat_passphrase:repeat,scope_confirmed:true};
+}
+async function historyBlob(response){
+  const limit=16*1024*1024;
+  if(!response.ok){await response.body?.cancel();throw Error('History backup was refused or unavailable. The journals are retained. For larger exports use the existing custody CLI with format 3.');}
+  const declared=response.headers.get('Content-Length');
+  if(response.headers.get('Content-Type')!=='application/octet-stream'||!declared||!(/^[1-9][0-9]{0,7}$/).test(declared)||Number(declared)>limit){
+    await response.body?.cancel();throw Error('History download headers exceed the supported bound.');
+  }
+  const reader=response.body?.getReader();if(!reader)throw Error('History download body unavailable.');
+  const parts=[];let size=0,complete=false;
+  try{
+    while(true){const {value,done}=await reader.read();if(done)break;
+      if(!(value instanceof Uint8Array)||!value.length||size+value.length>Number(declared)||size+value.length>limit)throw Error('History download exceeded its declared bound.');
+      size+=value.length;parts.push(value);
+    }
+    if(size!==Number(declared))throw Error('History download was incomplete.');
+    const blob=new Blob(parts,{type:'application/octet-stream'});
+    const prefix=new Uint8Array(await blob.slice(0,10).arrayBuffer());
+    if(blob.size!==size||prefix.length!==10||prefix.some((b,i)=>b!==[49,83,79,70,84,80,52,66,51,10][i]))throw Error('History download format differs.');
+    complete=true;return blob;
+  }finally{if(!complete)await reader.cancel().catch(()=>{});reader.releaseLock();}
+}
+if(typeof module!=='undefined')module.exports={atomic,formatUnits,shortId,deadline,STAGES,paymentProgress,backupInputs,historyBlob};
 
 if(typeof document!=='undefined'){
   const $=id=>document.getElementById(id);
@@ -96,6 +125,7 @@ if(typeof document!=='undefined'){
     $('collect').disabled=!signed||!live||busy;
     $('reconcile').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||e?.stage==='recorded'||!live||busy;
     $('retain').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||!live||busy;
+    $('backup-download').disabled=!viewAvailable||!$('backup-scope').checked||busy;
   }
   function clearReviews(){generation++;payment=null;dispatch=null;$('password').value='';$('sign-check').checked=false;$('terms-check').checked=false;$('terms-facts').replaceChildren();text('terms-digest','');show('merchant-terms-review',false);$('send-check').checked=false;show('payment-review',false);show('dispatch-review',false);}
   async function reload(){const next=await get('/api/state');state=next;clearReviews();viewAvailable=true;render();}
@@ -164,5 +194,28 @@ if(typeof document!=='undefined'){
   $('collect').addEventListener('click',()=>run(async()=>{const q=await post('collect',{request_id:selected});await reload();tell(q.status==='unavailable'?paymentProgress(entry(),viewAvailable,viewAvailable&&state.current_evidence_available).detail:'Exact receipt collected. Collection does not change wallet holds.');}));
   $('reconcile').addEventListener('click',()=>run(async()=>{await post('reconcile',{request_id:selected,expected_revision:state.wallet.revision});await reload();tell('Exact verified execution reconciled in the wallet.');}));
   $('retain').addEventListener('click',()=>run(async()=>{await post('retain',{request_id:selected});await reload();tell('Verified capsule retained under the original trust deadline. It includes full chain history; review that scope before sharing.');}));
+  $('backup-scope').addEventListener('change',controls);
+  $('backup-form').addEventListener('submit',async event=>{
+    event.preventDefault();let passphrase=$('backup-passphrase').value,repeat=$('backup-repeat').value;
+    $('backup-passphrase').value='';$('backup-repeat').value='';
+    if(busy){passphrase=repeat='';return;}
+    busy=true;disable(true);text('backup-feedback','Capturing and encrypting the complete retained shared history…');
+    $('backup-feedback').classList.remove('error');let url=null,anchor=null,body=null;
+    try{
+      body=backupInputs(passphrase,repeat,$('backup-scope').checked);passphrase=repeat='';
+      const response=await fetch('/api/backup-history',{method:'POST',credentials:'omit',cache:'no-store',
+        headers:{'Content-Type':'application/json','X-1soft-CSRF':csrf},body:JSON.stringify(body)});
+      body=null;const blob=await historyBlob(response);url=URL.createObjectURL(blob);
+      anchor=document.createElement('a');anchor.href=url;anchor.download='1soft-recovery-history.p4b3';
+      anchor.hidden=true;document.body.append(anchor);anchor.click();
+      text('backup-feedback','Encrypted history download requested. Keep the file, passphrase and original genesis/policy pins privately. This does not restore an active account or renew spending authority.');
+    }catch{
+      text('backup-feedback','History download was refused, incomplete or unavailable. No payment was signed or submitted. Enter both passphrases again to retry explicitly; for exports beyond the browser’s 8 MiB history / 16 MiB file limits, use the existing custody CLI with format 3.');
+      $('backup-feedback').classList.add('error');
+    }finally{
+      passphrase=repeat='';body=null;$('backup-passphrase').value='';$('backup-repeat').value='';$('backup-scope').checked=false;
+      anchor?.remove();if(url)URL.revokeObjectURL(url);busy=false;disable(false);
+    }
+  });
   run(async()=>{csrf=(await get('/api/session')).csrf;await reload();tell('Ready. Review each signature and each submission separately.');},{inspectOnFailure:false});
 }

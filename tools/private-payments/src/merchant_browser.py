@@ -96,6 +96,10 @@ class MerchantBrowserService:
     def sync(self, *, expected_revision):
         return self.desk.platform.sync(expected_revision=expected_revision)
 
+    def backup_history(self, password):
+        # Scope is the complete canonical shared pair, including hidden generic roles.
+        return self.desk.platform.backup_history(password)
+
     def state(self):
         catalog = {}
         for invoice in self.desk.invoices.entries():

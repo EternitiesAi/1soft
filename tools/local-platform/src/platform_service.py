@@ -6,7 +6,10 @@ No alternate signer, network retry, trust renewal or journal migration exists.
 """
 import hashlib
 import hmac
+import os
+from contextlib import contextmanager
 from pathlib import Path
+import tempfile
 import time
 
 from block_application import encode
@@ -22,6 +25,12 @@ from p4_explorer import project_report
 from p4_receipt_capsule import make_capsule, encode_capsule
 from p4_receipt_archive import P4ReceiptArchive
 from payment_requests import RequestBook, parse_request
+from p4_custody import backup, _private_source
+from offline_signer import _password
+
+HISTORY_CAPTURE_BYTES=8*1024*1024
+HISTORY_BACKUP_BYTES=16*1024*1024
+HISTORY_BLOCK_BYTES=65536
 
 
 def checked_roles(roles, workspace):
@@ -77,6 +86,27 @@ class PlatformService:
             if obj is not None:obj.close();setattr(self,name,None)
     def __enter__(self):return self
     def __exit__(self,*_):self.close()
+
+    @contextmanager
+    def backup_history(self,password):
+        """Complete private format-3 history; the owned file lives only while streamed."""
+        _password(password)
+        with tempfile.TemporaryDirectory(prefix='.1soft-history-',dir=self.root) as folder:
+            output=Path(folder)/'history.p4b3'
+            result=backup(self.delivery,output,password,format_version=3,
+                max_capture_blob_bytes=HISTORY_CAPTURE_BYTES,max_backup_bytes=HISTORY_BACKUP_BYTES)
+            with _private_source(output,HISTORY_BACKUP_BYTES) as source:
+                digest=hashlib.sha256();size=0
+                while True:
+                    raw=source.read(HISTORY_BLOCK_BYTES)
+                    if not raw:break
+                    size+=len(raw);need(size<=HISTORY_BACKUP_BYTES,'history output exceeds browser bound')
+                    digest.update(raw)
+                need(0<size<=HISTORY_BACKUP_BYTES and size==os.fstat(source.fileno()).st_size and
+                     hmac.compare_digest(digest.hexdigest(),result['backup_sha256']),
+                     'complete history output differs')
+                source.seek(0);need(source.read(10)==b'1SOFTP4B3\n','history format differs');source.seek(0)
+                yield {'source':source,'size':size,'sha256':digest.hexdigest()}
 
     def _role(self,name):
         need(type(name) is str and name in self.roles, 'unknown fixed role')

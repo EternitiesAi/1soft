@@ -45,7 +45,8 @@ GROUPS['release'] = ('tools/release/tests', 'test_*.py',
 EXCLUDED = {'tools/wallet-account/tests/test_account_catchup.py':
             'optional unpublished wallet_catchup core is absent from this checkout'}
 JAVASCRIPT_GROUPS = {'reference': 'reference/kernel.test.mjs',
-                     'wallet': 'tools/local-platform/tests/wallet.test.cjs'}
+                     'wallet': 'tools/local-platform/tests/wallet.test.cjs',
+                     'history_backup': 'tools/local-platform/tests/backup_history.test.cjs'}
 JAVASCRIPT_SCENARIOS = (
     'tools/local-platform/tests/browser_service.test.cjs',
     'tools/local-platform/tests/browser_workflow.test.cjs',
