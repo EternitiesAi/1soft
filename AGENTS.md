@@ -1,31 +1,44 @@
-# 1soft engineering contract — v0.8
+# 1soft engineering contract — cryptocurrency lane
 
-Owner-authorized private repository: xnuonux/1soft. Preserve privacy, owner history,
-the original placeholder and unrelated repositories. Check current refs before
-writes. Do not force-replace remote main with the separate complete local history.
+1soft is the native cryptocurrency lane. Preserve repository history and explicit
+source/evidence lineage. PR #12 at
+`dd096271f24e704d27f39d551d5f16986934481d` is the validator-tested decision-
+delivery baseline for this continuation. Draft PR #11 is a separate divergent
+implementation: never transfer its claims or tests to the PR #12 line without an
+explicit code/evidence reconciliation.
 
-No GitHub Actions, self-hosted Actions or paid/public compute without explicit
-authorization. Work locally and retain ordinary evidence files. No customer funds,
-production keys, public issuance, trading, bank or card deployment in this lane.
-Branding, public economics, issuer backing and project-wide licensing remain open.
+No GitHub Actions, paid/public compute, public deployment, DNS/site changes,
+Resident/Luna/Psyche work, real funds, issuer/bank/card claims, production keys or
+force pushes. Do not weaken a gate to obtain a pass. Missing pinned engines or
+modules are UNASSESSED, never replaced with fixtures and described as consensus.
 
-Read docs/HANDOFF.md, docs/STATE_WALLET.md and docs/VERIFICATION.md. The full package
-has 53 required source files; the remote full-node import remains partial. The
-published wallet subset is independently runnable and does not use the blocked
-ABCI transport. Never encode, rename, split or reroute that blocked upload.
+Read `docs/STATE_SYNC.md`, `docs/ABCI_INTEGRATION.md`, `docs/ROADMAP.md`,
+`docs/NODE_ADMISSION.md`, `docs/STATE_WALLET.md` and the feature-specific
+verification notes. Source inventory checks establish byte identity only; they are
+not security or consensus validation.
 
-449 distinct Python cases passed across five bounded local processes; a single-
-process pass is not claimed. The new 54-case wallet subset uses SYNTHETIC validator
-attestations over real local native-ledger execution. No real consensus result,
-independent audit or production light-client security is established. Preserve
-failed, interrupted, unassessed and successful evidence with accurate scopes.
+Protocol 1/2/3 and `smt-v1` bytes are compatibility surfaces. Proposal/finalization
+still execute ordered native transactions; admission caches never authorize block
+execution. The private ABCI Unix socket is trusted engine control, not a wallet API.
 
-Wallet checks establish authority AS OF a signed state height, not latest state.
-Local holds are not on-chain locks or cross-card/cash budgets. Other devices,
-legacy signers and restoration of an old whole workspace are outside their
-protection. Never give an agent the owner's vault password or treat the review
-digest as user authentication. Keep existing protocol histories/monetary rules
-unchanged unless an explicit reviewed version migration is implemented.
+The supported protocol-3 signing path is the shared-journal `CertifiedWallet`.
+Legacy state-wallet/stateless signing paths remain restricted. Do not operate
+independent journals or raw signing paths against the same funds and then describe
+local reservations as globally coordinated.
 
-The next network gate remains actual upstream codec and validator execution.
-Do not replace it with fixture signatures, scripted requests or larger test counts.
+ABCI state sync now has a bounded format-1 implementation. A restore may target
+an uninitialized application pinned to the expected native genesis, or recover an
+untouched installed checkpoint when its local marker matches the committed
+height/AppHash and no block rows exist. That recovery can replace only the same or
+a newer trusted snapshot; ordinary initialized apps with block history remain
+ineligible. Every restored native state must recompute to CometBFT's
+light-client-verified AppHash. Peer metadata/chunks are not authority. A local
+state-sync marker is provenance, not consensus state. The new
+scripts/run_state_sync.py gate must run against the real pinned CometBFT v0.38.25
+binary after these recovery changes before this modified source is described as
+engine-qualified for state sync.
+
+Independent operators, public peer/RPC hardening, pruning/history policy,
+validator-set evolution, production custody/recovery, external review, economics
+and a bounded public testnet remain separate gates. Keep them visible rather than
+turning a successful one-host development run into a launch claim.

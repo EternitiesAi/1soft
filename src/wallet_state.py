@@ -21,6 +21,7 @@ from commit_verifier import (encode, load_json, pinned_genesis, verify_state_wit
     verify_signed_header, block_id, timestamp, MAX_PACKET_BYTES)
 from native_core import (NativeLedger, canonical, digest, integer, require, DOMAIN)
 from offline_signer import review_intent, approve_intent
+from block_application import restore, tables_for
 
 REVIEW_DOMAIN = b'1soft/certified-payment-review/v1\x00'
 COLUMNS = {
@@ -33,16 +34,18 @@ COLUMNS = {
 
 def restore_verified_state(state: dict) -> NativeLedger:
     """Semantically check the already-attested full witness; never mutate a node."""
-    ledger = NativeLedger(':memory:', state['genesis'])
+    require(type(state) is dict and type(state.get('native')) is dict,
+            'invalid wallet state snapshot')
+    tables = tables_for(state['genesis'])
+    require(set(state['native']) == set(tables), 'invalid wallet state tables')
+    for table, columns in tables.items():
+        rows = state['native'][table]
+        require(type(rows) is list and len(rows) <= 10000,
+                'wallet state table bound exceeded')
+        require(all(type(row) is list and len(row) == len(columns) for row in rows),
+                'invalid state row')
+    ledger = restore(state['genesis'], state['native'])
     try:
-        ledger.db.execute('BEGIN IMMEDIATE')
-        for table, columns in COLUMNS.items():
-            rows = state['native'][table]
-            require(type(rows) is list and len(rows) <= 10000, 'wallet state table bound exceeded')
-            require(all(type(row) is list and len(row) == len(columns) for row in rows), 'invalid state row')
-            ledger.db.execute(f'DELETE FROM {table}')
-            ledger.db.executemany(f"INSERT INTO {table} VALUES ({','.join('?' for _ in columns)})", rows)
-        ledger.db.execute('COMMIT')
         meta = dict(ledger.db.execute('SELECT k,v FROM meta'))
         require(set(meta) == {'genesis','height','supply'} and meta['genesis'] == digest(state['genesis']), 'invalid state metadata')
         require(meta['supply'] == str(sum(item['units'] for item in state['genesis']['allocations'])), 'state supply differs from genesis')
@@ -64,6 +67,12 @@ class WalletState:
     def __init__(self, path: Path, genesis_bytes: bytes, expected_genesis_sha256: str,
                  *, clock=time.time_ns, max_age_seconds: int = 300, max_future_seconds: int = 30):
         self.trust = pinned_genesis(genesis_bytes, expected_genesis_sha256)
+        # This outbox predates protocol-3 shared budgets. Its local holds cover
+        # balances and individual grants but do not coordinate a shared budget
+        # across grants, so it must not sign for a v3 genesis.
+        native_genesis = load_json(genesis_bytes, max_bytes=1024 * 1024)['app_state']
+        require(native_genesis.get('protocol_version', 1) in (1, 2),
+                'protocol 3 budgets require a shared-reservation outbox integration')
         self.genesis_sha256 = hashlib.sha256(genesis_bytes).hexdigest()
         self.clock = clock
         require(type(max_age_seconds) is int and 1 <= max_age_seconds <= 3600, 'invalid age policy')

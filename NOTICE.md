@@ -19,3 +19,13 @@ The account concept and earlier research are inherited from v0.2, not recreated 
 The new verifier, encoded-size fix, CLI, metadata query, mutation/regression harnesses and integration changes are project-authored code. Fixed expected header-hash and canonical vote-byte vectors were transcribed from CometBFT v0.38.25 tests. Protocol field encodings derive from the corresponding public schemas. Those values and upstream contributions are not represented as proprietary inventions. See `third_party/COMETBFT-ATTRIBUTION.md` and the included Apache 2.0 license terms.
 
 Only synthetic test signatures are delivered. No CometBFT binary is included. The current implementation depends on third-party cryptography and protobuf libraries, under their own terms; it does not invent a cryptographic primitive or a new consensus algorithm.
+
+## v0.13 compact-state work
+
+The sparse map, compact proof/client format, tests, byte-size experiment and second
+JavaScript implementation are project-authored. SHA-256, binary Merkle commitments,
+proof compression and positional membership/absence are established techniques,
+not proprietary cryptographic inventions. No ICS23/IBC compatibility is claimed.
+The upstream CometBFT/ICS23 materials cited in COMPACT_STATE.md are architectural
+references; their code was not copied wholesale into these new modules. Synthetic
+committee evidence is labelled as such and is not a live-network attestation.

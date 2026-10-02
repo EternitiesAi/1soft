@@ -45,3 +45,20 @@ https://cryptography.io/en/46.0.4/hazmat/primitives/asymmetric/serialization/
 https://cryptography.io/en/46.0.4/hazmat/primitives/asymmetric/ed25519/
 
 Third-party primitives and their license terms remain upstream work. No affiliation, issuer partnership or novel cryptographic invention is claimed.
+
+## v0.8 companion
+
+The original static-review CLI remains available with its original limitations. The new `scripts/certified_wallet.py` adds fixed-validator evidence, a pinned/expiring local trust policy and durable signing decisions. It authenticates authority at a particular snapshot but deliberately does not assert that snapshot is the latest. It has no broadcast function. See CERTIFIED_WALLET.md for the separate inputs, local-journal assumptions and development limits. This does not convert the original static-review CLI into an authenticated-state signer.
+
+## Protocol-3 signing route
+
+Protocol-3 signing uses `scripts/certified_wallet.py` with one shared local
+journal for all participating signers and a separately pinned genesis, policy
+and signed state witness. The legacy `scripts/wallet.py` CLI and direct
+`offline_signer.approve_intent()` signing call refuse protocol 3; the older
+`scripts/state_wallet.py` outbox also refuses it. An envelope signed elsewhere
+or submitted through the separate dispatch journal does not join the
+`CertifiedWallet` reservation inventory. Other devices and raw-key use remain
+outside that local coordination boundary. See
+`REAL_WALLET_NETWORK_CHECKPOINT.md` for the actual local-validator result and
+its scope.

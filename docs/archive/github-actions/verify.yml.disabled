@@ -1,0 +1,47 @@
+name: Native coin development gates
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  development:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install application dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+      - name: Local application and certificate gates (not consensus)
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/v05
+          .venv/bin/python scripts/run_tests.py 2>&1 | tee evidence/v05/ci-python-tests.txt
+          node --test reference/kernel.test.mjs > evidence/v05/ci-js-tests.txt
+          .venv/bin/python scripts/check_abci_processes.py
+          .venv/bin/python scripts/check_account_processes.py
+          .venv/bin/python scripts/check_regressions.py
+          .venv/bin/python scripts/check_v04_regressions.py
+          .venv/bin/python scripts/check_v05_regressions.py
+          .venv/bin/python scripts/check_certificates.py
+          .venv/bin/python scripts/check_lifecycle_certificates.py
+          .venv/bin/python scripts/check_certificate_mutations.py
+      - name: Upstream protobuf interoperability gate
+        run: .venv/bin/python scripts/check_upstream_wire.py
+      - name: Install pinned consensus engine
+        run: |
+          mkdir -p bin
+          go version
+          GOBIN="$PWD/bin" go install github.com/cometbft/cometbft/cmd/cometbft@v0.38.25
+      - name: Real four-validator and signed-receipt gate (no mock fallback)
+        run: |
+          .venv/bin/python scripts/run_devnet.py --cometbft "$PWD/bin/cometbft" --protocol-version 1 --output evidence/v05/network-v1/devnet.json
+          .venv/bin/python scripts/run_devnet.py --cometbft "$PWD/bin/cometbft" --protocol-version 2 --output evidence/v05/network-v2/devnet.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-development-evidence
+          path: evidence/v05/
+          retention-days: 14

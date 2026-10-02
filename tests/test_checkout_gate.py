@@ -18,7 +18,7 @@ class CheckoutTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root/'src').mkdir()
-        (self.root/'src/example.py').write_text('VALUE = 1\n')
+        (self.root/'src/example.py').write_bytes(b'VALUE = 1\n')
         self.manifest = {'schema': 1, 'project': '1soft', 'scope': 'required-source-files',
             'files': [{'path': 'src/example.py', 'sha256': hashlib.sha256(b'VALUE = 1\n').hexdigest(), 'bytes': 10}]}
         self.write()
@@ -114,7 +114,7 @@ class RunnerTests(unittest.TestCase):
         if code is not None:(self.root/'tests/test_example.py').write_text(code)
         entries=[]
         for p in sorted(self.root.rglob('*.py')):
-            data=p.read_bytes();entries.append({'path':str(p.relative_to(self.root)),
+            data=p.read_bytes();entries.append({'path':p.relative_to(self.root).as_posix(),
                 'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
         (self.root/'SOURCE_MANIFEST.json').write_text(json.dumps({'schema':1,'project':'1soft',
             'scope':'required-source-files','files':entries}))

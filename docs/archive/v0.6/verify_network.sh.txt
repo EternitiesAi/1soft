@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Disposable development verification. Never use these defaults for a public chain.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+command -v go >/dev/null || { echo 'Go >= 1.22.11 is required.' >&2; exit 2; }
+command -v node >/dev/null || { echo 'Node.js is required for the separate budget reference tests.' >&2; exit 2; }
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+mkdir -p evidence/v05
+.venv/bin/python scripts/run_tests.py
+node --test reference/kernel.test.mjs
+.venv/bin/python scripts/check_abci_processes.py
+.venv/bin/python scripts/check_account_processes.py
+.venv/bin/python scripts/check_regressions.py
+.venv/bin/python scripts/check_v04_regressions.py
+.venv/bin/python scripts/check_v05_regressions.py
+.venv/bin/python scripts/check_certificates.py
+.venv/bin/python scripts/check_lifecycle_certificates.py
+.venv/bin/python scripts/check_certificate_mutations.py
+.venv/bin/python scripts/check_upstream_wire.py
+mkdir -p bin
+GOBIN="$PWD/bin" go install github.com/cometbft/cometbft/cmd/cometbft@v0.38.25
+.venv/bin/python scripts/run_devnet.py --cometbft "$PWD/bin/cometbft" --protocol-version 1 --output evidence/v05/network-v1/devnet.json
+.venv/bin/python scripts/run_devnet.py --cometbft "$PWD/bin/cometbft" --protocol-version 2 --output evidence/v05/network-v2/devnet.json

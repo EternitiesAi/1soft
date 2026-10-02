@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:1soft:protocol4-payment-capsule:v1",
+  "title": "P4 positive transfer payment capsule",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "format",
+    "genesis_sha256",
+    "policy_id",
+    "payer",
+    "wire",
+    "binding",
+    "evidence"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1,
+      "type": "integer"
+    },
+    "format": {
+      "const": "1soft/protocol4-payment-capsule/v1"
+    },
+    "genesis_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "policy_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "payer": {
+      "type": "string",
+      "pattern": "^lab_[0-9a-f]{64}$"
+    },
+    "wire": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 21848,
+      "description": "Canonical base64 of <=16384 original canonical signed P4 transfer bytes; runtime checks exact encoding."
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_txid",
+        "receipt_sha256",
+        "wire_sha256",
+        "height",
+        "index",
+        "signer_public_key"
+      ],
+      "properties": {
+        "native_txid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "receipt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "wire_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "signer_public_key": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Unchanged complete P4 read-evidence/v1; strict structure/signatures/replay verified by pinned p4_evidence, <=16MiB canonical bytes."
+    }
+  },
+  "description": "Wrapper structure only. External full genesis, fixed policy and current caller time are mandatory. Runtime additionally enforces canonical JSON/duplicate/depth/total byte bounds and all cryptographic/semantic checks; schema validation alone is not positive receipt verification."
+}

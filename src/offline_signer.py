@@ -101,6 +101,9 @@ def _load_vault(path: Path, password: bytes) -> Ed25519PrivateKey:
 
 def review_intent(genesis: dict, body: dict, signer_public_key: str, *, mode: str = 'sign') -> dict:
     """Static review only: no claim of current balance, nonce or authority proof."""
+    require(type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int and
+            genesis.get('protocol_version', 1) in (1, 2, 3),
+            'legacy offline signer refuses protocol 4 dynamic validators')
     pubkey(signer_public_key)
     require(mode in ('sign', 'accept'), 'unsupported signing role')
     body = json.loads(canonical(body))
@@ -132,7 +135,9 @@ def review_intent(genesis: dict, body: dict, signer_public_key: str, *, mode: st
         require(op['to'] not in (body['sender'], FEE_ACCOUNT), 'invalid recipient')
         debit += op['units']
     elif kind == 'grant':
-        fields(op, {'type', 'id', 'public_key', 'cap', 'expires', 'recipients'})
+        fields(op, {'type', 'id', 'public_key', 'cap', 'expires', 'recipients'} |
+               ({'budget_id'} if version == 3 else set()))
+        if version == 3: identifier(op['budget_id'])
         identifier(op['id']); pubkey(op['public_key']); integer(op['cap'], minimum=1); integer(op['expires'])
         items = op['recipients']
         require(type(items) is list and 1 <= len(items) <= 64, 'explicit recipients required')
@@ -140,11 +145,20 @@ def review_intent(genesis: dict, body: dict, signer_public_key: str, *, mode: st
             identifier(recipient)
             require(recipient not in (body['sender'], FEE_ACCOUNT), 'invalid recipient')
         require(len(set(items)) == len(items), 'duplicate recipient')
-    elif kind == 'revoke':
+    elif version == 3 and kind == 'budget_create':
+        fields(op, {'type', 'id', 'cap', 'expires', 'recipients'})
+        identifier(op['id']); integer(op['cap'], minimum=1); integer(op['expires'])
+        items = op['recipients']
+        require(type(items) is list and 1 <= len(items) <= 64, 'explicit budget recipients required')
+        for recipient in items:
+            identifier(recipient)
+            require(recipient not in (body['sender'], FEE_ACCOUNT), 'invalid budget recipient')
+        require(len(set(items)) == len(items), 'duplicate budget recipient')
+    elif kind == 'revoke' or (version == 3 and kind == 'budget_revoke'):
         fields(op, {'type', 'id'}); identifier(op['id'])
     elif kind == 'fence':
         fields(op, {'type'})
-    elif kind in ('open_account', 'rotate_key') and version == 2:
+    elif kind in ('open_account', 'rotate_key') and version in (2, 3):
         fields(op, {'type', 'public_key', 'acceptance'} | ({'units'} if kind == 'open_account' else set()))
         pubkey(op['public_key'])
         if kind == 'open_account':
@@ -172,6 +186,12 @@ def review_intent(genesis: dict, body: dict, signer_public_key: str, *, mode: st
 
 def approve_intent(path: Path, password: bytes, genesis: dict, body: dict,
                    signer_public_key: str, confirmation: str, *, mode: str = 'sign') -> dict:
+    require(type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int and
+            genesis.get('protocol_version', 1) in (1, 2, 3),
+            'legacy offline signer refuses protocol 4 dynamic validators')
+    if (type(genesis) is dict and type(genesis.get('protocol_version', 1)) is int
+            and genesis.get('protocol_version', 1) == 3):
+        raise Reject('protocol 3 shared-budget signing requires scripts/certified_wallet.py with one shared journal')
     review = review_intent(genesis, body, signer_public_key, mode=mode)
     require(type(confirmation) is str and re.fullmatch('[0-9a-f]{64}', confirmation) is not None
             and hmac.compare_digest(review['confirmation'], confirmation),
