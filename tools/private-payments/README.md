@@ -47,3 +47,5 @@ and historical original-wire recovery. Its listener never owns network lifecycle
 committed invoice/payment/resource evidence with unchanged original bytes. The
 standalone offline checker requires separate trust and intent pins and an explicit
 historical time; it grants no spending or service-delivery authority.
+
+[Encrypted browser history](../../docs/BROWSER_HISTORY_BACKUP.md) exports the whole shared financial journal through the same guarded listener. It is not a selected-invoice or private-content backup and includes generic decisions and other roles. It never unlocks a key, submits another payment or restores active authority.

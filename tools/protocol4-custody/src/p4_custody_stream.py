@@ -58,6 +58,14 @@ def blob_size(delivery):
                     (0,'decisions','payload'),(1,'attempts','review'),(1,'responses','payload'),(1,'receipts','payload')))
 
 
+def captured_blob_size(pair):
+    """Original BLOB bytes from the already audited fixed in-memory snapshot."""
+    return sum(pair[source].execute(f'SELECT coalesce(sum(length({col})),0) FROM {table}').fetchone()[0]
+               for source,table,col in ((0,'config','policy'),(0,'observations','payload'),
+                    (0,'decisions','payload'),(1,'attempts','review'),(1,'responses','payload'),
+                    (1,'receipts','payload')))
+
+
 @contextmanager
 def capture_pair(delivery):
     wdb,ddb = _create(WALLET_SCHEMA,WALLET_ID),_create(DELIVERY_SCHEMA,DELIVERY_ID)

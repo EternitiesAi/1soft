@@ -14,7 +14,7 @@ sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(ROOT/p) for p in ('src','scripts','tools/validator-transition/src',
     'tools/protocol4-client/src','tools/protocol4-wallet/src','tools/protocol4-delivery/src',
-    'tools/protocol4-explorer/src','tools/protocol4-receipts/src','tools/local-platform/src',
+    'tools/protocol4-explorer/src','tools/protocol4-receipts/src','tools/protocol4-custody/src','tools/local-platform/src',
     'tools/private-payments/src','tools/private-payments/scripts')]
 from block_application import encode
 from p4_evidence import integer,need

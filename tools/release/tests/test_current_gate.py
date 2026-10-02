@@ -9,7 +9,8 @@ import check_current as current
 from check_current import COMPONENTS, GROUPS, coverage
 
 JS_UNITS = {'reference': 'reference/kernel.test.mjs',
-            'wallet': 'tools/local-platform/tests/wallet.test.cjs'}
+            'wallet': 'tools/local-platform/tests/wallet.test.cjs',
+            'history_backup': 'tools/local-platform/tests/backup_history.test.cjs'}
 JS_SCENARIOS = ['tools/local-platform/tests/browser_service.test.cjs',
                 'tools/local-platform/tests/browser_workflow.test.cjs',
                 'tools/private-payments/tests/browser_comet.test.cjs']
@@ -96,6 +97,11 @@ class CurrentCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'JavaScript coverage'):
             coverage(self.root)
 
+    def test_missing_history_unit_cannot_disappear_from_registered_coverage(self):
+        (self.root / JS_UNITS['history_backup']).unlink()
+        with self.assertRaisesRegex(ValueError, 'JavaScript coverage'):
+            coverage(self.root)
+
     def test_unknown_javascript_test_is_refused(self):
         (self.root / 'tools/local-platform/tests/other.test.cjs').write_text('')
         with self.assertRaisesRegex(ValueError, 'JavaScript coverage'):
@@ -123,12 +129,13 @@ class CurrentJavascriptTests(unittest.TestCase):
         self.run_id = 'd' * 32
         self.calls = []
         self.bad = None
+        self.bad_group = 'wallet'
 
     def process(self, command, root, log, timeout):
-        name = 'reference' if command[-1] == JS_UNITS['reference'] else 'wallet'
+        name = next(name for name, path in JS_UNITS.items() if command[-1] == path)
         self.calls.append((command, root, log.name, timeout))
-        tests = 30 if name == 'reference' else 8
-        mode = self.bad if name == 'wallet' else None
+        tests = {'reference':30, 'wallet':8, 'history_backup':5}[name]
+        mode = self.bad if name == self.bad_group else None
         if mode != 'missing':
             cases = ''.join(f'{"not ok" if mode == "failed" and i == tests else "ok"} '
                             f'{i} - {name} case {1 if mode == "duplicate" else i}\n'
@@ -149,8 +156,8 @@ class CurrentJavascriptTests(unittest.TestCase):
 
     def test_both_suites_have_distinct_source_bound_results(self):
         result = self.check()
-        self.assertTrue(result['passed']); self.assertEqual(result['tests'], 38)
-        self.assertEqual(result['qualified_tests'], 38)
+        self.assertTrue(result['passed']); self.assertEqual(result['tests'], 43)
+        self.assertEqual(result['qualified_tests'], 43)
         self.assertEqual([r['name'] for r in result['groups']], list(JS_UNITS))
         for record, call in zip(result['groups'], self.calls):
             self.assertEqual(record['source_id'], self.source['source_id'])
@@ -166,14 +173,29 @@ class CurrentJavascriptTests(unittest.TestCase):
     def test_failed_wallet_suite_cannot_inherit_reference_pass(self):
         self.bad = 'failed'; result = self.check()
         self.assertFalse(result['passed']); self.assertEqual(result['fail'], 1)
-        self.assertEqual(result['qualified_tests'], 30)
-        self.assertEqual([r['passed'] for r in result['groups']], [True, False])
+        self.assertEqual(result['qualified_tests'], 35)
+        self.assertEqual([r['passed'] for r in result['groups']], [True, False, True])
+
+    def test_failed_history_suite_cannot_inherit_the_two_original_passes(self):
+        self.bad_group = 'history_backup'; self.bad = 'failed'
+        result = self.check()
+        self.assertFalse(result['passed']); self.assertEqual(result['fail'], 1)
+        self.assertEqual(result['qualified_tests'], 38)
+        self.assertEqual([r['passed'] for r in result['groups']], [True, True, False])
+
+    def test_source_change_before_history_prevents_its_execution(self):
+        changed = {**self.source, 'source_id': 'e' * 64}
+        with patch.object(current.base, 'source_identity', side_effect=[self.source, self.source, changed]), \
+             patch.object(current.base, 'run_process', side_effect=self.process):
+            with self.assertRaisesRegex(ValueError, 'source changed before JavaScript group: history_backup'):
+                current.javascript_checks(self.root, self.output, self.source, self.run_id, 30)
+        self.assertEqual(len(self.calls), 2)
 
     def test_missing_wallet_log_remains_failed_and_named(self):
         self.bad = 'missing'; result = self.check()
-        self.assertFalse(result['passed']); self.assertEqual(len(result['groups']), 2)
+        self.assertFalse(result['passed']); self.assertEqual(len(result['groups']), 3)
         self.assertEqual(result['groups'][1]['error_type'], 'FileNotFoundError')
-        self.assertEqual(result['qualified_tests'], 30)
+        self.assertEqual(result['qualified_tests'], 35)
 
     def test_incomplete_wallet_summary_is_refused(self):
         self.bad = 'incomplete'; result = self.check()
@@ -243,7 +265,7 @@ class CurrentJavascriptTests(unittest.TestCase):
                 self.assertEqual(result['release_status'], 'blocked')
                 self.assertFalse(result['public_network_ready'])
                 self.assertEqual(result['scenario_qualification'], scenarios)
-                self.assertEqual(len(result['javascript']['groups']), 2)
+                self.assertEqual(len(result['javascript']['groups']), 3)
                 for record in result['javascript']['groups']:
                     self.assertEqual(record['run_id'], result['run_id'])
                     self.assertEqual(record['source_id'], result['source_id'])

@@ -22,6 +22,7 @@ security review, production custody and economic design remain release gates.
 | Changing validator committees | The opt-in P4 client verifies the complete signed roster history and replays payments from independently pinned genesis. | [P4 client](tools/protocol4-client/README.md) |
 | Owner key replacement | Incoming-key consent and current-owner approval share the wallet's fee reservation and exact receipt confirmation. | [Owner replacement](docs/P4_KEY_ROTATION.md) |
 | Encrypted historical recovery | Original journal rows, signed wires, holds and receipts survive complete backups, including larger admitted journals. Restored archives cannot sign or send. | [Custody and recovery](tools/protocol4-custody/README.md) |
+| Browser history download | Explicit encrypted export of all retained shared wallet/delivery history; no private keys or active restoration. | [Browser recovery](docs/BROWSER_HISTORY_BACKUP.md) |
 | Portable payment evidence | An offline checker verifies the original invoice, signed transaction, receipt and public content under external trust pins. | [Merchant proofs](docs/PORTABLE_MERCHANT_PROOF.md) |
 
 Private invoice content is encrypted locally. **Ledger transactions remain public.**

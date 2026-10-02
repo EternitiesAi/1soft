@@ -25,8 +25,23 @@ POST_FIELDS={
     '/api/collect':{'request_id'},'/api/retain':{'request_id'},
     '/api/reconcile':{'request_id','expected_revision'},
     '/api/refresh':{'expected_tip'},'/api/sync':{'expected_revision'},
+    '/api/backup-history':{'passphrase','repeat_passphrase','scope_confirmed'},
 }
 CSP="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'"
+
+
+def backup_password(q):
+    """Validate and remove secrets before opening a service or making artifacts."""
+    first=q.pop('passphrase');repeat=q.pop('repeat_passphrase')
+    password=confirmation=b''
+    try:
+        need(type(first) is str and type(repeat) is str,'backup passphrase text required')
+        password=first.encode('utf-8');confirmation=repeat.encode('utf-8')
+        need(16<=len(password)<=1024 and 16<=len(confirmation)<=1024,'backup passphrase byte bound differs')
+        need(q['scope_confirmed'] is True,'complete shared history scope confirmation required')
+        need(hmac.compare_digest(password,confirmation),'backup passphrases differ')
+        return password
+    finally:first=repeat='';confirmation=b'';password=b''
 
 
 def canonical_review(value):
@@ -67,15 +82,28 @@ def server(service_factory,*,port=0):
         def log_message(self,*_):pass
         def setup(self):
             super().setup();self.connection.settimeout(10)
-        def reply(self,code,raw,mime='application/json',filename=None):
+        def reply_headers(self,code,size,mime='application/json',filename=None):
             self.send_response(code);self.send_header('Content-Type',mime)
-            self.send_header('Content-Length',str(len(raw)));self.send_header('Cache-Control','no-store')
+            self.send_header('Content-Length',str(size));self.send_header('Cache-Control','no-store')
             self.send_header('Content-Security-Policy',CSP)
             self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer')
             self.send_header('X-Frame-Options','DENY');self.send_header('Cross-Origin-Resource-Policy','same-origin')
             self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
             if filename:self.send_header('Content-Disposition','attachment; filename="'+filename+'"')
-            self.end_headers();self.wfile.write(raw)
+            self.end_headers()
+        def reply(self,code,raw,mime='application/json',filename=None):
+            self.reply_headers(code,len(raw),mime,filename);self.wfile.write(raw)
+        def history_reply(self,item):
+            from platform_service import HISTORY_BACKUP_BYTES,HISTORY_BLOCK_BYTES
+            size=item['size'];need(type(size) is int and 0<size<=HISTORY_BACKUP_BYTES,'history response bound differs')
+            self.binary_started=True
+            self.reply_headers(200,size,'application/octet-stream','1soft-recovery-history.p4b3')
+            remaining=size
+            while remaining:
+                raw=item['source'].read(min(remaining,HISTORY_BLOCK_BYTES))
+                need(type(raw) is bytes and 0<len(raw)<=remaining,'history output truncated')
+                self.wfile.write(raw);remaining-=len(raw)
+            self.wfile.flush()
         def error(self,code,message):
             self.reply(code,encode({'error':message,'message':
                 'Action refused or unavailable. Inspect the saved request before repeating an action; original signatures, attempts and obligations are retained.'}))
@@ -118,6 +146,7 @@ def server(service_factory,*,port=0):
             except (ValueError,KeyError,TypeError,OSError,sqlite3.DatabaseError):self.error(400,'request_refused')
             except Exception:self.error(500,'operation_unresolved')
         def do_POST(self):
+            self.binary_started=False
             try:self.guard(post=True)
             except (ValueError,TypeError):self.error(403,'origin_or_session_refused');return
             fields=POST_FIELDS.get(self.path)
@@ -135,6 +164,13 @@ def server(service_factory,*,port=0):
                 raw=self.rfile.read(length);need(len(raw)==length,'incomplete body')
                 q=load_json(raw,max_bytes=MAX_BODY)
                 need(type(q) is dict and set(q)==fields,'request fields differ')
+                if self.path=='/api/backup-history':
+                    raw=b'';password=backup_password(q)
+                    try:
+                        with service_factory() as svc:
+                            with svc.backup_history(password) as item:self.history_reply(item)
+                    finally:password=b''
+                    return
                 with service_factory() as svc:
                     if self.path in ('/api/create-request','/api/import-request'):
                         need(getattr(svc,'allow_unsigned_requests',True),'retained merchant invoices required')
@@ -169,8 +205,12 @@ def server(service_factory,*,port=0):
                     elif self.path=='/api/refresh':result=svc.refresh(expected_tip=q['expected_tip'])
                     elif self.path=='/api/sync':result=svc.sync(expected_revision=q['expected_revision'])
                 self.reply(200,encode(result))
-            except (ValueError,KeyError,TypeError,OSError,sqlite3.DatabaseError):self.error(400,'request_refused')
-            except Exception:self.error(500,'operation_unresolved')
+            except (ValueError,KeyError,TypeError,OSError,sqlite3.DatabaseError):
+                if self.binary_started:self.close_connection=True
+                else:self.error(400,'request_refused')
+            except Exception:
+                if self.binary_started:self.close_connection=True
+                else:self.error(500,'operation_unresolved')
         def do_PUT(self):self.error(405,'method_refused')
         do_DELETE=do_PUT;do_PATCH=do_PUT;do_OPTIONS=do_PUT
     class LocalServer(HTTPServer):

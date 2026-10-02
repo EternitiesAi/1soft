@@ -150,3 +150,7 @@ explicitly unassessed until separately performed.
 
 The architecture and ownership boundaries are in
 [`docs/LOCAL_DEVELOPER_RELEASE.md`](../../docs/LOCAL_DEVELOPER_RELEASE.md).
+
+## Encrypted history download
+
+The guarded wallet and merchant screens can export complete retained shared wallet/delivery history as an encrypted format-3 attachment. Scope includes other roles and unresolved obligations, excludes keys and separate book files, and restores only to a historical archive. The browser caps original captured BLOBs at 8 MiB and final ciphertext at 16 MiB, refusing the whole export rather than trimming. See [browser history recovery](../../docs/BROWSER_HISTORY_BACKUP.md) for passphrase, scope, expiry, CLI fallback and qualification boundaries.
