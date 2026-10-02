@@ -71,7 +71,8 @@ def run_journey(compact=False):
                 selection = {'account': IDS[0], 'grant_id': role}; decision = signed['decision_id']
                 with delivery(url, create=n == 0) as d:
                     queued = d.queue(decision, **selection)
-                    sent = d.send(decision, queued['delivery_confirmation'], **selection)
+                    reviewed = d.review(decision, **selection)
+                    sent = d.send(decision, reviewed['delivery_confirmation'], **selection)
                     require(sent['transport_status'] == 'unresolved', 'actual fixture TCP reply loss not observed')
                 # Reopen both the wallet connection and delivery adapter. Recovery
                 # requests only evidence, never another submission or signature.

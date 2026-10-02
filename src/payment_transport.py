@@ -242,10 +242,27 @@ class DispatchJournal:
         return [{'id': r['id'], 'event': r['event'], 'detail': json.loads(r['detail'])}
                 for r in self.db.execute('SELECT * FROM events WHERE txid=? ORDER BY id', (txid,))]
 
-    def dispatch(self, txid: str, confirmation: str, *, replay: bool = False) -> dict:
+    def dispatch(self, txid: str, confirmation: str, *, replay: bool = False,
+                 expected_attempt: int | None = None,
+                 expected_transport_status: str | None = None) -> dict:
+        """Claim one attempt, optionally bound to an adapter's captured review.
+
+        Standalone callers retain the original explicit-send/replay interface.
+        DecisionDelivery supplies both guards; comparison happens under this
+        journal's writer transaction, never only in an earlier read snapshot.
+        """
         require(type(replay) is bool, 'replay must be explicit boolean')
+        require(expected_attempt is None or (type(expected_attempt) is int and
+                1 <= expected_attempt <= MAX_ATTEMPTS), 'invalid expected dispatch attempt')
+        require(expected_transport_status is None or (type(expected_transport_status) is str and
+                expected_transport_status in ('queued','dispatching','endpoint_admitted',
+                    'endpoint_declined','unresolved','receipt_verified')), 'invalid expected transport status')
         with self._atomic():
             self._time(); row = self._row(txid)
+            require(expected_attempt is None or row['attempts'] + 1 == expected_attempt,
+                    'dispatch attempt changed; review the exact attempt again')
+            require(expected_transport_status is None or row['status'] == expected_transport_status,
+                    'transport status changed; review the exact attempt again')
             require(type(confirmation) is str and confirmation == row['confirmation'], 'exact dispatch confirmation required')
             require(row['status'] != 'receipt_verified', 'verified payment must not be dispatched again')
             require((row['status'] == 'queued') != replay,
@@ -258,8 +275,13 @@ class DispatchJournal:
         # A crash or interruption from here leaves a durable unresolved attempt.
         observed = _worker(self.endpoint, raw, attempt)
         with self._atomic():
-            self.db.execute('UPDATE payments SET status=? WHERE txid=?', (observed['observation'], txid))
-            self._event(txid, 'endpoint_observation_not_settlement', observed)
+            self._row(txid)
+            updated = self.db.execute("UPDATE payments SET status=? WHERE txid=? AND attempts=? "
+                "AND status!='receipt_verified'", (observed['observation'], txid, attempt)).rowcount == 1
+            # Preserve attribution even if a receipt or newer attempt superseded
+            # this request while its endpoint response was in flight.
+            self._event(txid, 'endpoint_observation_not_settlement',
+                        {**observed, 'attempt': attempt, 'status_updated': updated})
         return self.status(txid)
 
     def export_receipt(self, txid: str) -> bytes:

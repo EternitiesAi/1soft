@@ -58,8 +58,9 @@ base=(--genesis /private/genesis.json --policy /private/policy.json
       --endpoint http://127.0.0.1:26657/ --account ACCOUNT_ID
       --grant-id raven --decision-id EXISTING_DECISION_ID)
 python tools/wallet-delivery/scripts/deliver.py "${base[@]}" queue
+python tools/wallet-delivery/scripts/deliver.py "${base[@]}" review
 python tools/wallet-delivery/scripts/deliver.py "${base[@]}" send \
-  --confirm EXACT_DELIVERY_CONFIRMATION_FROM_QUEUE
+  --confirm EXACT_ATTEMPT_CONFIRMATION_FROM_REVIEW
 python tools/wallet-delivery/scripts/deliver.py "${base[@]}" status
 python tools/wallet-delivery/scripts/deliver.py "${base[@]}" refresh
 python tools/wallet-delivery/scripts/deliver.py "${base[@]}" reconcile \
@@ -78,16 +79,30 @@ without repair. Private owned
 paths and normal WAL coordination are required. Existing exports are not overwritten.
 
 `queue` does not contact RPC. Repeating it cannot reset a previous dispatch attempt.
-`send` requires a confirmation binding the original decision, payer, grant,
-canonical signature bytes, selected wallet/delivery locations and pinned route.
+`send` requires a version-2 attempt confirmation binding the operation, next
+attempt number, wallet checkpoint and complete verified obligation inventory,
+original decision, payer, grant, canonical signature bytes, selected
+wallet/delivery locations and pinned route. The review displays amount, fee,
+nonce, expiry, recipient and signer. A new checkpoint or local decision requires
+a fresh review. The first `queue` returns an initial send review for its exact
+captured context; `status` supplies no new approval.
 It is a content/route confirmation, not a secret or proof of human authentication.
 Every send rechecks the stored signature and fresh local account evidence, and
 trials the already-signed transfer in a disposable ledger copy. This cannot create
 a new outgoing signature. It refuses already-recorded, expired, revoked, wrong-key,
 wrong-role or stale-state requests before opening the socket where locally known.
 
-After an attempt, another submission requires the explicitly selected `replay`
-command and the same confirmation. Replay always uses the same original bytes.
+After an attempt, another submission requires `review --replay` followed by the
+explicitly selected `replay` command and that attempt's new confirmation. Replay
+always uses the same original bytes. Re-queueing an attempted payment supplies
+no replay approval. Prior version-1 route confirmations remain historical
+content; they do not approve future sends. This changes no signed payment,
+saved receipt, journal schema or admission limit.
+The dispatcher checks the reviewed attempt number and preceding transport
+status inside its existing SQLite claim transaction before recording the
+attempt or opening a socket. A stale competing review cannot claim the next
+retry. Late endpoint responses retain their attributed observation event but
+cannot overwrite a verified receipt or the status of a newer attempt.
 When the original receipt is already known, this journal refuses resending.
 `refresh` allows only the existing bounded read-only receipt collector; optional
 `--read-attempts 1..4` waits for the captured state's following commitment, not a
