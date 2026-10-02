@@ -6,7 +6,7 @@ Canonical journals are captured together, never restored as active databases.
 from __future__ import annotations
 
 import base64
-from contextlib import closing
+from contextlib import closing, contextmanager
 import hashlib
 import os
 from pathlib import Path
@@ -34,6 +34,10 @@ MAX_PLAINTEXT_BYTES = 16*1024*1024
 MAX_BACKUP_BYTES = 23*1024*1024
 MAX_ARCHIVE_BYTES = 17*1024*1024
 KDF = {'name':'scrypt', 'n':32768, 'r':8, 'p':1, 'length':32}
+
+
+class LegacyCapacityError(ValueError):
+    """Only a legacy representation bound; it grants no financial authority."""
 
 # These fixed schemas are used only in memory to reuse the original auditors.
 # No SQL, module path or filename is accepted from a backup.
@@ -137,7 +141,8 @@ def _validate(snapshot, genesis, policy, path):
     need(snapshot['genesis_hex'] == bytes(genesis).hex() and
          encode(snapshot['policy']) == encode(policy), 'externally selected genesis or policy differs')
     need(hashlib.sha256(bytes(genesis)).hexdigest() == policy['genesis_sha256'], 'external genesis pin differs')
-    need(len(encode(snapshot)) <= MAX_PLAINTEXT_BYTES, 'snapshot exceeds plaintext bound')
+    if len(encode(snapshot)) > MAX_PLAINTEXT_BYTES:
+        raise LegacyCapacityError('snapshot exceeds plaintext bound')
     dbs = []
     try:
         wdb = _memory(snapshot['wallet'], WALLET_SCHEMA, WALLET_ID); dbs.append(wdb)
@@ -146,7 +151,8 @@ def _validate(snapshot, genesis, policy, path):
         total = sum(len(v) for db, schema in ((wdb,WALLET_SCHEMA),(ddb,DELIVERY_SCHEMA))
                     for table in schema for row in db.execute(f'SELECT * FROM {table}')
                     for v in row if type(v) is bytes)
-        need(total <= MAX_JOURNAL_BYTES, 'complete journal payload exceeds backup bound; nothing evicted')
+        if total > MAX_JOURNAL_BYTES:
+            raise LegacyCapacityError('complete journal payload exceeds backup bound; nothing evicted')
         wallet = _WalletAudit(wdb, private_path(path), genesis, policy)
         wid, evidence, report, decisions, last = wallet.load()
         delivery = _DeliveryAudit(ddb, wallet, wid)
@@ -219,7 +225,8 @@ def _unseal(raw, password):
     return snapshot
 
 
-def _read(path, limit):
+@contextmanager
+def _private_source(path, limit):
     parent, name = _parent(Path(path))
     try:
         fd = os.open(name, os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC, dir_fd=parent)
@@ -227,10 +234,15 @@ def _read(path, limit):
             s = os.fstat(source.fileno())
             need(stat.S_ISREG(s.st_mode) and s.st_uid == os.geteuid() and s.st_nlink == 1 and
                  not s.st_mode & 0o077 and 0 < s.st_size <= limit, 'private bounded regular file required')
-            raw = source.read(limit+1)
-            need(len(raw) <= limit, 'input grew beyond bound')
-            return raw
+            yield source
     finally: os.close(parent)
+
+
+def _read(path, limit):
+    with _private_source(path, limit) as source:
+        raw = source.read(limit+1)
+        need(len(raw) <= limit, 'input grew beyond bound')
+        return raw
 
 
 def separate_paths(*paths):
@@ -244,9 +256,8 @@ def separate_paths(*paths):
     return tuple(private_path(p) for p in normalized)
 
 
-def publish_new(path, raw):
-    """Durably publish complete bytes without overwriting a file or sidecar."""
-    need(type(raw) is bytes and 0 < len(raw) <= MAX_BACKUP_BYTES, 'bounded output required')
+def _publish_parts(path, parts, limit):
+    """Durably publish a bounded complete stream without overwriting a sidecar."""
     p = private_path(path)
     need(not any(Path(str(p)+s).exists() or Path(str(p)+s).is_symlink()
                  for s in ('','-wal','-shm','-journal')), 'output or sidecar already exists')
@@ -258,7 +269,13 @@ def publish_new(path, raw):
                      0o600, dir_fd=parent)
         created = True
         with os.fdopen(fd, 'wb') as out:
-            out.write(raw); out.flush(); os.fsync(out.fileno())
+            total = 0
+            for raw in parts:
+                need(type(raw) is bytes, 'byte output required')
+                total += len(raw); need(total <= limit, 'bounded output required')
+                out.write(raw)
+            need(total > 0, 'empty output refused')
+            out.flush(); os.fsync(out.fileno())
         os.link(tmp, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
         os.unlink(tmp, dir_fd=parent); created = False
         try: os.fsync(parent)
@@ -269,20 +286,60 @@ def publish_new(path, raw):
         os.close(parent)
 
 
-def backup(delivery, output, password):
+def publish_new(path, raw):
+    """The legacy/export byte interface retains its original bound."""
+    need(type(raw) is bytes and 0 < len(raw) <= MAX_BACKUP_BYTES, 'bounded output required')
+    _publish_parts(path, (raw,), MAX_BACKUP_BYTES)
+
+
+def backup(delivery, output, password, *, format_version=None):
     need(type(delivery) is P4Delivery, 'one existing bound P4 delivery pair required')
+    need(format_version is None or type(format_version) is int and format_version in (1,2),
+         'unsupported backup format selection')
     _, _, output = separate_paths(delivery.wallet.path, delivery.path, output)
-    snapshot = capture(delivery)
+    from p4_custody_stream import blob_size, capture_pair, sealed_parts, MAX_BACKUP_BYTES as stream_bound
+    if format_version == 2 or format_version is None and blob_size(delivery) > 7*1024*1024:
+        result = {}; digest = hashlib.sha256()
+        with capture_pair(delivery) as pair:
+            def parts():
+                for raw in sealed_parts(pair, password, result):
+                    digest.update(raw); yield raw
+            _publish_parts(output, parts(), stream_bound)
+        return {'status':'encrypted-journal-backup-created','backup_format_version':2,
+                'backup_sha256':digest.hexdigest(),'snapshot_id':result['snapshot_id'],
+                'private_keys_included':False,'source_journals_changed':False,
+                'latestness_established':False,'old_device_fenced':False}
+    try: snapshot = capture(delivery)
+    except LegacyCapacityError:
+        if format_version is not None: raise
+        # A large genesis can fill legacy JSON first. Concurrent journal growth
+        # can also cross the size preflight; v2 captures and audits a fresh pair.
+        return backup(delivery,output,password,format_version=2)
     raw = _seal(snapshot, password)
     publish_new(output, raw)
-    return {'status':'encrypted-journal-backup-created', 'backup_sha256':hashlib.sha256(raw).hexdigest(),
+    return {'status':'encrypted-journal-backup-created', 'backup_format_version':1,
+            'backup_sha256':hashlib.sha256(raw).hexdigest(),
             'snapshot_id':content_id(snapshot), 'private_keys_included':False,
             'source_journals_changed':False, 'latestness_established':False, 'old_device_fenced':False}
 
 
 def restore_backup(backup_path, output, genesis, policy, password):
     backup_path, output = separate_paths(backup_path, output)
-    snapshot = _unseal(_read(backup_path, MAX_BACKUP_BYTES), password)
+    import p4_custody_stream as stream
+    with _private_source(backup_path, stream.MAX_BACKUP_BYTES) as source:
+        prefix = source.read(len(stream.MAGIC)); source.seek(0)
+        if prefix == stream.MAGIC:
+            chunks, manifest = stream.unseal(source, password)
+            stream.audit_chunks(chunks, genesis, policy, output)
+            archive = stream.make_archive(chunks, manifest)
+            _publish_parts(output, (archive,), stream.MAX_ARCHIVE_BYTES)
+            return {'status':'restored-recovery-only','backup_format_version':2,
+                    'snapshot_id':stream.snapshot_id(manifest),'signing_enabled':False,
+                    'dispatch_enabled':False,'old_device_fenced':False,
+                    'latestness_established':False,'private_keys_restored':False}
+        raw = source.read(MAX_BACKUP_BYTES+1)
+        need(len(raw)<=MAX_BACKUP_BYTES,'legacy backup exceeds bound')
+        snapshot = _unseal(raw, password)
     _validate(snapshot, genesis, policy, output)
     raw = encode(snapshot)
     with closing(sqlite3.connect(':memory:')) as db:
@@ -302,8 +359,17 @@ class RecoveryArchive:
     """Private historical record. No inherited active wallet/delivery methods."""
     def __init__(self, path, genesis, policy):
         self.path, self.genesis, self.policy = private_path(path), bytes(genesis), policy_checked(policy)
-        raw = _read(self.path, MAX_ARCHIVE_BYTES)
+        import p4_custody_stream as stream
+        self._chunks = None
+        raw = _read(self.path, stream.MAX_ARCHIVE_BYTES)
         try:
+            result = stream.archive_chunks(raw)
+            if result is not None:
+                self._chunks, self.snapshot_id = result
+                self._raw = None
+                stream.audit_chunks(self._chunks, self.genesis, self.policy, self.path)
+                return
+            need(len(raw)<=MAX_ARCHIVE_BYTES,'legacy recovery archive exceeds bound')
             with closing(sqlite3.connect(':memory:')) as db:
                 db.deserialize(raw)
                 need(db.execute('PRAGMA application_id').fetchone()[0] == ARCHIVE_ID, 'not a recovery-only archive')
@@ -324,14 +390,20 @@ class RecoveryArchive:
 
     def close(self):
         self._raw = None
+        self._chunks = None
     def __enter__(self): return self
     def __exit__(self, *_): self.close()
 
     def _audit(self):
+        if self._chunks is not None:
+            from p4_custody_stream import audit_chunks
+            return audit_chunks(self._chunks, self.genesis, self.policy, self.path)
         need(self._raw is not None, 'recovery archive is closed')
         # Reverify frozen records; no current authority or fresh source query.
         return _validate(load_json(self._raw, max_bytes=MAX_PLAINTEXT_BYTES),
                          self.genesis, self.policy, self.path)
+
+
 
     def inspect(self):
         a = self._audit(); held_ids = {d['id'] for d in a['held']}
