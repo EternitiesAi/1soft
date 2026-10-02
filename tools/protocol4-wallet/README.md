@@ -1,4 +1,13 @@
-# 1soft P4 transfer wallet — reviewed signing and shared reservations
+# 1soft P4 wallet — reviewed payments and explicit owner replacement
+
+The current development wallet also has a separately reviewed
+[owner key replacement workflow](../../../docs/P4_KEY_ROTATION.md). It requires
+incoming-key consent and current-owner approval, reserves the fee in this same
+payment journal, and pauses payer payments while rotation is unresolved.
+Transfer and invoice review formats retain their original bytes. The new
+`p4_rotation_cli.py` interface is explicit; ordinary `approve` remains transfer-only.
+Custody archives remain recovery-only. The dated original transfer-wallet scope
+below and its source manifest describe that historical delivery.
 
 29 September 2026. Development-only add-on to PR #28 at
 `b73a88ca53666972ae2c8ce35fd9edb7ac0cb41c` / tree

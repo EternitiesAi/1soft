@@ -29,7 +29,8 @@ from payment_transport import _worker as submit_once
 from p4_evidence import (MAX_EVIDENCE_BYTES, check_clock, content_id, extends,
                          freeze, hash_text, integer, need, verify_evidence)
 from p4_read_store import private_path
-from p4_wallet import P4Wallet, fresh, matched_receipt, pending, revision
+from p4_wallet import (P4Wallet, fresh, matched_receipt, pending, revision,
+                       rotation_pending, ROTATION_REVIEW_FORMAT)
 import p4_rpc
 
 APP_ID = 0x31503444
@@ -188,6 +189,9 @@ class P4Delivery:
         fresh(e,self.wallet.policy,now)
         need(matched_receipt(r,d) is None,'payment is already recorded; no submission allowed')
         body=d['review']['body'];payer=body['sender'];raw=bytes.fromhex(d['wire_hex'])
+        need(d['review']['format']==ROTATION_REVIEW_FORMAT or
+             not rotation_pending(r,decisions,payer),
+             'payer key rotation is unresolved; payment submission is paused')
         # Validate the original transfer at the saved current checkpoint. Include
         # ALL local reservations in deficit checks, not a new hold or second budget.
         held=pending(r,decisions);ledger=restore(e['state']['genesis'],e['state']['native'])

@@ -1,4 +1,4 @@
-"""Development P4 transfer wallet with one local signing/reservation journal.
+"""Development P4 payments and explicit owner rotation in one financial journal.
 
 No network, governance, dispatch, legacy-wallet migration or trust renewal. Only
 exact verified execution retires a hold. A signed-but-unobserved payment stays
@@ -22,7 +22,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from block_application import encode, restore
 from commit_verifier import exact, load_json
 from native_core import (BODY_FIELDS, DOMAIN, FEE_ACCOUNT, MAX_UNITS, canonical,
-                         digest, identifier, public, sign)
+                         digest, identifier, public, pubkey, sign,
+                         accept_account_key, verify_account_key_acceptance)
 from invoice_terms import terms_checked, terms_commitment
 from offline_signer import _load_vault
 from p4_evidence import (MAX_EVIDENCE_BYTES, check_clock, content_id, extends,
@@ -34,6 +35,7 @@ from validator_witness import nanos
 APPLICATION_ID = 0x31503457
 REVIEW_FORMAT = '1soft/p4-transfer-review/v1'
 INVOICE_REVIEW_FORMAT = '1soft/p4-invoice-transfer-review/v1'
+ROTATION_REVIEW_FORMAT = '1soft/p4-key-rotation-review/v1'
 MAX_OBSERVATIONS = 32
 MAX_PAYLOAD = 64 * 1024 * 1024
 MAX_DECISIONS = 256
@@ -66,6 +68,11 @@ def pending(report, decisions):
     return [d for d in decisions if matched_receipt(report, d) is None]
 
 
+def rotation_pending(report, decisions, payer):
+    return any(d['review']['format'] == ROTATION_REVIEW_FORMAT and
+               d['review']['body']['sender'] == payer for d in pending(report, decisions))
+
+
 def fresh(evidence, policy, now_ns, previous_ns=None):
     check_clock(policy, now_ns, previous_ns)
     tip_ns = nanos(evidence['headers'][-1]['signed_header']['header']['time'])
@@ -87,6 +94,8 @@ def transfer_review(evidence, report, prior, wallet_id, policy_id, *, payer,
     integer(valid_until, height + 1, min(512, height + MAX_VALIDITY_BLOCKS))
     need(payer != FEE_ACCOUNT and recipient not in (payer, FEE_ACCOUNT), 'invalid transfer endpoint')
     held = pending(report, prior)
+    need(not rotation_pending(report, prior, payer),
+         'payer key rotation is unresolved; payment signing is paused')
     # Deliberately no speculative nonce ladder: each owner/grant lane has at most
     # one unresolved signed transfer. Different grant lanes share account/budget holds.
     need(not any(d['review']['body']['sender'] == payer and
@@ -165,8 +174,76 @@ def invoice_review_context(review, genesis, genesis_sha256, now_ns):
     return None
 
 
+def rotation_review(evidence, report, prior, wallet_id, policy_id, *, payer,
+                    new_public_key, valid_until, acceptance=''):
+    """Derive fee/nonce/authority solely from reverified canonical wallet state."""
+    identifier(payer); pubkey(new_public_key)
+    need(payer != FEE_ACCOUNT, 'system account cannot rotate')
+    height = report['state_height']
+    integer(valid_until, height+1, min(512, height+MAX_VALIDITY_BLOCKS))
+    need(type(acceptance) is str, 'invalid incoming consent')
+    held = pending(report, prior)
+    need(not any(d['review']['body']['sender'] == payer and
+                 d['review']['body']['grant_id'] == '' for d in held),
+         'owner has an unresolved signed decision; recover or reconcile it')
+    g = evidence['state']['genesis']; ledger = restore(g, evidence['state']['native'])
+    try:
+        owner = ledger._account(payer)
+        need(new_public_key != owner['public_key'], 'replacement key is already active')
+        need(ledger.db.execute('SELECT 1 FROM accounts WHERE public_key=?',
+                             (new_public_key,)).fetchone() is None,
+             'replacement key already controls an account')
+        integer(owner['epoch']+1, 1, MAX_UNITS); integer(owner['nonce']+1, 1, MAX_UNITS)
+        account_held = sum(int(d['review']['debit_units']) for d in held
+                           if d['review']['body']['sender'] == payer)
+        need(g['fee']+account_held <= owner['balance'], 'account funds already committed')
+        body = ledger.body(payer,owner['nonce'],{'type':'rotate_key',
+            'public_key':new_public_key,'acceptance':acceptance},valid_until=valid_until)
+        if acceptance: verify_account_key_acceptance(body)
+        grants = [dict(id=r['id'],public_key=r['public_key'],epoch=r['epoch']) for r in
+                  ledger.db.execute('SELECT * FROM grants WHERE owner=? AND epoch=? ORDER BY id',
+                                    (payer,owner['epoch']))]
+        return {'schema':1,'format':ROTATION_REVIEW_FORMAT,'wallet_id':wallet_id,'policy_id':policy_id,
+                'evidence_id':report['evidence_id'],
+                'revision':revision(wallet_id,policy_id,report['evidence_id'],prior),
+                'state_height':height,'header_hash':report['header_hash'],
+                'registry_epoch':report['registry_epoch'],'payer_epoch':owner['epoch'],
+                'signer_public_key':owner['public_key'],'body':body,'budget_id':None,
+                'debit_units':str(g['fee']),'account_pending_units':str(account_held),
+                'budget_pending_units':'0','affected_grants':grants}
+    finally: ledger.close()
+
+
+def rotation_review_context(review, *, accepted):
+    need(type(review) is dict, 'rotation review object required')
+    need(review.get('format') == ROTATION_REVIEW_FORMAT, 'explicit rotation review required')
+    body = review.get('body'); exact(body,BODY_FIELDS,'reviewed rotation body')
+    op = body['op']; exact(op,{'type','public_key','acceptance'},'rotation operation')
+    need(op['type'] == 'rotate_key' and body['grant_id'] == '', 'rotation requires owner role')
+    if accepted:
+        need(op['acceptance'] != '', 'incoming key consent required')
+        verify_account_key_acceptance(body)
+    else: need(op['acceptance'] == '', 'incoming key consent already present')
+    return body
+
+
+def decision_review(e, r, prior, wallet_id, policy_id, review, genesis_sha256, now_ns):
+    """Exact format dispatch for stored decisions; legacy transfer bytes unchanged."""
+    if review.get('format') == ROTATION_REVIEW_FORMAT:
+        body = rotation_review_context(review,accepted=True)
+        return rotation_review(e,r,prior,wallet_id,policy_id,payer=body['sender'],
+            new_public_key=body['op']['public_key'],valid_until=body['valid_until'],
+            acceptance=body['op']['acceptance'])
+    body = review['body']; exact(body,BODY_FIELDS,'reviewed transfer body'); op=body['op']
+    invoice = invoice_review_context(review,e['state']['genesis'],genesis_sha256,now_ns)
+    need(op['type'] == 'transfer', 'wallet transfer review only supports transfers')
+    return transfer_review(e,r,prior,wallet_id,policy_id,payer=body['sender'],
+        recipient=op['to'],units=op['units'],valid_until=body['valid_until'],
+        grant_id=body['grant_id'],invoice_terms=invoice,genesis_sha256=genesis_sha256)
+
+
 class P4Wallet:
-    """Offline transfer-only wallet. All agents for these funds must share this DB.
+    """Offline payment and explicit key-rotation wallet; one shared journal.
 
     A new P4 journal, never the old CertifiedWallet/read-store/node database.
     Preparing has no financial effect. Approval records signed bytes before return.
@@ -303,15 +380,9 @@ class P4Wallet:
             need(raw_by_id[proof][0] >= last_proof_seq, 'signing evidence moved backward')
             last_proof_seq = raw_by_id[proof][0]
             fresh(e, self.policy, d['signed_ns'])
-            body = review['body']; exact(body, BODY_FIELDS, 'reviewed transfer body')
-            op = body['op']
-            invoice = invoice_review_context(review, e['state']['genesis'],
-                self.policy['genesis_sha256'], d['signed_ns'])
-            need(op['type'] == 'transfer', 'wallet only supports transfers')
-            expected = transfer_review(e, r, decisions[:n], wallet_id, self.policy_id,
-                payer=body['sender'], recipient=op['to'], units=op['units'],
-                valid_until=body['valid_until'], grant_id=body['grant_id'],
-                invoice_terms=invoice, genesis_sha256=self.policy['genesis_sha256'])
+            body = review['body']
+            expected = decision_review(e,r,decisions[:n],wallet_id,self.policy_id,review,
+                                       self.policy['genesis_sha256'],d['signed_ns'])
             need(encode(review) == encode(expected), 'stored review differs from verified origin')
             wire = bytes.fromhex(d['wire_hex']); packet = load_json(wire, max_bytes=16384)
             exact(packet, {'body','signature'}, 'signed transfer')
@@ -448,3 +519,117 @@ class P4Wallet:
             need(d['review']['body']['sender']==payer and d['review']['body']['grant_id']==grant_id,
                  'recovery account or role differs')
             return bytes.fromhex(d['wire_hex'])
+
+    def prepare_rotation(self, *, payer, new_public_key, valid_until):
+        with self.atomic(write=False):
+            wallet_id,e,r,decisions,latest = self._load()
+            fresh(e,self.policy,self.clock(),latest)
+            need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
+            review = rotation_review(e,r,decisions,wallet_id,self.policy_id,payer=payer,
+                                     new_public_key=new_public_key,valid_until=valid_until)
+            fresh(e,self.policy,self.clock(),latest)
+            return {'review':review,'confirmation':content_id(review),'reserved':False,
+                    'owner_signed':False,'incoming_consent':False,'broadcast':False}
+
+    def accept_rotation(self, review, confirmation, *, incoming_vault, password):
+        review = freeze(review,32768)
+        need(type(confirmation) is str and hmac.compare_digest(content_id(review),confirmation),
+             'explicit rotation confirmation differs')
+        with self.atomic():
+            wallet_id,e,r,decisions,latest = self._load()
+            now=self.clock(); fresh(e,self.policy,now,latest)
+            need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
+            body=rotation_review_context(review,accepted=False)
+            expected=rotation_review(e,r,decisions,wallet_id,self.policy_id,payer=body['sender'],
+                new_public_key=body['op']['public_key'],valid_until=body['valid_until'])
+            need(encode(review)==encode(expected),'reviewed wallet state or rotation changed; review again')
+            key=_load_vault(Path(incoming_vault),password)
+            need(public(key)==body['op']['public_key'],'vault does not control incoming key')
+            fresh(e,self.policy,self.clock(),now)
+            accepted=accept_account_key(key,body)
+            result={**review,'body':accepted}
+            fresh(e,self.policy,self.clock(),now)
+        return {'review':result,'confirmation':content_id(result),'reserved':False,
+                'owner_signed':False,'incoming_consent':True,'broadcast':False}
+
+    def approve_rotation(self, review, confirmation, *, owner_vault, password):
+        review = freeze(review,32768)
+        need(type(confirmation) is str and hmac.compare_digest(content_id(review),confirmation),
+             'explicit rotation confirmation differs')
+        with self.atomic():
+            wallet_id,e,r,decisions,latest=self._load()
+            now=self.clock(); fresh(e,self.policy,now,latest)
+            need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
+            body=rotation_review_context(review,accepted=True)
+            expected=decision_review(e,r,decisions,wallet_id,self.policy_id,review,
+                                     self.policy['genesis_sha256'],now)
+            need(encode(review)==encode(expected),'reviewed wallet state or rotation changed; review again')
+            key=_load_vault(Path(owner_vault),password)
+            need(public(key)==review['signer_public_key'],'vault does not control reviewed owner')
+            fresh(e,self.policy,self.clock(),now)
+            packet=sign(key,body); ledger=restore(e['state']['genesis'],e['state']['native'])
+            try: ledger.apply(packet,height=r['state_height']+1)
+            finally: ledger.close()
+            signed=self.clock(); fresh(e,self.policy,signed,now)
+            decision={'id':confirmation,'review':review,'wire_hex':canonical(packet).hex(),'signed_ns':signed}
+            self.db.execute('INSERT INTO decisions VALUES (?,?,?,?)',
+                            (len(decisions)+1,confirmation,signed,encode(decision)))
+        return {'status':'signed_and_reserved','decision_id':confirmation,'transaction':packet,'broadcast':False}
+
+    def rotation_status(self, decision_id, *, payer, evidence):
+        """Fresh extending proof, historical receipt boundary and checkpoint owner.
+
+        Read only. Does not sync evidence, release holds or promise latestness.
+        """
+        hash_text(decision_id); identifier(payer); incoming=freeze(evidence)
+        with self.atomic(write=False):
+            _,e,_,decisions,latest=self._load()
+            now=self.clock(); check_clock(self.policy,now,latest)
+            rows=[d for d in decisions if d['id']==decision_id]
+            need(len(rows)==1,'rotation decision unavailable')
+            d=rows[0]; body=rotation_review_context(d['review'],accepted=True)
+            need(body['sender']==payer,'rotation payer differs')
+            r=verify_evidence(incoming,self.genesis,self.policy,now_ns=now)
+            fresh(incoming,self.policy,now,latest); extends(e,incoming)
+            found=matched_receipt(r,d)
+            owner=next(a for a in r['accounts'] if a['id']==payer)
+            result={'status':'rotation-unobserved' if found is None else 'rotation-recorded',
+                    'checked_at_ns':now,
+                    'decision_id':decision_id,'payer':payer,'evidence_id':r['evidence_id'],
+                    'state_height':r['state_height'],'checkpoint_public_key':owner['public_key'],
+                    'checkpoint_epoch':owner['epoch'],'rotation_receipt_height':None,
+                    'receipt_epoch_before':None,'receipt_epoch_after':None,
+                    'old_owner_retired_at_checkpoint':False,
+                    'replacement_owner_active_at_checkpoint':False,
+                    'original_grants_retired_at_checkpoint':False,
+                    'physical_device_fenced':False,'latest_state_guaranteed':False,
+                    'signing_performed':False,'submission_performed':False,'holds_changed':False}
+            if found is not None:
+                # Only reverified successful native receipts are replayed, in exact
+                # sequence. Failed attempts have no native state effect. Derive
+                # receipt-time epoch rather than trusting a caller/cached field.
+                ledger=restore(incoming['state']['genesis'])
+                try:
+                    for row in sorted(r['receipts'],key=lambda x:x['record']['sequence']):
+                        record=row['record']
+                        target=row['native_txid']==found['native_txid']
+                        if target:
+                            before=dict(ledger._account(payer))
+                            need(before['public_key']==d['review']['signer_public_key'] and
+                                 before['epoch']==d['review']['payer_epoch'],
+                                 'receipt boundary differs from original rotation authority')
+                        ledger.apply(record['envelope'],height=record['height'])
+                        if target:
+                            after=dict(ledger._account(payer)); break
+                finally: ledger.close()
+                result.update(rotation_receipt_height=found['height'],
+                    receipt_epoch_before=before['epoch'],receipt_epoch_after=after['epoch'],
+                    old_owner_retired_at_checkpoint=owner['public_key']!=before['public_key'],
+                    replacement_owner_active_at_checkpoint=owner['public_key']==body['op']['public_key'])
+                grants={g[0]:g for g in r['grants']}
+                result['original_grants_retired_at_checkpoint']=all(
+                    g['id'] in grants and (grants[g['id']][3]!=owner['epoch'] or
+                    bool(grants[g['id']][9]) or grants[g['id']][7]<r['state_height']+1)
+                    for g in d['review']['affected_grants'])
+            fresh(incoming,self.policy,self.clock(),now)
+            return result
