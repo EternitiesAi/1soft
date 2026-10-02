@@ -1,6 +1,6 @@
 # Native-coin roadmap — current development gate
 
-27 September 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
+Updated 2 October 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
 
 | Milestone | Current state | Required evidence / next action |
 |---|---|---|
@@ -15,7 +15,7 @@
 | Crash/recovery and application checkpoints | Implemented development tooling | Coordinate validator consensus DB/signing-state recovery; power-loss and operator drills remain. |
 | Real network fault/security tests | Partial one-host evidence | Multi-host partitions, restarts, hostile peers, resource exhaustion and incident drills. |
 | Final engine/protocol decision | CometBFT 0.38.25 pinned for current development | Upgrade/licensing/security lifecycle and validator-set evolution policy. |
-| Snapshot pruning/history policy | Not complete | Bound receipt-history growth and define retained history/snapshot availability. |
+| Snapshot pruning/history policy | Not complete; sequential read replay and complete bounded backup formats implemented | Bound long-term receipt growth and define retained history/snapshot availability. Faster historical reads and larger backups do not constitute pruning. |
 | Independent operator testnet | Not started | Independent hosts/operators, seed/peer plan, monitoring, release artifacts and rollback/incident procedure. |
 | Independent security review | Not started | External code/protocol/custody review before value-bearing use. |
 | Public economics/genesis | Undecided | Supply, denomination, issuance/distribution and governance must be explicitly chosen and reviewed. |
