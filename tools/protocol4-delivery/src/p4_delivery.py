@@ -220,9 +220,10 @@ class P4Delivery:
         need(self._config()==self.config,'delivery configuration changed')
         _,obs,_,_=self.wallet._catalog();proofs={r[1]:r for r in obs}
         byid={d['id']:d for d in decisions};attempts={};responses={};receipts={};last=self.config[7]
-        rows=self.db.execute('SELECT * FROM attempts ORDER BY seq').fetchall()
+        rows=self.db.execute('SELECT * FROM attempts ORDER BY seq').fetchmany(MAX_ATTEMPTS+1)
         need(len(rows)<=MAX_ATTEMPTS,'delivery attempt capacity exceeded')
         for n,(seq,did,at,raw) in enumerate(rows,1):
+            need(did not in attempts,'duplicate delivery attempt')
             integer(seq,n,n);integer(at,last);need(did in byid,'attempt lost its original wallet decision')
             need(type(raw) is bytes and 0<len(raw)<=16384,'invalid delivery review bytes')
             review=load_json(raw,max_bytes=16384);need(encode(review)==raw,'noncanonical stored delivery review')
@@ -235,16 +236,21 @@ class P4Delivery:
             expected=self._review(e,r,prior,byid[did],at,self.config)
             need(encode(review)==encode(expected),'stored delivery review differs from signed context')
             attempts[did]={'seq':seq,'at':at,'review':review};last=at
-        for did,at,raw in self.db.execute('SELECT * FROM responses'):
+        rows=self.db.execute('SELECT * FROM responses').fetchmany(MAX_ATTEMPTS+1)
+        need(len(rows)<=MAX_ATTEMPTS,'endpoint response capacity exceeded')
+        for did,at,raw in rows:
+            need(did not in responses,'duplicate endpoint response')
             need(did in attempts and type(raw) is bytes,'orphaned or invalid endpoint response')
             integer(at,attempts[did]['at']);v=observation(load_json(raw,max_bytes=4096))
             need(encode(v)==raw,'endpoint observation encoding differs')
             responses[did]=v;last=max(last,at)
-        rows=self.db.execute('SELECT * FROM receipts ORDER BY seq').fetchall()
-        need(len(rows)<=MAX_RECEIPTS and sum(len(r[4]) for r in rows)<=MAX_RECEIPT_BYTES,
+        rows=self.db.execute('SELECT * FROM receipts ORDER BY seq').fetchmany(MAX_RECEIPTS+1)
+        need(len(rows)<=MAX_RECEIPTS and all(type(r[4]) is bytes for r in rows) and
+             sum(len(r[4]) for r in rows)<=MAX_RECEIPT_BYTES,
              'receipt storage limit exceeded')
         prior_receipt_ns=self.config[7]
         for n,(seq,did,eid,at,raw) in enumerate(rows,1):
+            need(did not in receipts,'duplicate delivery receipt')
             integer(seq,n,n);integer(at,prior_receipt_ns);hash_text(eid)
             prior_receipt_ns=at
             need(did in byid and type(raw) is bytes and 0<len(raw)<=MAX_EVIDENCE_BYTES+4096,
