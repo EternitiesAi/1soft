@@ -25,7 +25,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT/'src'), str(ROOT/'scripts'), str(ROOT/'tools/validator-transition/src')]
-for component in ('protocol4-client', 'protocol4-wallet', 'protocol4-delivery', 'protocol4-custody'):
+for component in ('protocol4-client', 'protocol4-wallet', 'protocol4-delivery', 'protocol4-custody', 'protocol4-explorer'):
     sys.path.insert(0, str(ROOT/'tools'/component/'src'))
 
 from cryptography.hazmat.primitives import serialization as ser
@@ -122,9 +122,11 @@ class Proxy:
         self.thread.join(3)
 
 
-def run(engine, expected_sha256, output, *, key_rotation=False, custody_format=None):
+def run(engine, expected_sha256, output, *, key_rotation=False, custody_format=None, read_store_format=None):
     if custody_format is not None and (type(custody_format) is not int or custody_format != 3):
         raise ValueError("only explicit custody format 3 is qualified by this profile")
+    if read_store_format is not None and (type(read_store_format) is not int or read_store_format != 2):
+        raise ValueError('only explicit read-store format 2 is qualified by this profile')
     output = Path(output).resolve()
     if output.is_relative_to(ROOT):
         raise ValueError('acceptance output must be outside the source checkout')
@@ -462,6 +464,71 @@ def run(engine, expected_sha256, output, *, key_rotation=False, custody_format=N
                 'principal_receipts_preserved': 2, 'pending_debit_units': view['pending_debit_units'],
                 'new_submissions': 0, 'source_journals_changed': False,
                 'independent_hosts': False, 'production_custody_certified': False}
+        if read_store_format is not None:
+            from commit_verifier import load_json
+            from p4_read_store import P4ReadStore
+            from p4_explorer import current_view
+            before_read_submissions = tuple(proxy.submissions)
+            before_wallet = tuple(wallet.db.iterdump())
+            with wallet.atomic(write=False):
+                _, observations, _, _ = wallet._catalog()
+                retained_packets = [bytes(observations[index][4]) for index in (0, -1)]
+            expected_ids = [hashlib.sha256(raw).hexdigest() for raw in retained_packets]
+            private = runtime/'read-storage'
+            private.mkdir(mode=0o700)
+            stores = {}; read_views = {}; projections = {}; statistics = {}
+            for version in (1, 2):
+                path = private/(f'read-v{version}.sqlite')
+                with P4ReadStore(path, full_genesis, policy, create=True,
+                                 storage_version=version) as ledger:
+                    tip = None
+                    for raw, expected in zip(retained_packets, expected_ids):
+                        imported = ledger.import_evidence(load_json(raw, max_bytes=16*1024*1024),
+                                                          expected_tip=tip)
+                        if imported['status'] != 'recorded' or imported['evidence_id'] != expected:
+                            raise ValueError('read-store changed an original validator packet identity')
+                        tip = imported['evidence_id']
+                    read_views[version] = ledger.current()
+                    statistics[version] = ledger.storage_stats()
+                    check(f'read-store format {version} exports both original validator packets exactly',
+                          all(encode(ledger.export(identity)) == raw
+                              for identity, raw in zip(expected_ids, retained_packets)))
+                    account = ledger.account(payer)['account']
+                    check(f'read-store format {version} verifies original payment receipts and recorded balance',
+                          account['recorded_balance'] == '888' and
+                          all(ledger.receipt(originals[name], payer=payer)['status'] == 'recorded'
+                              for name in ('raven', 'atlas')))
+                stores[version] = path
+                projections[version] = current_view(path, full_genesis, policy)
+            # Verification times may advance. All cryptographic/state claims must
+            # remain identical under the original fixed external policy.
+            def without_clock(value):
+                return {k:v for k,v in value.items() if k != 'checked_at_ns'}
+            check('read-store formats retain the same fully verified state and trust',
+                  without_clock(read_views[1]) == without_clock(read_views[2]) and
+                  read_views[2]['native_execution_replayed'] is True and
+                  read_views[2]['spending_authority'] is False)
+            for view in projections.values():
+                view['checkpoint'].pop('checked_at_ns')
+            check('existing explorer reads compact proofs without changing its projection',
+                  projections[1] == projections[2] and
+                  projections[2]['checkpoint']['registry_epoch'] == '1' and
+                  projections[2]['spending_authority'] is False)
+            check('compact read storage charges exact original logical evidence bytes',
+                  statistics[1]['logical_evidence_bytes'] == sum(map(len, retained_packets)) and
+                  statistics[2]['logical_evidence_bytes'] == statistics[1]['logical_evidence_bytes'] and
+                  statistics[1]['format_version'] == 1 and statistics[2]['format_version'] == 2 and
+                  statistics[2]['stored_payload_bytes'] < statistics[1]['stored_payload_bytes'])
+            check('read storage adds no submissions and changes no monetary journal rows',
+                  tuple(proxy.submissions) == before_read_submissions and
+                  tuple(wallet.db.iterdump()) == before_wallet)
+            report['read_storage'] = {'assessed': True, 'formats': [1, 2],
+                'observations_per_store': 2, 'original_evidence_ids': expected_ids,
+                'statistics': statistics, 'same_original_exports': True,
+                'same_verified_reports_except_clock': True, 'same_explorer_projection_except_clock': True,
+                'receipt_results_recorded_per_store': 2, 'new_submissions': 0,
+                'source_wallet_changed': False, 'independent_hosts': False,
+                'production_read_service_certified': False}
         if key_rotation:
             # Extend the complete existing acceptance profile. Its checks and
             # six units of unresolved diagnostic holds remain unchanged.
@@ -576,11 +643,13 @@ if __name__ == '__main__':
     p.add_argument('--key-rotation',action='store_true',help='also qualify owner replacement and retained uncertain holds')
     p.add_argument('--custody-format', type=int, choices=(3,),
                    help='also qualify compact encrypted backup and historical recovery on actual validator journals')
+    p.add_argument('--read-store-format', type=int, choices=(2,),
+                   help='also qualify compact read storage and original receipt/explorer consumers')
     args = p.parse_args()
     if args.fault_config:
         process_fault(args.fault_config, args.fault_phase)
     else:
         if not args.engine or not args.engine_sha256 or not args.output: p.error('engine, hash and output are required')
-        result = run(args.engine, args.engine_sha256, args.output,key_rotation=args.key_rotation,custody_format=args.custody_format)
+        result = run(args.engine, args.engine_sha256, args.output,key_rotation=args.key_rotation,custody_format=args.custody_format,read_store_format=args.read_store_format)
         print(json.dumps({k: result.get(k) for k in ('status', 'reason', 'source_qualified')}))
         raise SystemExit(0 if result['status'] == 'passed' else 1)
