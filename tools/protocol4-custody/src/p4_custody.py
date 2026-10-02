@@ -294,10 +294,22 @@ def publish_new(path, raw):
 
 def backup(delivery, output, password, *, format_version=None):
     need(type(delivery) is P4Delivery, 'one existing bound P4 delivery pair required')
-    need(format_version is None or type(format_version) is int and format_version in (1,2),
+    need(format_version is None or type(format_version) is int and format_version in (1,2,3),
          'unsupported backup format selection')
     _, _, output = separate_paths(delivery.wallet.path, delivery.path, output)
     from p4_custody_stream import blob_size, capture_pair, sealed_parts, MAX_BACKUP_BYTES as stream_bound
+    if format_version == 3:
+        import p4_custody_compressed as compressed
+        result = {}; digest = hashlib.sha256()
+        with capture_pair(delivery) as pair:
+            def parts():
+                for raw in compressed.sealed_parts(pair, password, result):
+                    digest.update(raw); yield raw
+            _publish_parts(output, parts(), compressed.MAX_BACKUP_BYTES)
+        return {'status':'encrypted-journal-backup-created','backup_format_version':3,
+                'backup_sha256':digest.hexdigest(),'snapshot_id':result['snapshot_id'],
+                'private_keys_included':False,'source_journals_changed':False,
+                'latestness_established':False,'old_device_fenced':False}
     if format_version == 2 or format_version is None and blob_size(delivery) > 7*1024*1024:
         result = {}; digest = hashlib.sha256()
         with capture_pair(delivery) as pair:
@@ -326,14 +338,16 @@ def backup(delivery, output, password, *, format_version=None):
 def restore_backup(backup_path, output, genesis, policy, password):
     backup_path, output = separate_paths(backup_path, output)
     import p4_custody_stream as stream
-    with _private_source(backup_path, stream.MAX_BACKUP_BYTES) as source:
+    import p4_custody_compressed as compressed
+    with _private_source(backup_path, max(stream.MAX_BACKUP_BYTES, compressed.MAX_BACKUP_BYTES)) as source:
         prefix = source.read(len(stream.MAGIC)); source.seek(0)
-        if prefix == stream.MAGIC:
-            chunks, manifest = stream.unseal(source, password)
+        if prefix in (stream.MAGIC, compressed.MAGIC):
+            codec = stream if prefix == stream.MAGIC else compressed
+            chunks, manifest = codec.unseal(source, password)
             stream.audit_chunks(chunks, genesis, policy, output)
             archive = stream.make_archive(chunks, manifest)
             _publish_parts(output, (archive,), stream.MAX_ARCHIVE_BYTES)
-            return {'status':'restored-recovery-only','backup_format_version':2,
+            return {'status':'restored-recovery-only','backup_format_version':2 if codec is stream else 3,
                     'snapshot_id':stream.snapshot_id(manifest),'signing_enabled':False,
                     'dispatch_enabled':False,'old_device_fenced':False,
                     'latestness_established':False,'private_keys_restored':False}

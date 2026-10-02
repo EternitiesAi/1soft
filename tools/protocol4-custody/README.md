@@ -80,15 +80,17 @@ The version-1 envelope uses the installed cryptography library's Scrypt
 (`n=32768, r=8, p=1, length=32`), a random 32-byte salt and AES-256-GCM with a random
 12-byte nonce. The exact canonical header is authenticated. Unknown parameters,
 noncanonical encoding and inflated KDF settings are refused before derivation.
-No custom encryption primitive or authenticated compression is introduced.
+Version1 uses no compression and no custom encryption primitive.
 
 Version 1 retains its 7 MiB complete journal BLOB limit, 16 MiB plaintext limit,
 23 MiB encrypted envelope limit and 17 MiB archive limit. The default keeps this
 format when the complete legacy representation fits, and selects version 2 for a
 larger admitted wallet/delivery pair. `backup(..., format_version=1)` or CLI
 `backup --format 1` explicitly requests the original bounds. `--format 2` requests
-the new format; `--format auto` is the default. Current readers accept both
-versions. Older readers accept only version 1; unknown versions are refused.
+the bounded stream format; `--format auto` is the default. Explicit `--format 3`
+requests compact authenticated transport of the exact version2 stream. Current
+readers accept all three envelopes. Older readers refuse newer formats; unknown
+versions are refused. See [compact backup format](../../docs/CUSTODY_COMPRESSION.md).
 
 Version 2 preserves original BLOB bytes in a fixed typed row stream and encrypts
 at most 1 MiB per AES-GCM frame. A fresh salt and nonce prefix, the frame position,

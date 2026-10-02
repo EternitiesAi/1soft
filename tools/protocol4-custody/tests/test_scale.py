@@ -40,7 +40,7 @@ class BackupFormatTests(unittest.TestCase):
     def test_default_small_backup_remains_v1_and_unsupported_selection_refuses(self):
         self.api.backup(self.d, self.bp, BACKUP_PASSWORD)
         self.assertEqual(json.loads(self.bp.read_bytes())['header']['schema'], 1)
-        for version in (0, 3, True, '2'):
+        for version in (0, 4, True, '2'):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 self.api.backup(self.d, self.root/'invalid', BACKUP_PASSWORD, format_version=version)
         self.assertFalse((self.root/'invalid').exists())
