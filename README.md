@@ -34,6 +34,12 @@ wallet holds intact until explicit reconciliation. See
 
 ## Follow the original payment
 
+P4 wallets can now [create an encrypted journal backup and restore a historical
+recovery archive](tools/protocol4-custody/README.md). The archive preserves original
+transactions, spending holds and consumed delivery attempts, and can export saved
+receipt evidence. It cannot sign or dispatch, establish that a backup is current,
+or fence the old signing device. Private keys are outside this backup.
+
 The local browser wallet locks pending reviews to their request and signing role,
 inspects the saved wallet after a lost response, and shows the next action for the
 original payment. Unknown outcomes, collected receipts, reconciled execution and
