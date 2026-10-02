@@ -14,7 +14,7 @@ from block_application import encode
 from commit_verifier import (b64, block_id, exact, hexbytes, load_json, merkle_root,
                              number, sha)
 from native_core import canonical, digest, FEE_ACCOUNT
-from protocol4_application import Protocol4Application, MAX_HEIGHT, MAX_TX_BYTES
+from protocol4_application import Protocol4Application, Protocol4Replay, MAX_HEIGHT, MAX_TX_BYTES
 from validator_sets_core import ValidatorSet
 from validator_witness import verify_header, nanos
 
@@ -176,8 +176,7 @@ def verify_evidence(value, genesis_bytes, policy, *, now_ns):
         previous = info; summaries.append(info)
     need(exact_anchor_seen, 'independent checkpoint missing')
     attempts = []; updates = []; transitions = []
-    with Protocol4Application(':memory:', expected_genesis=g) as app:
-        app.init_chain(g['chain_id'], g, g['validator_registry']['validators'])
+    with Protocol4Replay(g) as app:
         for height in range(1, h+1):
             row = e['history'][height-1]; exact(row, {'height', 'txs'}, 'P4 replay block')
             integer(row['height'], height, height)
@@ -192,7 +191,7 @@ def verify_evidence(value, genesis_bytes, policy, *, now_ns):
                  'replay transaction list is not the signed block data')
             need(summaries[height-1]['app_hash'] == app.app_hash, 'header does not commit prior composite state')
             before_epoch = app.state['registry']['epoch']
-            after, result = app._execute(txs, height)
+            after, result = app.advance(txs, height)
             need(result['validators_hash'] == summaries[height-1]['validators_hash'] and
                  result['next_validators_hash'] == summaries[height-1]['next_validators_hash'],
                  'signed roster schedule differs from authorized registry execution')
@@ -208,7 +207,6 @@ def verify_evidence(value, genesis_bytes, policy, *, now_ns):
             if after['registry']['epoch'] != before_epoch:
                 transitions.append({'height': height, 'epoch': after['registry']['epoch'],
                                     'active_hash': after['registry']['active_hash']})
-            app.state, app.height, app.app_hash = after, height, result['app_hash']
         # The anchor's roster is height-driven. A new action at H+1 cannot change
         # H+1/H+2 rosters under the pinned minimum scheduling delay. Do NOT execute
         # H+1 money, invent its body, or call its unknown transfers completed.
@@ -219,7 +217,7 @@ def verify_evidence(value, genesis_bytes, policy, *, now_ns):
         need(encode(app.state) == encode({'native': state['native'], 'registry': state['registry']}) and
              app.app_hash == state['app_hash'] == summaries[-1]['app_hash'],
              'replayed composite state differs from supplied checkpoint')
-        app._audit_state(g, app.state, h, app.app_hash)
+        app.audit()
     receipts = []
     for row in state['native']['receipts']:
         record = load_json(row[3].encode(), max_bytes=32768)

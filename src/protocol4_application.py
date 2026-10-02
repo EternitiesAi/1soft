@@ -71,6 +71,24 @@ def _votes(rows: list[dict], expected: list[dict], height: int) -> None:
             sum(wanted.values()) * 2, 'insufficient last-commit voting power')
 
 
+def _native_results(ledger: NativeLedger, txs: list[bytes], classes: list[str],
+                    registry_results, height: int) -> list[dict]:
+    """The same ordered monetary operations for node execution and proof replay."""
+    results = []
+    for raw, kind in zip(txs, classes):
+        if kind == 'registry':
+            results.append(next(registry_results))
+        elif kind == 'money':
+            try:
+                receipt = BlockApplication._apply(ledger, raw, height)
+                results.append({'code': 0, 'log': '', 'data': receipt['txid']})
+            except Reject as exc:
+                results.append({'code': 1, 'log': str(exc), 'data': ''})
+        else:
+            results.append({'code': 1, 'log': 'unrecognized protocol-4 transaction', 'data': ''})
+    return results
+
+
 class Protocol4Application:
     def __init__(self, path: str | Path, *, expected_genesis: dict | None = None):
         self.lock = threading.RLock()
@@ -288,21 +306,10 @@ class Protocol4Application:
             self.state['registry'], registry_txs, height)
         registry_results = iter(registry_result['tx_results'])
         ledger = restore(self.genesis, self.state['native'])
-        results = []
         try:
             # Money and administration mutate disjoint domains; each domain keeps
             # its original relative transaction order and results retain block order.
-            for raw, kind in zip(txs, classes):
-                if kind == 'registry':
-                    results.append(next(registry_results))
-                elif kind == 'money':
-                    try:
-                        receipt = BlockApplication._apply(ledger, raw, height)
-                        results.append({'code': 0, 'log': '', 'data': receipt['txid']})
-                    except Reject as exc:
-                        results.append({'code': 1, 'log': str(exc), 'data': ''})
-                else:
-                    results.append({'code': 1, 'log': 'unrecognized protocol-4 transaction', 'data': ''})
+            results = _native_results(ledger, txs, classes, registry_results, height)
             state = {'native': snapshot(ledger), 'registry': registry_state}
         finally:
             ledger.close()
@@ -479,3 +486,70 @@ class Protocol4Application:
                 return {'code': 0, 'height': self.height, 'value': encode(value), 'log': ''}
             except (Reject, ValueError) as exc:
                 return {'code': 1, 'height': self.height, 'value': b'', 'log': str(exc)}
+
+
+class Protocol4Replay:
+    """One disposable full-history replay starting only from pinned genesis.
+
+    This is not a node, imported checkpoint, cache or signing authority. The
+    client verifies all header signatures before creating it, then checks every
+    block's data and composite hash. Native signatures, nonces, fees, grants,
+    replay refusals and registry transitions use the node's existing rules.
+    The completed state still undergoes the original full snapshot/receipt audit.
+    """
+    def __init__(self, genesis: dict):
+        self.genesis = load_json(encode(genesis), max_bytes=1_048_576)
+        Protocol4Application._validate_genesis(self.genesis)
+        self.rules = RegistryRules(self.genesis['validator_registry'],
+                                   bound_genesis_sha256=digest(self.genesis))
+        self.ledger = NativeLedger(':memory:', self.genesis)
+        self.closed = False
+        try:
+            self.state = {'native': snapshot(self.ledger), 'registry': self.rules.initial_state()}
+            self.height = 0
+            self.app_hash = application_hash(self.genesis, 0, self.state)
+        except BaseException:
+            self.close()
+            raise
+
+    def advance(self, txs: list[bytes], height: int) -> tuple[dict, dict]:
+        require(not self.closed, 'protocol-4 replay is closed')
+        Protocol4Application._bounds(txs)
+        require(type(height) is int and height == self.height + 1 and height <= MAX_HEIGHT,
+                'protocol-4 block height differs')
+        try:
+            classes = [_classify(raw) for raw in txs]
+            registry_txs = [raw for raw, kind in zip(txs, classes) if kind == 'registry']
+            registry_state, registry_result = self.rules.transition(
+                self.state['registry'], registry_txs, height)
+            results = _native_results(self.ledger, txs, classes,
+                                      iter(registry_result['tx_results']), height)
+            state = {'native': snapshot(self.ledger), 'registry': registry_state}
+            app_hash = application_hash(self.genesis, height, state)
+            result = {'height': height, 'app_hash': app_hash, 'tx_results': results,
+                      'validator_updates': registry_result['validator_updates'],
+                      'validators_hash': registry_result['validators_hash'],
+                      'next_validators_hash': registry_result['next_validators_hash']}
+            self.state, self.height, self.app_hash = state, height, app_hash
+            return state, result
+        except BaseException:
+            # A local interruption may occur after a successful transaction. A
+            # half-advanced disposable ledger must never be resumed as a block.
+            self.close()
+            raise
+
+    def audit(self):
+        require(not self.closed, 'protocol-4 replay is closed')
+        require(snapshot(self.ledger) == self.state['native'], 'replay ledger/state differs')
+        # Preserve all original incoming-snapshot and complete receipt-chain
+        # checks. No caller can select a skip-audit mode or import a ledger.
+        with Protocol4Application(':memory:', expected_genesis=self.genesis) as checker:
+            checker._audit_state(self.genesis, self.state, self.height, self.app_hash)
+
+    def close(self):
+        if not self.closed:
+            self.ledger.close()
+            self.closed = True
+
+    def __enter__(self): return self
+    def __exit__(self, *_): self.close()
