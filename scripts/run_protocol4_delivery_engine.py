@@ -402,6 +402,15 @@ def run(engine, expected_sha256, output, *, key_rotation=False):
                 path.write_bytes(key.private_bytes(ser.Encoding.PEM,ser.PrivateFormat.PKCS8,ser.BestAvailableEncryption(password)))
                 path.chmod(0o600)
             q=wallet.prepare_rotation(payer=payer,new_public_key=public(incoming),valid_until=wallet.status()['state_height']+30)
+            # Same-height sync can legitimately retain an earlier valid commit
+            # packet. Export the exact canonical observation used by this wallet,
+            # not a newly queried/reconstructed packet with another signature set.
+            with wallet.atomic(write=False):
+                _,observations,_,_=wallet._catalog()
+                origin=bytes(observations[-1][4])
+            check('exact rotation review source packet retained',
+                  hashlib.sha256(origin).hexdigest()==q['review']['evidence_id'])
+            (output/'rotation-origin-evidence.json').write_bytes(origin)
             accepted=wallet.accept_rotation(q['review'],q['confirmation'],incoming_vault=runtime/'incoming.pem',password=password)
             check('incoming rotation consent has no fee hold or owner signature',
                   wallet.status()['pending_debit_units']=='6' and not accepted['owner_signed'])
@@ -449,7 +458,9 @@ def run(engine, expected_sha256, output, *, key_rotation=False):
                 (output/name).write_bytes(raw)
             report['key_rotation']={'assessed':True,'payer':payer,'rotation_decision_id':rotation,
                 'replacement_decision_id':next_id,'remaining_unknown_hold_units':6,
-                'physical_device_fenced':False,'latestness_guaranteed':False,'checked_at_ns':view['checked_at_ns']}
+                'physical_device_fenced':False,'latestness_guaranteed':False,'checked_at_ns':view['checked_at_ns'],
+                'prior_diagnostics_scope':'before key rotation','additional_positive_proxy_submissions':2,
+                'final_proxy_submissions':len(proxy.submissions),'additional_direct_negative_checktx':2}
         report['status'] = 'passed'
     except BaseException as exc:
         report['status'] = 'failed'
