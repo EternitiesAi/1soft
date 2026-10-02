@@ -37,6 +37,10 @@ GROUPS.update({name.replace('-', '_'): (
     'test_account_view.py' if name == 'wallet-account' else 'test_*.py',
     list(dict.fromkeys([f'tools/{name}/src', f'tools/{name}/tests',
                         f'tools/{name}/scripts', *COMMON]))) for name in COMPONENTS})
+# This historical journey imports the legacy delivery_fixture.Scenario. P4 has
+# a distinct module with the same basename; preserve the journey's own imports.
+GROUPS['release'] = ('tools/release/tests', 'test_*.py',
+                     list(dict.fromkeys([*base.GROUPS['release'][2], *COMMON])))
 EXCLUDED = {'tools/wallet-account/tests/test_account_catchup.py':
             'optional unpublished wallet_catchup core is absent from this checkout'}
 
@@ -109,12 +113,13 @@ def run(output, timeout=600):
               'source_id': source['source_id'], 'commit': source['commit'], 'tree': source['tree'],
               'tracked_files': source['tracked_files'], 'coverage': profile,
               'historical_manifests': 'retained as historical snapshots; no current-match claim',
-              'groups': [], 'python_tests': 0,
+              'groups': [], 'python_tests': 0, 'distinct_python_test_ids': 0,
               'environment': {'python': sys.version.split()[0], 'platform': platform.platform(),
                               'dependencies': installed},
               **base.release_status(False)}
     base.store_json(output / 'source.json', source)
     base.store_json(output / 'started.json', report)
+    completed_ids = set()
     try:
         for group in GROUPS:
             base.require(base.source_identity(root) == source, 'source changed before group: ' + group)
@@ -128,7 +133,10 @@ def run(output, timeout=600):
             record = {'name': group, 'passed': passed, 'tests': child.get('run', 0), **process}
             if result_path.is_file(): record['result_sha256'] = base.digest(result_path.read_bytes())
             report['groups'].append(record)
-            if passed: report['python_tests'] += child['run']
+            if passed:
+                report['python_tests'] += child['run']
+                completed_ids.update(child['successful_ids'])
+                report['distinct_python_test_ids'] = len(completed_ids)
             base.store_json(output / 'progress.json', report, replace=(output / 'progress.json').exists())
         process = base.run_process(['node', '--test', 'reference/kernel.test.mjs'], root,
                                    output / 'javascript.log', timeout)
