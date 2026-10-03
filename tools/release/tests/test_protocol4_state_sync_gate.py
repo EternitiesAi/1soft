@@ -12,7 +12,7 @@ def envelope():
                'rescue_actions':[],'cleanup_errors':[],'owned_survivors':[],'owned_survivor_count':0,
                'pid':999,'birth':'999','alive_after':False}
     value = {'schema': '1soft-protocol4-state-sync-v1', 'status': 'completed-awaiting-external-validation',
-             'profile': 'basic', 'source': copy.deepcopy(source),
+             'profile': 'basic', 'run_id':'f'*32, 'source': copy.deepcopy(source),
              'source_dirty_before': False, 'source_dirty_after': False,
              'engine_version': '0.38.25', 'engine_sha256': 'e'*64,
              'public_network': False, 'real_funds': False,
@@ -30,6 +30,13 @@ class Protocol4GateEnvelopeTests(unittest.TestCase):
         value, source, process = envelope()
         self.assertEqual(self.validate(value, source, process), list(CHECK_IDS))
 
+    def test_common_scenario_run_id_requires_exact_typed_shape(self):
+        for replacement in ('missing',None,'',False,123,'f'*31,'f'*33,'A'*32,'g'*32):
+            value,source,process=envelope()
+            if replacement=='missing':value.pop('run_id')
+            else:value['run_id']=replacement
+            with self.subTest(replacement=replacement),self.assertRaises(ValueError):
+                self.validate(value,source,process)
     def test_zero_or_missing_checks_refused(self):
         for checks in ([], None):
             value, source, process = envelope(); value['checks'] = checks
@@ -132,7 +139,7 @@ class Protocol4GateSemanticTests(unittest.TestCase):
                 'hash':_hash(raw).hex(),'metadata':base64.b64encode(_metadata(c['g'],4,s['app_hash'],len(raw),1)).decode(),
                 'chunks':[base64.b64encode(raw).decode()],
                 'methods':['list_snapshots','offer_snapshot','load_snapshot_chunk','apply_snapshot_chunk']},
-            install={'height':4,'app_hash':s['app_hash'],'state':composite,
+            install={'run_id':'f'*32,'height':4,'app_hash':s['app_hash'],'state':composite,
                      'history':snapshot['history'],'marker':{'height':4,'app_hash':s['app_hash']},
                      'block_rows':0,'transaction_active':False},
             target_restart={'database_before':'/private/a.db','database_after':'/private/a.db',
@@ -377,7 +384,7 @@ class Protocol4CrashSemanticTests(unittest.TestCase):
         v['crash']={'initial_install':initial,'initial_evidence':self.bundle(self.case,4),
             'initial_transfer':initial_trace,'killed':{'pid':201,'birth':'10','run_id':'f'*32,
                 'returncode':-9,'signal':'SIGKILL','install':initial},
-            'ready':{'pid':201,'birth':'10','run_id':'f'*32,'device':1,'inode':77},
+            'ready':{'pid':201,'birth':'10','run_id':'f'*32,'device':1,'inode':77,'socket':'/private/app4/a.sock'},
             'recovered':copy.deepcopy(v['install']),'restart_checkpoint':reopened,
             'rollback_after':copy.deepcopy(reopened),'rollback_offer_result':3,
             'recovery_kind':'newer' if newer else 'same','home_device':1,'home_inode':88}
@@ -473,7 +480,7 @@ class Protocol4ControlledExitSemanticTests(unittest.TestCase):
         killed=v['crash']['killed'];killed.update(stop_requested=True,termination_signal=9,
             rescue_used=False,cleanup_error=None,engine_before_kill=before,
             kill_requested_at_ns=30,reaped_at_ns=40)
-        log='consensus connection terminated. Did the application crash? Please restart CometBFT err="read message: EOF"\n'
+        log='consensus connection terminated. Did the application crash? Please restart CometBFT module=proxy err="read message: EOF"\n'
         row['causal_exit']={'kind':'controlled-final-apply-application-kill','run_id':'f'*32,
             'event_file':'control4/killed.json','event_sha256':'a'*64,'child_pid':201,'child_birth':'10',
             'engine_before_kill':copy.deepcopy(before),'kill_requested_at_ns':30,'reaped_at_ns':40,
@@ -494,6 +501,52 @@ class Protocol4ControlledExitSemanticTests(unittest.TestCase):
                     other=next(x for x in self.value['processes'] if x['name']==name)
                     other.update(causal_exit=row.pop('causal_exit'),stop_requested=False,termination_signal=None)
                     row.update(stop_requested=True,termination_signal=15)
+                with self.assertRaises(ValueError):self.validate()
+    def test_original_target_socket_reset_is_a_supported_controlled_transport_loss(self):
+        import hashlib
+        for connection in ('consensus','query','mempool','snapshot'):
+            with self.subTest(connection=connection):
+                self.setUp();row=self.controlled();socket=self.value['crash']['ready']['socket']
+                log=connection+' connection terminated. Did the application crash? Please restart CometBFT module=proxy err="read message: read unix @->'+socket+': read: connection reset by peer"\n'
+                self.value['engine_sync']['original_logs']['engine4']=log
+                row['causal_exit']['log_sha256']=hashlib.sha256(log.encode()).hexdigest()
+                self.assertEqual(len(self.validate()['check_ids']),18)
+    def test_other_socket_or_duplicated_proxy_error_fields_are_refused(self):
+        import hashlib
+        for mutation in ('other-socket','double-module','double-error','error-suffix'):
+            with self.subTest(mutation=mutation):
+                self.setUp();row=self.controlled()
+                log=self.value['engine_sync']['original_logs']['engine4']
+                if mutation=='other-socket':log=log.replace('read message: EOF',
+                    'read message: read unix @->/private/other/a.sock: read: connection reset by peer')
+                elif mutation=='double-module':log=log.replace('module=proxy','module=proxy module=other')
+                elif mutation=='double-error':log=log.rstrip()+' err="unrelated"\n'
+                else:log=log.replace('read message: EOF','read message: EOF trailing-error')
+                self.value['engine_sync']['original_logs']['engine4']=log
+                row['causal_exit']['log_sha256']=hashlib.sha256(log.encode()).hexdigest()
+                with self.assertRaises(ValueError):self.validate()
+    def test_every_pinned_proxy_callback_can_authenticate_same_controlled_crash(self):
+        import hashlib
+        for connection in ('consensus','query','mempool','snapshot'):
+            with self.subTest(connection=connection):
+                self.setUp();row=self.controlled()
+                log=self.value['engine_sync']['original_logs']['engine4'].replace('consensus connection',connection+' connection')
+                self.value['engine_sync']['original_logs']['engine4']=log
+                row['causal_exit']['log_sha256']=hashlib.sha256(log.encode()).hexdigest()
+                self.assertEqual(len(self.validate()['check_ids']),18)
+    def test_unknown_client_only_wrong_module_or_non_eof_diagnostic_refused(self):
+        import hashlib
+        for mutation in ('unknown','client-only','module','error','unrelated-prefix'):
+            with self.subTest(mutation=mutation):
+                self.setUp();row=self.controlled()
+                log=self.value['engine_sync']['original_logs']['engine4']
+                if mutation=='unknown':log=log.replace('consensus connection','gossip connection')
+                elif mutation=='client-only':log='Stopping abci.socketClient for error: read message: EOF module=abci-client connection=consensus\n'
+                elif mutation=='module':log=log.replace('module=proxy','module=unrelated')
+                elif mutation=='error':log=log.replace('read message: EOF','read message: timeout')
+                else:log='unrelated '+log
+                self.value['engine_sync']['original_logs']['engine4']=log
+                row['causal_exit']['log_sha256']=hashlib.sha256(log.encode()).hexdigest()
                 with self.assertRaises(ValueError):self.validate()
     def test_coherent_missing_empty_or_malformed_run_ids_are_refused(self):
         # Alter every identity together, retaining all equality relationships.
@@ -522,3 +575,29 @@ class Protocol4ControlledExitSemanticTests(unittest.TestCase):
                 elif mutation=='hash':cause['log_sha256']='b'*64
                 else:cause['invented']=True
                 with self.assertRaises(ValueError):self.validate()
+
+
+class Protocol4CommonRunIdentityTests(unittest.TestCase):
+    setUpClass=classmethod(Protocol4GateSemanticTests.setUpClass.__func__)
+    setUp=Protocol4GateSemanticTests.setUp
+    validate=Protocol4GateSemanticTests.validate
+    crash_value=Protocol4CrashSemanticTests.crash_value
+    validate_crash=Protocol4CrashSemanticTests.validate
+    def test_basic_install_identity_cannot_be_absent_or_from_another_run(self):
+        for replacement in ('missing','a'*32):
+            with self.subTest(replacement=replacement):
+                self.setUp()
+                if replacement=='missing':self.value['install'].pop('run_id')
+                else:self.value['install']['run_id']=replacement
+                with self.assertRaises(ValueError):self.validate()
+    def test_explicit_stop_crash_cannot_bypass_common_identity_or_parent_binding(self):
+        for replacement in ('missing',None,'','A'*32,'foreign-valid'):
+            with self.subTest(replacement=replacement):
+                self.setUp();self.crash_value();v=self.value;c=v['crash']
+                objects=[c['killed'],c['initial_install'],c['ready'],c['recovered'],v['install']]
+                if replacement!='foreign-valid':objects.append(v)
+                actual='a'*32 if replacement=='foreign-valid' else replacement
+                for item in objects:
+                    if replacement=='missing':item.pop('run_id',None)
+                    else:item['run_id']=actual
+                with self.assertRaises(ValueError):self.validate_crash()

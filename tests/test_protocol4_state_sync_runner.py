@@ -151,7 +151,7 @@ class Protocol4ControlledEngineExitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);control=root/'control4';control.mkdir(mode=0o700)
             trigger=root/'trigger'
-            diagnostic='consensus connection terminated. Did the application crash? Please restart CometBFT err="read message: EOF"'
+            diagnostic='consensus connection terminated. Did the application crash? Please restart CometBFT module=proxy err="read message: EOF"'
             command="import pathlib,time; p=pathlib.Path("+repr(str(trigger))+"); "+                "\nwhile not p.exists(): time.sleep(.01)\nprint("+repr(diagnostic)+",flush=True)"
             owned=Owned(root);engine=owned.start(name,[sys.executable,'-c',command])
             pause=subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)'],

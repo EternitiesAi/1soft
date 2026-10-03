@@ -67,7 +67,7 @@ class Protocol4RetainedProofBindingTests(unittest.TestCase):
             name=row['name'];i=int(name[6] if name.startswith('engine') else name[3])
             row['argv']=['/pinned/engine','start','--home',v['nodes'][i]['home_path']] if name.startswith('engine') else [
                 '/python','/wrapper','--database',str(self.root/('app'+str(i))/'state.sqlite'),
-                '--genesis',str(self.root/'protocol4-genesis.json')]
+                '--genesis',str(self.root/'protocol4-genesis.json'),'--run-id',v['run_id']]
             row['spawned_at_ns']=v['trust_pin']['target_started_at_ns'] if name=='app4' else v['trust_pin']['pinned_at_ns']-1
             save('process-'+name+'-started.json',{k:row[k] for k in ('name','pid','birth','role','argv','spawned_at_ns')})
             save('process-'+name+'-exit.json',row)
@@ -78,7 +78,7 @@ class Protocol4RetainedProofBindingTests(unittest.TestCase):
         save('control4/checkpoint-normal.json',v['install'])
         raw=(self.root/'control4/checkpoint-normal.json').read_bytes()
         from serve_abci_state_sync_crash import write_event
-        write_event(self.root/'control4','installed.json',{'record_file':'checkpoint-normal.json',
+        write_event(self.root/'control4','installed.json',{'run_id':v['run_id'],'record_file':'checkpoint-normal.json',
                     'record_sha256':hashlib.sha256(raw).hexdigest()})
     def tearDown(self):self.tmp.cleanup()
     def validate(self):
@@ -218,7 +218,7 @@ class Protocol4RetainedControlledExitTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.root.chmod(0o700)
         control=self.root/'control4';control.mkdir(mode=0o700)
         # Real shared writer, with the kill's original install-event metadata.
-        installed={'record_file':'checkpoint-pause.json','record_sha256':'c'*64}
+        installed={'run_id':self.value['run_id'],'record_file':'checkpoint-pause.json','record_sha256':'c'*64}
         write_event(control,'installed.json',installed)
         killed=copy.deepcopy(self.value['crash']['killed']);killed['install']=installed
         write_event(control,'killed.json',killed)
@@ -253,3 +253,32 @@ class Protocol4RetainedControlledExitTests(unittest.TestCase):
         path=self.root/'engine4.log';path.write_bytes(b'unrelated engine stdout\n')
         self.row['causal_exit']['log_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
         with self.assertRaises(ValueError):self.validate()
+
+
+class Protocol4RetainedApplicationRunTests(unittest.TestCase):
+    setUpClass=classmethod(Protocol4RetainedProofBindingTests.setUpClass.__func__)
+    def test_every_original_application_command_has_one_matching_run_id(self):
+        from commit_verifier import encode
+        for name in ('app0','app4','app4-restart'):
+            for mutation in ('missing','duplicate','mismatch'):
+                case=Protocol4RetainedProofBindingTests();case.setUp()
+                try:
+                    row=next(r for r in case.value['processes'] if r['name']==name)
+                    index=row['argv'].index('--run-id')
+                    if mutation=='missing':del row['argv'][index:index+2]
+                    elif mutation=='duplicate':row['argv']+=['--run-id',case.value['run_id']]
+                    else:row['argv'][index+1]='a'*32
+                    case.save('process-'+name+'-started.json',{k:row[k] for k in (
+                        'name','pid','birth','role','argv','spawned_at_ns')})
+                    case.save('process-'+name+'-exit.json',row)
+                    with self.subTest(name=name,mutation=mutation),self.assertRaises(ValueError):case.validate()
+                finally:case.tearDown()
+    def test_original_install_event_run_id_is_bound_even_with_coherent_record_hash(self):
+        import json
+        from serve_abci_state_sync_crash import write_event
+        case=Protocol4RetainedProofBindingTests();case.setUp()
+        try:
+            path=case.root/'control4/installed.json';item=json.loads(path.read_bytes());path.unlink()
+            item['run_id']='a'*32;write_event(path.parent,path.name,item)
+            with self.assertRaises(ValueError):case.validate()
+        finally:case.tearDown()
