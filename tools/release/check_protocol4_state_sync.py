@@ -288,6 +288,8 @@ def validate_controlled_engine_exit(row,profile,killed,initial,run_id,engine_log
             and before['alive'] is True
             and all(before.get(k)==row.get(k) for k in ('name','pid','birth','spawned_at_ns'))
             and before==killed.get('engine_before_kill'), 'pre-kill owned engine observation differs')
+    require(type(run_id) is str and re.fullmatch('[0-9a-f]{32}',run_id),
+            'controlled crash run identity must be 32 lowercase hex characters')
     require(cause['run_id']==run_id==killed.get('run_id')==initial.get('run_id')
             and (cause['child_pid'],cause['child_birth'])==
                 (killed.get('pid'),killed.get('birth'))==(initial.get('pid'),initial.get('birth'))
