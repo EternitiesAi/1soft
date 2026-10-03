@@ -138,3 +138,64 @@ class Protocol4RunnerSetupCallerTests(unittest.TestCase):
             projection=json.loads((public/'result.json').read_bytes())
             self.assertEqual(projection['status'],'unassessed')
             self.assertEqual(projection['qualified_check_ids'],[])
+
+
+class Protocol4ControlledEngineExitTests(unittest.TestCase):
+    # Actual private Python processes exercise lifecycle bookkeeping only.
+    # Their diagnostic is an explicitly controlled test fixture, not CometBFT.
+    def exercise(self,name):
+        import os,signal,subprocess,sys,time
+        from run_protocol4_state_sync import Owned
+        from serve_abci_p4_state_sync_test import birth
+        from serve_abci_state_sync_crash import write_event
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);control=root/'control4';control.mkdir(mode=0o700)
+            trigger=root/'trigger'
+            diagnostic='consensus connection terminated. Did the application crash? Please restart CometBFT err="read message: EOF"'
+            command="import pathlib,time; p=pathlib.Path("+repr(str(trigger))+"); "+                "\nwhile not p.exists(): time.sleep(.01)\nprint("+repr(diagnostic)+",flush=True)"
+            owned=Owned(root);engine=owned.start(name,[sys.executable,'-c',command])
+            pause=subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)'],
+                                   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            try:
+                child_birth=birth(pause.pid);run_id='f'*32
+                initial={'pid':pause.pid,'birth':child_birth,'run_id':run_id,
+                         'checkpoint_recovery':False,'transaction_active':False}
+                before={k:engine[k] for k in ('name','pid','birth','spawned_at_ns')}
+                before.update(alive=True,observed_at_ns=time.time_ns())
+                kill_requested=time.time_ns();pause.kill();code=pause.wait(timeout=3);reaped=time.time_ns()
+                killed={'schema':1,'run_id':run_id,'pid':pause.pid,'birth':child_birth,
+                        'returncode':code,'signal':'SIGKILL','stop_requested':True,
+                        'termination_signal':9,'rescue_used':False,'cleanup_error':None,
+                        'engine_before_kill':before,'kill_requested_at_ns':kill_requested,
+                        'reaped_at_ns':reaped}
+                write_event(control,'killed.json',killed)
+                engine['controlled_application_kill']={'profile':'final-apply-crash','run_id':run_id,
+                    'killed':killed,'initial':initial,'event_file':control/'killed.json'}
+                trigger.write_text('actual child kill has completed')
+                engine['process'].wait(timeout=3)
+                if name=='engine4':
+                    # Previous source genuinely rejects this reaped rc0 outcome.
+                    self.assertEqual(owned.stop(engine),0)
+                    row=owned.finish()[0]
+                    self.assertFalse(row['stop_requested']);self.assertIsNone(row['termination_signal'])
+                    self.assertEqual(row['causal_exit']['kind'],'controlled-final-apply-application-kill')
+                    self.assertEqual(row['causal_exit']['child_pid'],pause.pid)
+                    self.assertTrue(owned.cleanup['complete'])
+                else:
+                    with self.assertRaises(ValueError):owned.stop(engine)
+                    with self.assertRaises(ValueError):owned.finish()
+            finally:
+                if pause.poll() is None:pause.kill();pause.wait(timeout=3)
+                try:owned.finish()
+                except ValueError:pass
+    def test_identified_target_clean_selfexit_after_actual_child_sigkill_is_truthful(self):
+        self.exercise('engine4')
+    def test_identical_cause_cannot_authorize_source_engine_selfexit(self):
+        self.exercise('engine0')
+    def test_target_clean_selfexit_without_child_kill_is_refused(self):
+        import sys
+        from run_protocol4_state_sync import Owned
+        with tempfile.TemporaryDirectory() as d:
+            owned=Owned(Path(d));engine=owned.start('engine4',[sys.executable,'-c',"print('unrelated clean exit',flush=True)"])
+            engine['process'].wait(timeout=3)
+            with self.assertRaises(ValueError):owned.finish()
