@@ -126,10 +126,11 @@ class MerchantBrowserService:
 
 
 def ready_for_browser(network):
-    """Validate the original initialized v3 workspace for historical inspection.
+    """Validate the original explicitly invoice-capable workspace pins.
 
-    This grants no live wallet authority and does not call network.ready/start.
-    The financial components still enforce their original policy and clock.
+    Alpha readiness uses its existing marker; legacy v3 uses historical pins.
+    This neither starts the network nor grants live wallet authority. Financial
+    components still enforce their original policy and clock.
     """
     from local_devnet import LocalNetwork, ALPHA_INVOICE_FORMAT, load_configuration
     if network.config.get('format')==ALPHA_INVOICE_FORMAT:

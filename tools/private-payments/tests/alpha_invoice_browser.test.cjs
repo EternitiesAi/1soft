@@ -47,13 +47,13 @@ test('durable payer invoices execute once after a real hour on four original loc
   const child=spawn('wsl.exe',['--distribution','Ubuntu','--user','xnuonux','--cd',root,'--exec',python,
     '-B','tools/private-payments/tests/alpha_invoice_browser_fixture.py',engine,output],{stdio:['pipe','pipe','pipe']});
   let exit=null,readyResolve,browser=null,context=null,workflowComplete=false;
-  const backupAudits=[],auditWaiters=new Map();
+  const backupAudits=[],capsuleAudits=[],auditWaiters=new Map();
   function awaitAudit(stage){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned download audit timed out')),20000);auditWaiters.set(stage,v=>{clearTimeout(timer);resolve(v);});});}
   const ready=new Promise(r=>readyResolve=r),lines=[],stderr=[],calls=[];
   const closed=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>{exit=code;});child.once('close',code=>resolve(code));});
   child.stderr.on('data',x=>stderr.push(x.toString()));
   const stream=readline.createInterface({input:child.stdout});
-  stream.on('line',x=>{const q=JSON.parse(x);lines.push(q);if(q.origin)readyResolve(q);if(q.backup_audit){const a=q.backup_audit;backupAudits.push(a);const receive=auditWaiters.get(a.stage);assert.ok(receive);auditWaiters.delete(a.stage);receive(a);}});
+  stream.on('line',x=>{const q=JSON.parse(x);lines.push(q);if(q.origin)readyResolve(q);if(q.backup_audit||q.capsule_audit){const a=q.backup_audit||q.capsule_audit;(q.backup_audit?backupAudits:capsuleAudits).push(a);const receive=auditWaiters.get(a.stage);assert.ok(receive);auditWaiters.delete(a.stage);receive(a);}});
   t.after(async()=>{
     const stopped=await Promise.allSettled([context?.close(),browser?.close()]);
     if(exit===null)child.stdin.end('stop\n');
@@ -62,7 +62,7 @@ test('durable payer invoices execute once after a real hour on four original loc
     const final=lines.at(-1),fixturePassed=final?.status==='passed'&&final?.payments===3&&final?.owned_processes_after_cleanup===0&&final?.source_unchanged===true;
     fs.writeFileSync(path.join(artifacts,'browser-result.json'),JSON.stringify({schema:1,
       passed:workflowComplete&&fixturePassed&&cleanupPassed,workflow_complete:workflowComplete,
-      fixture_passed:fixturePassed,cleanup_passed:cleanupPassed,calls,backup_audits:backupAudits,fixture_return:final,
+      fixture_passed:fixturePassed,cleanup_passed:cleanupPassed,calls,backup_audits:backupAudits,capsule_audits:capsuleAudits,fixture_return:final,
       scope:'one original real-hour alpha, actual guarded API, three DEV invoices and four local validators; two deliberate lost returns; payer-only, no merchant fulfillment'},null,2)+'\n');
     assert.equal(workflowComplete,true,'browser assertions did not complete');
     assert.equal(cleanupPassed,true,stderr.join(''));assert.equal(fixturePassed,true);
@@ -110,23 +110,38 @@ test('durable payer invoices execute once after a real hour on four original loc
     await page.waitForFunction(()=>document.querySelector('#progress-title').textContent==='Payment outcome unknown');
     if(i===0)await downloadHistory(page,fixture,child,awaitAudit,'signed-pending');
     assert.equal(await page.locator('#submission-review').isDisabled(),true);
+    let collectedEntry=null,collectedState=null;
     for(let n=0;n<10;n++){
       await page.locator('#collect').click();await page.waitForFunction(()=>!document.querySelector('#feedback').textContent.startsWith('Working'));
-      if(await page.locator('#progress-title').textContent()==='Receipt verified')break;
+      const response=await context.request.get(fixture.origin+'/api/state');assert.equal(response.status(),200);
+      collectedState=await response.json();collectedEntry=collectedState.requests.find(e=>e.request_id===invoice.request_id);
+      if(collectedEntry?.delivery?.receipt_status==='verified_historical_receipt')break;
       await new Promise(r=>setTimeout(r,1000));
     }
-    assert.equal(await page.locator('#progress-title').textContent(),'Receipt verified');
+    assert.equal(collectedEntry.delivery.receipt_status,'verified_historical_receipt');
+    assert.equal(collectedState.current_evidence_available,true);
+    assert.equal(collectedState.wallet_current,false);assert.equal(collectedState.signing_ready,false);
+    assert.equal(await page.locator('#progress-title').textContent(),'Wallet needs current verification');
+    assert.equal(await page.locator('#reconcile').isEnabled(),true);
     assert.equal(await page.locator('#pending').textContent(),String(Number(invoice.amount)+2)+' DEV');
     await page.locator('#reconcile').click();await page.waitForFunction(()=>document.querySelector('#progress-title').textContent==='Execution reconciled');
     assert.equal(await page.locator('#pending').textContent(),'0 DEV');
     await page.locator('#retain').click();await page.waitForFunction(()=>document.querySelector('#feedback').textContent.startsWith('Verified capsule retained'));
     const capsule=await context.request.get(fixture.origin+await page.locator('#capsule-download').getAttribute('href'));
-    assert.equal(capsule.status(),200);assert.ok((await capsule.body()).length>100);
+    assert.equal(capsule.status(),200);const capsuleBytes=await capsule.body();assert.ok(capsuleBytes.length>100);
+    const filename=invoice.role+'.capsule';fs.writeFileSync(path.join(fixture.download_dir_windows,filename),capsuleBytes,{flag:'wx'});
+    const audited=awaitAudit('capsule-'+invoice.role);
+    child.stdin.write(JSON.stringify({operation:'audit-capsule',filename,request_id:invoice.request_id})+'\n');
+    const audit=await audited;assert.equal(audit.passed,true);assert.equal(audit.retained_packet_exact,true);
+    assert.equal(audit.native_execution_reverified,true);assert.equal(audit.current_spending_authority,false);
+    assert.equal(audit.packet_sha256,crypto.createHash('sha256').update(capsuleBytes).digest('hex'));
+    assert.equal(audit.wire_sha256,crypto.createHash('sha256').update(wire).digest('hex'));
+    assert.equal(audit.resource_sha256,invoice.resource_sha256);
     assert.equal(await page.locator('#submission-review').isDisabled(),true);
     const recovered=await context.request.get(fixture.origin+'/api/original/'+invoice.request_id);assert.deepEqual(await recovered.body(),wire);
   }
   await downloadHistory(page,fixture,child,awaitAudit,'receipt-complete');
-  assert.equal(backupAudits.at(-1).recovered_originals.length,3);assert.equal(backupAudits.at(-1).retained_delivery_receipts,3);
+  assert.equal(capsuleAudits.length,3);assert.equal(backupAudits.at(-1).recovered_originals.length,3);assert.equal(backupAudits.at(-1).retained_delivery_receipts,3);
   for(const [name,width,height]of [['desktop',1280,900],['mobile',390,844]]){await page.setViewportSize({width,height});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:path.join(artifacts,'history-'+name+'.png'),fullPage:true});}
   await page.setViewportSize({width:1280,height:900});
   assert.equal(await page.locator('#balance').textContent(),'957 DEV');

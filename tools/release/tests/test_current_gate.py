@@ -14,7 +14,8 @@ JS_UNITS = {'reference': 'reference/kernel.test.mjs',
             'alpha_history': 'tools/local-platform/tests/alpha_history.test.cjs'}
 JS_SCENARIOS = ['tools/local-platform/tests/browser_service.test.cjs',
                 'tools/local-platform/tests/browser_workflow.test.cjs',
-                'tools/private-payments/tests/browser_comet.test.cjs']
+                'tools/private-payments/tests/browser_comet.test.cjs',
+                'tools/private-payments/tests/alpha_invoice_browser.test.cjs']
 
 
 class CurrentCoverageTests(unittest.TestCase):

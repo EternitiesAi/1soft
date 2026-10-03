@@ -18,11 +18,13 @@ from alpha_acceptance import _birth,_files,stop_with_facts,role_budget_observati
 from invoice_book import initialize_invoice_storage,open_invoice_storage
 from payment_x402 import NativePaymentExpectation,make_payment_required
 from private_payment_desk import AlphaPrivatePaymentDesk
-from p4_alpha_custody import restore_backup,RecoveryArchive,verify_receipt,MAGIC,MAX_BACKUP_BYTES
+from p4_alpha_custody import restore_backup,RecoveryArchive,verify_receipt,MAGIC,MAX_BACKUP_BYTES,MAX_RECEIPT_BYTES
 from p4_evidence import need,content_id,nanos
 from p4_read_store import private_path
 PASSWORD=b'fixture passphrase not for funds'
 DURATION=3660
+
+EXPECTED_CHECKS=('fresh_explicit_combined_capability', 'four_actual_owned_validators', 'listener_closes_without_stopping_network', 'exact_source_and_engine_unchanged', 'all_owned_native_and_listener_processes_reaped', 'original_private_runtime_preserved', 'actual_original_hour_and_height_crossed', 'original_policy_and_journal_identities_preserved', 'three_actual_committed_invoice_payments_after_original_hour', 'exact_nonce_fee_budget_and_supply_accounting', 'three_original_attempts_without_resend', 'original_encrypted_invoice_book_retained', 'three_actual_downloaded_capsules_independently_verified', 'same_home_restart_without_rebootstrap', 'restart_preserves_original_files_journals_and_ciphertext')
 
 def read_line(child,seconds=60):
     with selectors.DefaultSelector() as selector:
@@ -47,9 +49,9 @@ def main():
     workspace=runtime/'net';invoices=runtime/'invoices';downloads=runtime/'downloads';downloads.mkdir(mode=0o700)
     report=dict(schema=1,format='1soft/durable-invoice-browser-acceptance/v1',status='running',
         source={k:source[k] for k in ('commit','tree','source_id','tracked_files')},engine_sha256=PIN_SHA,
-        runtime=str(runtime),workspace=str(workspace),checks=[],phases=[],payments=[],backup_audits=[],owned_processes=[],
+        runtime=str(runtime),workspace=str(workspace),checks=[],phases=[],payments=[],backup_audits=[],capsule_audits=[],owned_processes=[],
         real_funds=False,public_network=False,onchain_privacy=False,merchant_fulfillment_performed=False,
-        production_qualified=False,clock='unscaled time.time_ns and monotonic elapsed',required_real_seconds=DURATION)
+        production_qualified=False,clock='unscaled time.time_ns and monotonic elapsed',required_real_seconds=DURATION,expected_checks=list(EXPECTED_CHECKS))
     net=None;listener=None;logs=None;started=time.monotonic();start_ns=time.time_ns();generation=0
     def save():evidence.store_json(output/'progress.json',report,replace=(output/'progress.json').exists())
     def check(name,condition,**details):
@@ -91,7 +93,7 @@ def main():
             invoice_before=encode(inv.entries());request_before=encode(svc.book.entries());phase(svc,'original-invoices-bootstrap')
         report.update(original_identities=identities,original_file_identities=file_ids,genesis_sha256=config['genesis_sha256'],policy_id=content_id(policy),original_invoices=rows)
         save();restarted=False
-        while time.monotonic()-started<DURATION or net.height()<=512:
+        while time.monotonic()-started<DURATION or net.height()<=512 or not restarted:
             net.health()
             with net.service() as svc:
                 cp=svc.store.current()['checkpoint']
@@ -126,7 +128,33 @@ def main():
             download_dir_linux=str(downloads),download_dir_windows=chr(92)*2+'wsl.localhost'+chr(92)+'Ubuntu'+str(downloads).replace('/',chr(92)),invoices=rows)),flush=True)
         for line in sys.stdin:
             if line.strip()=='stop':break
-            q=json.loads(line);need(type(q) is dict and set(q)=={'operation','filename','stage'} and q['operation']=='audit-backup','unsupported fixture control')
+            q=json.loads(line);need(type(q) is dict,'exact fixture control required')
+            if q.get('operation')=='audit-capsule':
+                need(set(q)=={'operation','filename','request_id'},'exact capsule selection required')
+                selected=[row for row in rows if row['request_id']==q['request_id']]
+                need(len(selected)==1 and q['filename']==selected[0]['role']+'.capsule','original invoice capsule required')
+                row=selected[0];need(row['role'] not in [a['role'] for a in report['capsule_audits']],'duplicate downloaded capsule audit')
+                path=downloads/q['filename'];need(path.is_file() and not path.is_symlink() and path.stat().st_nlink==1 and path.stat().st_uid==os.getuid(),'owned single-link browser download required');path.chmod(0o600)
+                raw=read_private(path,MAX_RECEIPT_BYTES)
+                with net.service() as svc:
+                    state=svc.state();entry=svc.book.selected(q['request_id']);wire=svc.recover(q['request_id'])
+                    payment=next(e for e in state['requests'] if e['request_id']==q['request_id'])
+                    need(payment['stage']=='recorded' and len(payment['capsule_ids'])==1,'original retained capsule unavailable')
+                    body=load_json(wire)['body'];wire_hash=hashlib.sha256(wire).hexdigest()
+                    checked=verify_receipt(raw,genesis,policy,payer=body['sender'],wire_sha256=wire_hash)
+                    need(raw==svc.capsule(q['request_id'],payment['capsule_ids'][0]) and checked['capsule_id']==payment['capsule_ids'][0]
+                         and checked['status']=='verified-historical-alpha-receipt' and not checked['current_spending_authority']
+                         and entry['review']['invoice_terms']['resource_sha256']==row['resource_sha256']
+                         and body['op']['units']==int(row['amount']) and body['grant_id']==config['roles'][row['role']]['grant_id'],
+                         'downloaded original invoice capsule binding differs')
+                    private_new(output/(row['role']+'-downloaded-capsule.json'),raw)
+                    audit=dict(passed=True,stage='capsule-'+row['role'],role=row['role'],request_id=q['request_id'],
+                        packet_sha256=hashlib.sha256(raw).hexdigest(),wire_sha256=wire_hash,capsule_id=checked['capsule_id'],
+                        resource_sha256=row['resource_sha256'],native_execution_reverified=True,retained_packet_exact=True,
+                        current_spending_authority=False,merchant_fulfillment_performed=False)
+                    report['capsule_audits'].append(audit);save();print(json.dumps({'capsule_audit':audit}),flush=True)
+                continue
+            need(set(q)=={'operation','filename','stage'} and q['operation']=='audit-backup','unsupported fixture control')
             need(q['stage'] in ('signed-pending','receipt-complete') and q['filename']==q['stage']+'.backup','exact backup selection required')
             path=downloads/q['filename'];need(path.is_file() and not path.is_symlink() and path.stat().st_nlink==1 and path.stat().st_uid==os.getuid(),'owned single-link browser download required');path.chmod(0o600)
             raw=read_private(path,MAX_BACKUP_BYTES);need(raw.startswith(MAGIC),'download is not alpha A1')
@@ -156,6 +184,11 @@ def main():
                     report['backup_audits'].append(audit);save();print(json.dumps({'backup_audit':audit}),flush=True)
         else:raise ValueError('browser must explicitly finish fixture')
         need([a['stage'] for a in report['backup_audits']]==['signed-pending','receipt-complete'],'actual backup stages incomplete')
+        check('three_actual_downloaded_capsules_independently_verified',
+            [a['role'] for a in report['capsule_audits']]==['owner','raven','atlas'] and
+            [a['request_id'] for a in report['capsule_audits']]==[row['request_id'] for row in rows] and
+            all(a['passed'] and a['native_execution_reverified'] and a['retained_packet_exact'] and not a['current_spending_authority'] for a in report['capsule_audits']))
+        need(listener.poll() is None,'owned listener exited before intended shutdown')
         listener.terminate();listener.wait(15);closing=listener.stdout.read().decode();need(listener.returncode==0 and 'owned_http_listener_closed' in closing,'listener closure failed')
         listener_row=report['owned_processes'][-1];listener_row.update(returncode=listener.returncode,reaped=True,same_birth_still_present=_birth(listener.pid)==listener_row['birth'],expected_stop_outcome=True)
         net.health();check('listener_closes_without_stopping_network',all(p.poll() is None for p in net.apps+net.engines))
@@ -187,6 +220,7 @@ def main():
         check('exact_source_and_engine_unchanged',evidence.source_identity(ROOT)==source and verify_engine(binary)==binary)
         stop(net);check('all_owned_native_and_listener_processes_reaped',all(p.get('reaped') and p.get('same_birth_still_present') is False and p.get('expected_stop_outcome') for p in report['owned_processes']))
         check('original_private_runtime_preserved',_files(workspace)==file_ids and read_private(workspace/'policy.json')==policy_bytes)
+        need({c['name'] for c in report['checks']}==set(EXPECTED_CHECKS) and all(c['passed'] for c in report['checks']),'exact actual gate membership incomplete')
         report.update(status='passed',source_unchanged=True,elapsed_seconds=time.monotonic()-started,completed_ns=time.time_ns())
     except BaseException as exc:
         report.update(status='failed',failure_type=type(exc).__name__,elapsed_seconds=time.monotonic()-started)

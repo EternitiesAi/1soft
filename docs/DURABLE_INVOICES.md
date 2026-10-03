@@ -27,7 +27,7 @@ cleared or implicitly renewed. The native monetary/signature rules are unchanged
 
 The network command owns the four local validators and its generic wallet view.
 In a second private terminal, initialize a separate encrypted invoice store with
-its own password and the **original workspace genesis SHA256**, then import
+its own password and the **original workspace genesis SHA256**, in the owned 0700 workspace child `$HOME/1soft-invoices/invoice-data`, then import
 independently checked committed v2 quotes with `1soft_private.py`. See
 [PRIVATE_PAYMENTS_FOUNDATION.md](PRIVATE_PAYMENTS_FOUNDATION.md) for exact quote, expectation and private
 content inputs. These operations connect to the ready workspace; they do not
@@ -39,7 +39,7 @@ Serve the retained invoice-only browser in the second terminal:
 ```sh
 python tools/private-payments/scripts/serve_private_wallet.py \
   --workspace "$HOME/1soft-invoices" --engine /path/to/cometbft \
-  --invoices "$HOME/1soft-invoice-data"
+  --invoices "$HOME/1soft-invoices/invoice-data"
 ```
 
 Open that command's exact loopback URL. This listener owns its HTTP socket and
@@ -95,7 +95,7 @@ See [DURABLE_ALPHA.md](DURABLE_ALPHA.md) for exact bounds and trust assumptions.
 ## Actual qualification
 
 With a clean Git checkout, existing private POSIX evidence parent, cached engine,
-Chrome and Playwright driver, `tests/alpha_invoice_browser.test.cjs` launches its
+Chrome and Playwright driver, `tools/private-payments/tests/alpha_invoice_browser.test.cjs` launches its
 owned `alpha_invoice_browser_fixture.py` through Windows WSL. The fixture uses
 unscaled wall and monotonic clocks for more than one real hour, retains one original
 genesis/policy/journal, naturally crosses block 512 at four-second blocks and
@@ -113,9 +113,15 @@ pinned Linux engine, `ONE_MERCHANT_BROWSER_OUTPUT` to a new child under an owned
 Linux evidence parent, `ONE_BROWSER_TEST_DRIVER` to the installed Windows
 `playwright-core` module, `ONE_BROWSER_TEST_EXECUTABLE` to Chrome and
 `ONE_BROWSER_TEST_ARTIFACTS` to a new Windows evidence directory. Run the driver
-with `node --test`. Missing prerequisites remain unassessed; the gate does not
+with `node --test tools/private-payments/tests/alpha_invoice_browser.test.cjs`. Missing prerequisites remain unassessed; the gate does not
 install, download, shorten the hour, reset policy or deploy publicly.
 
 A passed one-host scenario does not establish independent operators, production
 custody, mainnet readiness, shielded privacy, economic viability, public
 merchant fulfillment or performance at every resource ceiling.
+
+When Windows Node cannot resolve a WSL UNC test-file path, stage an exact byte copy
+of the tracked JavaScript driver in a new owned Windows evidence directory and
+run that file with the same explicit Linux source/runtime variables. Record its
+SHA256 and require equality with the tracked source. This path adaptation does
+not replace, modify or shorten the Linux fixture or browser assertions.
