@@ -10,8 +10,15 @@ make a newer checkout inherit historical tests.
 With pinned Python dependencies, Git and Node already installed on Linux/WSL:
 
 ```sh
-python tools/release/check_current.py --output /private/new-current-evidence
+python tools/local-platform/scripts/1soft.py check --output "$HOME/1soft-current-check"
 ```
+
+The entry point executes `tools/release/check_current.py` with the same Python
+interpreter and returns its actual exit status. You can invoke that checker
+directly with the same `--output` argument. Output must be a new directory outside
+the checkout, with an existing parent. `doctor --engine PATH` separately checks
+installed prerequisites without executing the engine or qualifying the source.
+See the [first-run guide](LOCAL_DEMO_GUIDE.md).
 
 The command binds every tracked byte and mode to the current commit/tree before
 and after execution. Native tests and all 16 component directories run in separate
@@ -39,10 +46,12 @@ consensus. The repository has separate P4 runners for:
 - Decision-bound delivery, unresolved claims, receipts and wallet reconciliation.
 - Explorer receipt consumption across the same turnover.
 - Fresh-node bootstrap and recovery after a lost durable Commit reply.
+- Fresh format-2 state sync and checkpoint reoffering after final Apply reply loss.
 - Explicit owner key replacement with original account identity and payment history.
 
 The relevant commands and acceptance assertions live in
 [P4 delivery](P4_DELIVERY_ENGINE.md), [P4 recovery](P4_RECOVERY_INTEGRATION.md)
+[format-2 state sync](PROTOCOL4_STATE_SYNC_QUALIFICATION.md)
 and [key replacement](P4_KEY_ROTATION.md). Outputs for cryptographic recovery must
 be private, owned POSIX directories; do not relax that boundary to write directly
 to a Windows-mounted path. Export only sanitized public receipts/logs afterward,

@@ -12,6 +12,24 @@ chosen public supply or audited production wallet. The application uses pinned
 CometBFT 0.38.25 for local validator consensus. Independent operators, external
 security review, production custody and economic design remain release gates.
 
+## Try the local product
+
+The [first-run guide](docs/LOCAL_DEMO_GUIDE.md) walks through a native payment,
+agent spending review, verified receipt, encrypted history download and retained
+workspace recovery. With the pinned prerequisites already installed on Linux/WSL:
+
+```sh
+python tools/local-platform/scripts/1soft.py doctor --engine /path/to/cometbft
+python tools/local-platform/scripts/1soft.py new \
+  --workspace "$HOME/1soft-demo" --engine /path/to/cometbft
+```
+
+Open the exact loopback URL printed by the command. This starts four disposable
+local validators and encrypted development vaults. Complete a short demo and stop
+with Ctrl+C: the collector is bounded to 64 blocks, roughly four minutes at this
+configuration. The original one-hour trust deadline keeps elapsing while stopped.
+The [local platform reference](tools/local-platform/README.md) explains the limits.
+
 ## What you can build with it
 
 | Capability | Delivered behavior | Start here |
@@ -53,10 +71,12 @@ On Linux or WSL, with Git, Node and the versions in `requirements.txt` already
 installed, run from the repository root:
 
 ```sh
-python tools/release/check_current.py --output /private/new-current-evidence
+python tools/local-platform/scripts/1soft.py check --output "$HOME/1soft-current-check"
 ```
 
-The output must be a new directory outside the checkout. This command checks the
+The output must be a new directory outside the checkout with an existing parent.
+The entry point executes `tools/release/check_current.py` with the same interpreter
+and returns its actual exit status. This command checks the
 complete current Git source and modes, installed dependency pins, native and
 component Python suites, and the key-free JavaScript unit suites. It retains raw
 logs, distinct test identities and exact source/run bindings. It does not install
@@ -81,6 +101,9 @@ This creates disposable loopback validators and test keys. Follow the
 [engine guide](docs/P4_DELIVERY_ENGINE.md) before running it. These keys and genesis
 must never hold value. Owner replacement, fresh-node recovery, lost Commit replies,
 browser merchant checkout and legacy protocol matrices have their own scenarios.
+Fresh format-2 bootstrap and final snapshot-reply interruption are registered in
+[the P4 state-sync gate](docs/PROTOCOL4_STATE_SYNC_QUALIFICATION.md); unit checks
+and an old legacy state-sync pass do not qualify those real-engine profiles.
 
 ## Current engineering priorities
 

@@ -12,6 +12,9 @@ workflow; public operation, production custody and real-money payments are not
 qualified. The native engine, P1/P2/P3 interfaces and existing P4 components are
 unchanged. The older static web client continues to refuse P4 spending.
 
+Follow the [first-run payment and recovery guide](../../docs/LOCAL_DEMO_GUIDE.md)
+for a short demonstration with the exact wallet controls.
+
 ## Run in Linux or Ubuntu WSL
 
 Use the installed Python environment matching `requirements.txt` and the existing
@@ -19,9 +22,10 @@ CometBFT **0.38.25** binary. Its required SHA256 is
 `218628da07bed5d27e178d38d0bef9ecf46f21b214c8e9fea402fd215fccc024`.
 There are no automatic downloads, installs, Actions or cloud services.
 
-From the source checkout:
+Inspect installed prerequisites before starting a network. From the checkout:
 
 ```sh
+python tools/local-platform/scripts/1soft.py doctor --engine /path/to/cometbft
 python tools/local-platform/scripts/1soft.py new \
   --workspace "$HOME/1soft-dev" --engine /path/to/cometbft
 ```
@@ -113,6 +117,24 @@ guarantee. Local vault unlock assumes a trusted host; physical memory erasure an
 production browser custody are unassessed. The browser cannot choose file paths,
 genesis, policy, administrative keys or transport endpoints.
 
+## Check the current committed source
+
+Run from a clean checkout with the installed prerequisites:
+
+```sh
+python tools/local-platform/scripts/1soft.py check --output "$HOME/1soft-current-check"
+```
+
+Choose a new output directory outside the source, with an existing parent. This
+executes the real current-source checker, preserves its exit status and retains
+raw component logs plus exact source/test identities. It does not start a network
+or execute browser/validator scenarios. See [current qualification](../../docs/CURRENT_QUALIFICATION.md).
+
+`doctor` checks installed dependency versions, Git/Node availability and the pinned
+engine file without executing it. It installs nothing and does not qualify source,
+workspace safety, consensus or production readiness. Cold help and diagnostic
+commands work without importing the payment application.
+
 ## Browser recovery checks
 
 The progress display separates saved attempts, collected receipts, ledger-derived
@@ -127,7 +149,7 @@ revision and its unchanged 421-file inventory. It intentionally refuses later
 native invoice and browser descendants. Use the feature-specific scope and
 committed-source receipts; do not replace historical seals to obtain a pass.
 
-## Qualify the exact committed source
+## Historical fixed-source qualification
 
 With a clean checkout, pinned installed packages, Node and cached official Go
 dependencies:
