@@ -453,14 +453,27 @@ def artifact_manifest(root):
     require(records and len(records)<=4096 and total<=256*1024*1024,'private fixture membership/size bound')
     return records
 
+# Only these target control metadata files use the shared write_event codec.
+# Its bytes are sorted ASCII JSON plus exactly one newline; financial and
+# checkpoint files retain the original newline-free commit_verifier codec.
+EVENT_RECEIPTS=frozenset('control4/'+name for name in (
+    'installed.json','restart-audited.json','recovered.json','pause-ready.json',
+    'killed.json','recovery-ready.json','recovery-exit.json'))
+
+def retained_json(root,name):
+    raw=(Path(root)/name).read_bytes()
+    event=name in EVENT_RECEIPTS
+    item=load_json(raw,max_bytes=4096 if event else 16*1024*1024)
+    expected=encode(item)+(b'\n' if event else b'')
+    require((not event or type(item) is dict) and expected==raw,
+            'noncanonical original receipt: '+name)
+    return item
+
 def verify_retained_proofs(value,root):
     """Bind report fields to the original per-process and filesystem observations."""
     root=Path(root)
     def original(name):
-        raw=(root/name).read_bytes()
-        item=load_json(raw,max_bytes=16*1024*1024)
-        require(encode(item)==raw,'noncanonical original receipt: '+name)
-        return item
+        return retained_json(root,name)
     fixed=original('trust-pin.json')
     require(fixed=={k:v for k,v in value['trust_pin'].items() if k!='target_started_at_ns'}
             and original('pre-target-evidence.json')==fixed['pre_target']['evidence'],
@@ -507,7 +520,7 @@ def verify_retained_proofs(value,root):
     def checkpoint(control,event_name,expected):
         event=original(control+'/'+event_name)
         raw=(root/control/event['record_file']).read_bytes()
-        require(hashlib.sha256(raw).hexdigest()==event['record_sha256'] and load_json(raw,max_bytes=16*1024*1024)==expected,
+        require(hashlib.sha256(raw).hexdigest()==event['record_sha256'] and original(control+'/'+event['record_file'])==expected,
                 'original install checkpoint receipt differs')
         return event
     if value['profile']=='basic':

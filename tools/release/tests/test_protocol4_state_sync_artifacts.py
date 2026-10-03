@@ -77,7 +77,9 @@ class Protocol4RetainedProofBindingTests(unittest.TestCase):
         save('read-policy.json',v['trust_pin']['policy'])
         save('control4/checkpoint-normal.json',v['install'])
         raw=(self.root/'control4/checkpoint-normal.json').read_bytes()
-        save('control4/installed.json',{'record_file':'checkpoint-normal.json','record_sha256':hashlib.sha256(raw).hexdigest()})
+        from serve_abci_state_sync_crash import write_event
+        write_event(self.root/'control4','installed.json',{'record_file':'checkpoint-normal.json',
+                    'record_sha256':hashlib.sha256(raw).hexdigest()})
     def tearDown(self):self.tmp.cleanup()
     def validate(self):
         from check_protocol4_state_sync import verify_retained_proofs
@@ -103,3 +105,65 @@ class Protocol4RetainedProofBindingTests(unittest.TestCase):
     def test_actual_target_start_cannot_be_relabelled_after_launch(self):
         self.value['trust_pin']['target_started_at_ns']+=1
         with self.assertRaises(ValueError):self.validate()
+
+    def real_installed_event(self):
+        from commit_verifier import load_json
+        from serve_abci_state_sync_crash import write_event
+        control=self.root/'control4';path=control/'installed.json'
+        item=load_json(path.read_bytes());path.unlink()
+        write_event(control,'installed.json',item)
+        return path
+    def test_actual_shared_event_writer_bytes_verify_through_retained_checker(self):
+        path=self.real_installed_event()
+        self.assertTrue(path.read_bytes().endswith(b'\n'))
+        self.assertTrue(self.validate())
+    def test_event_without_writer_final_newline_is_refused(self):
+        path=self.real_installed_event();path.write_bytes(path.read_bytes()[:-1])
+        with self.assertRaises(ValueError):self.validate()
+    def test_event_optional_whitespace_and_altered_values_are_refused(self):
+        import json
+        for mutation in ('extra-newline','leading-space','pretty','altered-checkpoint'):
+            self.tearDown();self.setUp();path=self.real_installed_event();raw=path.read_bytes()
+            if mutation=='extra-newline':path.write_bytes(raw+b'\n')
+            elif mutation=='leading-space':path.write_bytes(b' '+raw)
+            elif mutation=='pretty':path.write_bytes(json.dumps(json.loads(raw),indent=2).encode()+b'\n')
+            else:
+                item=json.loads(raw);item['record_sha256']='0'*64
+                path.write_bytes(json.dumps(item,sort_keys=True,separators=(',',':'),allow_nan=False).encode()+b'\n')
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):self.validate()
+    def test_financial_and_checkpoint_json_do_not_accept_event_newline_codec(self):
+        for filename in ('trust-pin.json','pre-target-evidence.json','control4/checkpoint-normal.json'):
+            self.tearDown();self.setUp();path=self.root/filename;path.write_bytes(path.read_bytes()+b'\n')
+            if filename.startswith('control4'):
+                # Rebind the event digest to the changed bytes; strict financial
+                # codec must still refuse, rather than just detect hash tampering.
+                import hashlib,json
+                from serve_abci_state_sync_crash import write_event
+                event=self.root/'control4/installed.json';item=json.loads(event.read_bytes());event.unlink()
+                item['record_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+                write_event(event.parent,event.name,item)
+            with self.subTest(filename=filename),self.assertRaisesRegex(ValueError,'noncanonical original receipt: '+filename):self.validate()
+
+class Protocol4OriginalCodecTests(unittest.TestCase):
+    def test_all_identified_event_receipts_use_exact_actual_writer_bytes(self):
+        from serve_abci_state_sync_crash import write_event
+        from check_protocol4_state_sync import EVENT_RECEIPTS,retained_json
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);root.chmod(0o700);(root/'control4').mkdir(mode=0o700)
+            value={'schema':1,'pid':123,'birth':'456','run_id':'a'*32}
+            for name in sorted(EVENT_RECEIPTS):
+                write_event(root/'control4',Path(name).name,value)
+                self.assertEqual(retained_json(root,name),value)
+    def test_unknown_event_location_is_not_given_newline_exception(self):
+        from serve_abci_state_sync_crash import write_event
+        from check_protocol4_state_sync import retained_json
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);root.chmod(0o700);(root/'control3').mkdir(mode=0o700)
+            write_event(root/'control3','installed.json',{'schema':1})
+            with self.assertRaises(ValueError):retained_json(root,'control3/installed.json')
+    def test_event_duplicate_json_fields_do_not_become_canonical(self):
+        from check_protocol4_state_sync import retained_json
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'control4').mkdir()
+            (root/'control4/installed.json').write_bytes(b'{"pid":1,"pid":1}\n')
+            with self.assertRaises(ValueError):retained_json(root,'control4/installed.json')
