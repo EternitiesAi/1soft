@@ -298,6 +298,10 @@ class P4Delivery:
                 return {'review':review,'confirmation':content_id(review),
                         'submission_performed':False,'wallet_reservations_changed':False}
 
+    def _dispatch_guard(self, decision):
+        """Profile hook after the durable claim, immediately before external I/O."""
+        return None
+
     def send(self,review,confirmation):
         """Consumes one exact review. I/O starts only after durable attempt commit."""
         review=freeze(review,16384);hash_text(confirmation)
@@ -319,6 +323,7 @@ class P4Delivery:
         # Both SQLite locks are released before HTTP. There is deliberately no
         # fictitious transaction spanning a local DB and an external node.
         raw=bytes.fromhex(d['wire_hex'])
+        self._dispatch_guard(d)
         outcome=observation(submit_once(self.endpoint,raw,len(attempts)+1))
         with self._response_atomic():
             need(self._config()==self.config,'delivery configuration changed during dispatch')

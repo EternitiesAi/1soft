@@ -125,3 +125,42 @@ class PrivatePaymentDesk:
             'capsule_sha256': hashlib.sha256(capsule).hexdigest(),
             'resource_delivery_authorized': False, 'wallet_reservations_changed': False,
             'full_public_ledger_disclosed': True, 'onchain_privacy': False}
+
+
+class AlphaPrivatePaymentDesk(PrivatePaymentDesk):
+    """Payer-only committed invoices over the original durable alpha journal.
+
+    Alpha historical capsules do not enter the legacy merchant fulfillment lane.
+    """
+    def __init__(self, platform, invoices):
+        from p4_alpha_platform_service import AlphaPlatformService
+        from p4_evidence import p4_genesis
+        need(type(platform) is AlphaPlatformService and type(invoices) is InvoiceBook,
+             'canonical alpha platform and dedicated invoice storage required')
+        need(platform.policy['genesis_sha256'] == invoices.genesis,
+             'invoice and financial context differ')
+        g,_=p4_genesis(platform.genesis,platform.policy['genesis_sha256'])
+        need(g.get('invoice_commitment_version')==1,
+             'alpha invoices require explicit fresh genesis capability')
+        self.platform=platform;self.invoices=invoices
+
+    def import_invoice(self, required_header, expectation, content, *, invoice_password):
+        checked=parse_payment_required(required_header,expectation,now_ns=self.platform.clock())
+        need(type(checked.get('invoice_terms')) is dict,'alpha payer requires a committed v2 invoice')
+        return super().import_invoice(required_header,expectation,content,invoice_password=invoice_password)
+
+    def _native_terms(self, rid):
+        invoice=super()._native_terms(rid)
+        need(type(invoice) is dict,'alpha payer requires a committed v2 invoice')
+        return invoice
+
+    def payment_header(self, rid, capsule_id):
+        raise ValueError('alpha payer receipts cannot authorize legacy merchant fulfillment')
+
+
+def desk_for_platform(platform, invoices):
+    """Exact version dispatch; no subclass or failed-loader fallback."""
+    from p4_alpha_platform_service import AlphaPlatformService
+    if type(platform) is PlatformService:return PrivatePaymentDesk(platform,invoices)
+    if type(platform) is AlphaPlatformService:return AlphaPrivatePaymentDesk(platform,invoices)
+    raise ValueError('unsupported canonical invoice payer platform')

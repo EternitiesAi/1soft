@@ -31,6 +31,7 @@ def main():
         if name!='status':p.add_argument('--engine',type=Path,required=True)
         if name in ('new','start'):p.add_argument('--port',type=int,default=0)
         if name in ('new','init'):p.add_argument('--profile',choices=('legacy','durable-private-alpha-v1'),default='legacy',help='Select a fresh finite development profile; existing workspaces cannot be migrated')
+        if name in ('new','init'):p.add_argument('--invoice-commitments',action='store_true',help='Enable committed payer invoices in a fresh durable alpha; merchant fulfillment remains separate')
     p=sub.add_parser('qualify');p.add_argument('--engine',type=Path,required=True)
     p.add_argument('--profile',choices=('legacy','durable-private-alpha-v1'),default='legacy')
     p.add_argument('--output',type=Path,required=True)
@@ -69,7 +70,8 @@ def main():
             'running_state':'not probed','data_modified':False,'trust_renewed':False}).decode());return 0
     secret=None
     if args.command in ('new','init'):
-        secret=password(confirm=True);initialize(args.workspace,args.engine,PIN_SHA,password=secret,profile=None if args.profile=='legacy' else args.profile)
+        if args.invoice_commitments and args.profile!='durable-private-alpha-v1':raise ValueError('invoice capability requires an explicit fresh durable alpha')
+        secret=password(confirm=True);initialize(args.workspace,args.engine,PIN_SHA,password=secret,profile=None if args.profile=='legacy' else args.profile,invoice_commitments=args.invoice_commitments)
         if args.command=='init':
             print(encode({'status':'private_development_workspace_initialized','ready':False,
                 'next':'start with the same workspace and engine; original password required once'}).decode());return 0

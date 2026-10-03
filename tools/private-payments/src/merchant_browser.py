@@ -10,14 +10,14 @@ from block_application import encode
 from invoice_terms import terms_commitment
 from p4_evidence import content_id, need
 from payment_x402 import parse_payment_required
-from private_payment_desk import PrivatePaymentDesk
+from private_payment_desk import PrivatePaymentDesk, AlphaPrivatePaymentDesk
 
 
 class MerchantBrowserService:
     allow_unsigned_requests = False
 
     def __init__(self, desk):
-        need(type(desk) is PrivatePaymentDesk, 'canonical private payment desk required')
+        need(type(desk) in (PrivatePaymentDesk, AlphaPrivatePaymentDesk), 'canonical private payment desk required')
         self.desk = desk
         self.policy = desk.platform.policy
         self.clock = desk.platform.clock
@@ -131,6 +131,12 @@ def ready_for_browser(network):
     This grants no live wallet authority and does not call network.ready/start.
     The financial components still enforce their original policy and clock.
     """
+    from local_devnet import LocalNetwork, ALPHA_INVOICE_FORMAT, load_configuration
+    if network.config.get('format')==ALPHA_INVOICE_FORMAT:
+        need(type(network) is LocalNetwork and network.alpha,'canonical invoice alpha network required')
+        need(load_configuration(network.root)==network.config,'original alpha invoice configuration differs')
+        need(network.ready(),'original initialized alpha invoice readiness pins required')
+        return True
     need(network.config['schema']==3,'browser requires a fresh invoice-capable v3 workspace')
     network._check_config()
     network.policy()  # Canonical, pinned original policy; never renewed.

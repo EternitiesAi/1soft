@@ -9,7 +9,7 @@ from commit_verifier import exact,load_json
 from p4_evidence import content_id,freeze,hash_text,integer,need
 from p4_incremental_evidence import check_clock
 from p4_alpha_wallet import P4AlphaWallet
-from p4_wallet import matched_receipt,revision
+from p4_wallet import matched_receipt,revision,invoice_review_context
 from p4_delivery import P4Delivery,observation,MAX_ATTEMPTS
 from p4_read_store import private_path
 
@@ -30,6 +30,8 @@ class P4AlphaDelivery(P4Delivery):
         with super().atomic(write=write):
             started=self.clock() if write else None
             self._commit_checkpoint=None
+            before=(self.db.execute('SELECT coalesce(max(seq),0) FROM attempts').fetchone()[0]
+                    if write and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='attempts' AND type='table'").fetchone() else 0)
             yield
             if write:
                 _,_,_,latest=self.wallet._catalog()
@@ -38,8 +40,36 @@ class P4AlphaDelivery(P4Delivery):
                     value=self.db.execute(f'SELECT max({column}) FROM {table}').fetchone()[0]
                     if value is not None:dates.append(integer(value))
                 final=self.clock();cid=self._commit_checkpoint or self.wallet._active_checkpoint
+                checkpoint=None
                 if cid is None:check_clock(self.wallet.policy,final,max(dates))
-                else:self.store.check_current(cid,now=final,previous_ns=max(dates))
+                else:checkpoint=self.store.check_current(cid,now=final,previous_ns=max(dates))
+                new_claims=self.db.execute('SELECT decision_id FROM attempts WHERE seq>? ORDER BY seq',(before,)).fetchall()
+                if new_claims:
+                    _,_,decisions,_=self.wallet._catalog();byid={d['id']:d for d in decisions}
+                    from p4_evidence import p4_genesis
+                    g,_=p4_genesis(self.wallet.genesis,self.wallet.policy['genesis_sha256'])
+                    consent_now=self.clock();check_clock(self.wallet.policy,consent_now,final,checkpoint=checkpoint)
+                    for (did,) in new_claims:
+                        need(did in byid,'new attempt lost its original decision')
+                        if byid[did]['review'].get('format')=='1soft/p4-invoice-transfer-review/v1':
+                            invoice_review_context(byid[did]['review'],g,self.wallet.policy['genesis_sha256'],consent_now)
+
+    def _review(self,e,r,decisions,d,now,config):
+        result=super()._review(e,r,decisions,d,now,config)
+        if d['review'].get('format')=='1soft/p4-invoice-transfer-review/v1':
+            invoice_review_context(d['review'],e['state']['genesis'],self.wallet.policy['genesis_sha256'],now)
+        return result
+
+    def _dispatch_guard(self, decision):
+        # Refusal after a committed claim never rearms the original attempt.
+        with self.wallet.atomic(write=False):
+            _,e,_,decisions,latest=self.wallet._load()
+            original=self._selected(decisions,decision['id'],decision['review']['body']['sender'],decision['review']['body']['grant_id'])
+            need(encode(original)==encode(decision),'original dispatch decision changed')
+            now=self.clock();self._fresh(e,now,latest)
+            consent_now=self.clock();check_clock(self.wallet.policy,consent_now,now,checkpoint=self.store.checkpoint_descriptors()[e['checkpoint_id']])
+            if original['review'].get('format')=='1soft/p4-invoice-transfer-review/v1':
+                invoice_review_context(original['review'],e['state']['genesis'],self.wallet.policy['genesis_sha256'],consent_now)
 
     def _response_atomic(self):
         # Endpoint feedback is inert observational data after the original durable

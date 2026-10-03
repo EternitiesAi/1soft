@@ -383,7 +383,7 @@ def network_for_workspace(workspace, engine, *, clock=time.time_ns):
     q = load_json(raw)
     need(type(q) is dict and encode(q) == raw, 'canonical workspace configuration required')
     selected = q.get('format')
-    if selected == '1soft/local-development-workspace/v1':
+    if selected in ('1soft/local-development-workspace/v1', '1soft/local-alpha-invoice-workspace/v1'):
         return LocalNetwork(workspace, engine, clock=clock)
     if selected in (FORMAT, INVOICE_FORMAT):
         return MerchantNetwork(workspace, engine, clock=clock)
