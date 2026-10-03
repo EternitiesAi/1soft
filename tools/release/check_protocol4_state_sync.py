@@ -34,13 +34,24 @@ CRASH_IDS = ('durable-commit-before-final-apply-reply','owned-sigkill-observed',
 'rollback-refusal-continuation')
 PROFILES = ('basic', 'final-apply-crash')
 
-def validate_envelope(value, profile, source, engine_sha256, process):
-    require(profile in PROFILES, 'unknown P4 profile')
+def validate_process_receipt(process):
     require(type(process) is dict and type(process.get('returncode')) is int
-            and process['returncode'] == 0 and process.get('timed_out') is False
-            and process.get('log_truncated') is False, 'incomplete process')
+            and process['returncode']==0 and process.get('timed_out') is False
+            and process.get('log_truncated') is False and process.get('cleanup_complete') is True
+            and process.get('rescue_actions')==[] and process.get('cleanup_errors')==[]
+            and process.get('owned_survivors')==[] and type(process.get('owned_survivor_count')) is int
+            and process['owned_survivor_count']==0 and type(process.get('pid')) is int
+            and process['pid']>0 and type(process.get('birth')) is str and process['birth']
+            and process.get('alive_after') is False, 'outer process outcome/cleanup incomplete')
+
+def validate_envelope(value,profile,source,engine_sha256,process):
+    validate_process_receipt(process)
+    return scenario_envelope(value,profile,source,engine_sha256)
+
+def scenario_envelope(value,profile,source,engine_sha256):
+    require(profile in PROFILES,'unknown P4 profile')
     require(type(value) is dict and value.get('schema') == '1soft-protocol4-state-sync-v1'
-            and value.get('status') == 'passed' and value.get('profile') == profile,
+            and value.get('status') == 'completed-awaiting-external-validation' and value.get('profile') == profile,
             'P4 scenario incomplete')
     require(value.get('source') == source and value.get('source_dirty_before') is False
             and value.get('source_dirty_after') is False, 'source differs or is dirty')
@@ -70,8 +81,12 @@ def b64(value):
     return raw
 
 def validate_result(value, profile, source, engine_sha256, process, genesis_bytes, policy, *, now_ns):
-    expected = validate_envelope(value, profile, source, engine_sha256, process)
-    p = policy_checked(policy)
+    validate_process_receipt(process)
+    return validate_core(value,profile,source,engine_sha256,genesis_bytes,policy,now_ns=now_ns)
+
+def validate_core(value,profile,source,engine_sha256,genesis_bytes,policy,*,now_ns):
+    expected=scenario_envelope(value,profile,source,engine_sha256)
+    p=policy_checked(policy)
     trust = value['trust_pin']
     require(type(trust) is dict and trust.get('policy') == p
             and trust.get('engine_genesis_sha256') == hashlib.sha256(genesis_bytes).hexdigest()
@@ -81,7 +96,13 @@ def validate_result(value, profile, source, engine_sha256, process, genesis_byte
     require(type(trust.get('pinned_at_ns')) is int and type(trust.get('target_started_at_ns')) is int
             and trust['pinned_at_ns'] < trust['target_started_at_ns']
             and trust.get('target_never_started') is True, 'target started before trust pin')
+    before=trust.get('pre_target')
+    require(type(before) is dict and type(before.get('checked_at_ns')) is int
+            and before['checked_at_ns'] < trust['pinned_at_ns'] < trust['target_started_at_ns'],
+            'trust not independently verified before actual target start')
+    verify_evidence(before.get('evidence'),genesis_bytes,p,now_ns=before['checked_at_ns'])
     snapshot, final = value['snapshot_evidence'], value['final_evidence']
+    extends(before['evidence'],snapshot)
     snap_report = verify_evidence(snapshot, genesis_bytes, p, now_ns=now_ns)
     final_report = verify_evidence(final, genesis_bytes, p, now_ns=now_ns)
     extends(snapshot, final)
@@ -161,17 +182,13 @@ def validate_result(value, profile, source, engine_sha256, process, genesis_byte
     require(restart_evidence['state'] == restart['before'], 'restart checkpoint proof differs')
     extends(snapshot, restart_evidence); extends(restart_evidence, final)
     require(sh < restart_report['state_height'] <= fh, 'restart precedes ordinary continuation')
-    processes = value['processes']
-    require(type(processes) is list and len(processes) >= 10
-            and len({(x.get('pid'),x.get('birth')) for x in processes}) == len(processes)
-            and all(type(x) is dict and type(x.get('pid')) is int and x['pid'] > 0
-                    and type(x.get('birth')) is str and x['birth']
-                    and x.get('alive_after') is False and type(x.get('returncode')) is int
-                    for x in processes), 'owned process cleanup incomplete')
+    validate_processes_and_identities(value,genesis_bytes)
     logs = value['logs']
     require(type(logs) is list and logs and all(type(x) is dict and
             type(x.get('bytes')) is int and x['bytes'] > 0 and x.get('truncated') is False
-            and type(x.get('sha256')) is str and len(x['sha256']) == 64 for x in logs),
+            and type(x.get('sha256')) is str and len(x['sha256']) == 64
+            and x.get('complete') is True and x.get('closed') is True and x.get('fsynced') is True
+            and x.get('capture_error') is None for x in logs),
             'missing or truncated execution logs')
     methods = transfer.get('methods')
     require(type(methods) is list and set(methods) == {
@@ -242,6 +259,98 @@ def validate_trace(transfer, chunks, *, crash=False, final_reply_required=True):
             'partial original format2 transfer')
 
 
+def exact_integer(value,low=0):
+    return type(value) is int and value>=low
+
+def validate_processes_and_identities(value,genesis_bytes):
+    import re
+    processes=value['processes'];profile=value['profile']
+    required=[*('engine'+str(i) for i in range(5)),*('app'+str(i) for i in range(5)),
+              'app4-restart','engine4-restart']
+    if profile=='final-apply-crash':required+=['engine4-recovery','pause-ready.json','recovery-ready.json']
+    require(type(processes) is list and len(processes)==len(required) and
+            all(type(x) is dict for x in processes),'owned process membership differs')
+    require(sorted(x.get('name','') for x in processes)==sorted(required) and
+            len({(x.get('pid'),x.get('birth')) for x in processes})==len(processes),
+            'owned role/identity membership differs')
+    records={x['name']:x for x in processes}
+    cleanup=value.get('service_cleanup',{})
+    require(cleanup.get('complete') is True and cleanup.get('rescue_actions')==[]
+            and cleanup.get('errors')==[] and cleanup.get('owned_survivors')==[],
+            'service cleanup/log failure or rescue')
+    for name,row in records.items():
+        role=('engine' if name.startswith('engine') else
+              'final-apply-pause-child' if name=='pause-ready.json' else
+              'recovery-child' if name=='recovery-ready.json' else
+              'crash-supervisor' if name=='app4' and profile=='final-apply-crash' else 'app')
+        require(row.get('role')==role and exact_integer(row.get('pid'),1) and
+                type(row.get('birth')) is str and row['birth'].isdigit() and
+                row.get('alive_after') is False and row.get('rescue_used') is False and
+                row.get('cleanup_error') is None and row.get('stop_requested') is True and
+                type(row.get('returncode')) is int,'unobserved or rescued process outcome')
+        if role=='final-apply-pause-child':
+            killed=value.get('crash',{}).get('killed',{})
+            require(row['returncode']==-9 and row.get('termination_signal')==9 and
+                    (row['pid'],row['birth'])==(killed.get('pid'),killed.get('birth')),
+                    'SIGKILL is not the identified deliberate final-Apply child')
+        else:
+            require(row.get('termination_signal')==15 and
+                    row['returncode'] in ((0,-15) if role=='engine' else (0,)),
+                    'unexpected nonzero service exit')
+    nodes=value.get('nodes')
+    require(type(nodes) is list and len(nodes)==5 and all(type(x) is dict for x in nodes)
+            and [x.get('index') for x in nodes]==list(range(5)),'node membership differs')
+    engine=load_json(genesis_bytes);initial={base64.b64decode(r['pub_key']['value']).hex()
+                                           for r in engine['validators']}
+    require(len(initial)==4 and {n.get('validator_public_key') for n in nodes[:4]}==initial
+            and nodes[4].get('validator_public_key') not in initial
+            and len({n.get('node_id') for n in nodes})==5
+            and len({n.get('home_path') for n in nodes})==5
+            and len({(n.get('home_device'),n.get('home_inode')) for n in nodes})==5
+            and len({n.get('validator_public_key') for n in nodes})==5,'source roster or fresh nonvalidator differs')
+    for node in nodes:
+        require(type(node.get('node_id')) is str and re.fullmatch('[0-9a-f]{40}',node['node_id'])
+                and type(node.get('home_path')) is str and node['home_path'].startswith('/')
+                and exact_integer(node.get('home_device')) and exact_integer(node.get('home_inode'),1)
+                and all(type(node.get(k)) is str and re.fullmatch('[0-9a-f]{64}',node[k])
+                        for k in ('node_key_sha256','validator_key_sha256','validator_public_key')), 'node/home identity malformed')
+    trust=value['trust_pin'];sources=trust.get('sources')
+    require(type(sources) is list and len(sources)==4 and all(type(x) is dict for x in sources)
+            and [x.get('index') for x in sources]==list(range(4)) and
+            trust.get('source_pids')==[records['engine'+str(i)]['pid'] for i in range(4)],
+            'four source process pins differ')
+    for i,entry in enumerate(sources):
+        engine_row,app=records['engine'+str(i)],records['app'+str(i)]
+        require((entry.get('engine_pid'),entry.get('engine_birth'))==(engine_row['pid'],engine_row['birth'])
+                and (entry.get('app_pid'),entry.get('app_birth'))==(app['pid'],app['birth'])
+                and exact_integer(entry.get('observed_height'),1),'source PID/birth substituted')
+    inventory=trust.get('target_initial_inventory')
+    require(type(inventory) is list and inventory and all(type(x) is str for x in inventory)
+            and not any('blockstore' in x or 'state.db' in x or 'state.sqlite' in x for x in inventory),
+            'target engine/application was previously started')
+    restart=value['target_restart'];target=nodes[4]
+    require(restart.get('identity_before')==restart.get('identity_after')==target
+            and restart.get('home_before')==restart.get('home_after')==target['home_path']
+            and type(restart.get('database_before')) is str and restart['database_before'].startswith('/')
+            and restart['database_before']==restart.get('database_after')
+            and all(exact_integer(restart.get(k)) for k in ('database_device_before','database_device_after'))
+            and all(exact_integer(restart.get(k),1) for k in ('database_inode_before','database_inode_after'))
+            and restart['database_device_before']==restart['database_device_after']
+            and restart['database_inode_before']==restart['database_inode_after']
+            and (restart.get('old_pid'),restart.get('old_birth'))==
+                (records['app4']['pid'],records['app4']['birth'])
+            and (restart.get('new_pid'),restart.get('new_birth'))==
+                (records['app4-restart']['pid'],records['app4-restart']['birth']),
+            'same-store/home/key/process restart binding differs')
+    if profile=='final-apply-crash':
+        crash=value['crash']
+        require(crash.get('identity_before')==crash.get('identity_after')==target
+                and (crash['initial_install']['pid'],crash['initial_install']['birth'])==
+                    (records['pause-ready.json']['pid'],records['pause-ready.json']['birth'])
+                and (crash['recovered']['pid'],crash['recovered']['birth'])==
+                    (records['recovery-ready.json']['pid'],records['recovery-ready.json']['birth']),
+                'crash home/key/child identity differs')
+
 def validate_crash(value,genesis_bytes,policy,*,now_ns):
     crash=value['crash'];initial=crash.get('initial_install',{});recovered=crash.get('recovered',{})
     killed=crash.get('killed',{});ready=crash.get('ready',{})
@@ -277,6 +386,33 @@ def validate_crash(value,genesis_bytes,policy,*,now_ns):
             recovered.get('database_inode')==initial.get('database_inode') and
             type(crash.get('rollback_offer_result')) is int and crash['rollback_offer_result']==3,
             'same-store restart audit or rollback refusal changed committed checkpoint')
+    probe=crash.get('rollback_probe')
+    require(type(probe) is dict and probe.get('kind')=='manual-direct-ABCI-coherent-older-checkpoint',
+            'coherent direct ABCI rollback probe missing or mislabelled')
+    older=probe.get('evidence')
+    older_report=verify_evidence(older,genesis_bytes,policy,now_ns=now_ns)
+    extends(older,old)
+    require(1<=older_report['state_height']<oh,'rollback probe is not strictly older')
+    from protocol4_abci_wire import Request,Response
+    request=Request.FromString(b64(probe.get('request')))
+    response=Response.FromString(b64(probe.get('response')))
+    require(request.WhichOneof('value')=='offer_snapshot' and response.WhichOneof('value')=='offer_snapshot'
+            and response.offer_snapshot.result==3,'original older OfferSnapshot refusal absent')
+    q=request.offer_snapshot;desc=q.snapshot
+    chunks=[b64(x) for x in probe.get('chunks',[])];raw=b''.join(chunks)
+    meta=_parse_metadata(bytes(desc.metadata));os=older['state']
+    require(desc.format==2 and desc.height==meta['height']==os['height'] and
+            desc.chunks==meta['chunks']==len(chunks) and chunks
+            and all(len(x)==CHUNK_BYTES for x in chunks[:-1]) and 0<len(chunks[-1])<=CHUNK_BYTES
+            and meta['payload_bytes']==len(raw) and bytes(desc.hash)==_hash(raw)
+            and q.app_hash.hex()==meta['app_hash']==older_report['app_hash']
+            and meta['genesis_sha256']==hashlib.sha256(encode(os['genesis'])).hexdigest(),
+            'older descriptor/metadata/hash/trusted AppHash incoherent')
+    payload=load_json(raw)
+    require(encode(payload)==raw and payload=={'schema':2,'domain':DOMAIN,'genesis':os['genesis'],
+            'height':os['height'],'app_hash':os['app_hash'],
+            'state':{'native':os['native'],'registry':os['registry']},'history':older['history']},
+            'older canonical snapshot differs from independently signed replay')
     transfer=crash.get('initial_transfer',{})
     chunks=[b64(x) for x in transfer.get('chunks',[])];raw=b''.join(chunks)
     require(transfer.get('height')==oh and transfer.get('format')==2 and
@@ -317,6 +453,85 @@ def artifact_manifest(root):
     require(records and len(records)<=4096 and total<=256*1024*1024,'private fixture membership/size bound')
     return records
 
+def verify_retained_proofs(value,root):
+    """Bind report fields to the original per-process and filesystem observations."""
+    root=Path(root)
+    def original(name):
+        raw=(root/name).read_bytes()
+        item=load_json(raw,max_bytes=16*1024*1024)
+        require(encode(item)==raw,'noncanonical original receipt: '+name)
+        return item
+    fixed=original('trust-pin.json')
+    require(fixed=={k:v for k,v in value['trust_pin'].items() if k!='target_started_at_ns'}
+            and original('pre-target-evidence.json')==fixed['pre_target']['evidence'],
+            'prelaunch original trust/evidence receipt differs')
+    require(original('read-policy.json')==fixed['policy'],'original fixed policy differs')
+    processes={x['name']:x for x in value['processes']}
+    services={n:x for n,x in processes.items() if n not in ('pause-ready.json','recovery-ready.json')}
+    for name,row in services.items():
+        start=original('process-'+name+'-started.json');exit=original('process-'+name+'-exit.json')
+        require(start=={k:row[k] for k in ('name','pid','birth','role','argv','spawned_at_ns')}
+                and exit==row,'retained owned PID/birth/start/exit differs')
+        require(type(row['argv']) is list and all(type(x) is str for x in row['argv'])
+                and exact_integer(row['spawned_at_ns'],1),'owned command/start malformed')
+        i=int(name[6] if name.startswith('engine') else name[3])
+        if name.startswith('engine'):
+            argv=row['argv']
+            require(len(argv)==4 and argv[1:3]==['start','--home']
+                    and argv[3]==value['nodes'][i]['home_path'],'engine home substituted')
+        else:
+            argv=row['argv']
+            require('--database' in argv and argv[argv.index('--database')+1]==str(root/('app'+str(i))/'state.sqlite')
+                    and '--genesis' in argv and argv[argv.index('--genesis')+1]==str(root/'protocol4-genesis.json'),
+                    'application database/genesis substituted')
+    require(value['trust_pin']['target_started_at_ns']==services['app4']['spawned_at_ns']
+            and all(services['app'+str(i)]['spawned_at_ns']<fixed['pinned_at_ns']
+                    and services['engine'+str(i)]['spawned_at_ns']<fixed['pinned_at_ns'] for i in range(4)),
+            'actual pretarget process times differ')
+    log_names=[x['name'] for x in value['logs']]
+    require(sorted(log_names)==sorted(n+'.log' for n in services),'complete owned stdout membership differs')
+    for i,node in enumerate(value['nodes']):
+        require(original('node-'+str(i)+'-initial.json')==node,'initial original node identity differs')
+        home=root/'nodes'/('node'+str(i));meta=home.stat()
+        require(node['home_path']==str(home) and (node['home_device'],node['home_inode'])==(meta.st_dev,meta.st_ino)
+                and hashlib.sha256((home/'config/node_key.json').read_bytes()).hexdigest()==node['node_key_sha256']
+                and hashlib.sha256((home/'config/priv_validator_key.json').read_bytes()).hexdigest()==node['validator_key_sha256'],
+                'retained engine home/key bytes differ')
+    restart=value['target_restart']
+    require(original('node-4-ordinary-before.json')==restart['identity_before']
+            and original('node-4-ordinary-after.json')==restart['identity_after']
+            and restart['database_before']==str(root/'app4/state.sqlite'),'actual ordinary restart observations differ')
+    db=(root/'app4/state.sqlite').stat()
+    require((restart['database_device_after'],restart['database_inode_after'])==(db.st_dev,db.st_ino),
+            'actual retained database replaced')
+    def checkpoint(control,event_name,expected):
+        event=original(control+'/'+event_name)
+        raw=(root/control/event['record_file']).read_bytes()
+        require(hashlib.sha256(raw).hexdigest()==event['record_sha256'] and load_json(raw,max_bytes=16*1024*1024)==expected,
+                'original install checkpoint receipt differs')
+        return event
+    if value['profile']=='basic':
+        checkpoint('control4','installed.json',value['install'])
+    else:
+        crash=value['crash']
+        require(original('node-4-crash-restarted.json')==crash['identity_after'],'actual crash home observation differs')
+        checkpoint('control4','installed.json',crash['initial_install'])
+        checkpoint('control4','restart-audited.json',crash['restart_checkpoint'])
+        checkpoint('control4','recovered.json',crash['recovered'])
+        for ready_name,exit_name in (('pause-ready.json','killed.json'),('recovery-ready.json','recovery-exit.json')):
+            ready=original('control4/'+ready_name);exit=original('control4/'+exit_name);row=processes[ready_name]
+            require((ready['pid'],ready['birth'])==(row['pid'],row['birth'])==
+                    (exit['pid'],exit['birth']) and all(exit[k]==row[k] for k in
+                        ('returncode','stop_requested','termination_signal','rescue_used','cleanup_error')),
+                    'actual supervised child birth/exit differs')
+        probe=crash['rollback_probe']
+        require(original('older-checkpoint-evidence.json')==probe['evidence']
+                and (root/'rollback-offer-request.bin').read_bytes()==b64(probe['request'])
+                and (root/'rollback-offer-response.bin').read_bytes()==b64(probe['response'])
+                and all((root/('rollback-chunk-'+str(i)+'.bin')).read_bytes()==b64(x)
+                        for i,x in enumerate(probe['chunks'])),'original coherent rollback packets differ')
+    return True
+
 def verify_private_artifacts(value,root):
     expected=value.get('artifacts')
     require(type(expected) is list and expected==artifact_manifest(root),'original private artifact bytes/membership differ')
@@ -332,6 +547,7 @@ def verify_private_artifacts(value,root):
                 'target engine log membership differs')
         original=''.join((Path(root)/n).read_bytes().decode('utf-8',errors='replace') for n in names)
         require(original==sync.get('original_log'),'original target engine verification log differs')
+    if value.get('schema')=='1soft-protocol4-state-sync-v1':verify_retained_proofs(value,root)
     return True
 
 def main():

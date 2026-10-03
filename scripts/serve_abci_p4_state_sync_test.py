@@ -41,6 +41,7 @@ def write_private(path,raw):
 
 def checkpoint(path,*,pid=None,checkpoint_recovery=False):
     with sqlite3.connect(Path(path).absolute().as_uri()+'?mode=ro',uri=True) as db:
+        db.execute('BEGIN')
         committed=db.execute('SELECT genesis,height,app_hash,state FROM committed WHERE id=1').fetchone()
         marker=db.execute('SELECT height,app_hash FROM snapshot_marker WHERE id=1').fetchone()
         blocks=db.execute('SELECT count(*) FROM blocks').fetchone()[0]
@@ -160,7 +161,8 @@ def supervise(a):
         remove_exact_socket(a.socket,ready)
         write_event(control,'killed.json',{'schema':1,'run_id':a.run_id,'pid':owned.pid,
             'birth':ready['birth'],'returncode':code,'signal':'SIGKILL','install':installed,
-            'height':saved['height'],'app_hash':saved['app_hash']})
+            'height':saved['height'],'app_hash':saved['app_hash'],'stop_requested':True,
+            'termination_signal':9,'rescue_used':False,'cleanup_error':None})
         end=time.monotonic()+a.wait_seconds
         while not stopped[0] and time.monotonic()<end:
             resume=read_event(control,'resume.json')
@@ -175,14 +177,26 @@ def supervise(a):
             time.sleep(.05)
         return 0
     finally:
-        if owned and owned.poll() is None:
-            need(birth(owned.pid)==owned_birth,'child PID birth changed before cleanup')
-            owned.terminate()
-            try:owned.wait(timeout=3)
-            except subprocess.TimeoutExpired:owned.kill();owned.wait(timeout=3)
-        if owned and owned_phase=='recovery':
-            write_event(control,'recovery-exit.json',{'schema':1,'run_id':a.run_id,
-                'pid':owned.pid,'birth':owned_birth,'returncode':owned.returncode})
+        stop_requested=False;rescue_used=False;cleanup_error=None;termination_signal=None
+        try:
+            if owned and owned.poll() is None:
+                need(birth(owned.pid)==owned_birth,'child PID birth changed before cleanup')
+                stop_requested=True;termination_signal=15;owned.terminate()
+                try:owned.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    rescue_used=True;owned.kill();owned.wait(timeout=3)
+        except Exception as exc:
+            cleanup_error=type(exc).__name__+': '+str(exc)
+            raise
+        finally:
+            if owned and owned_phase=='recovery':
+                write_event(control,'recovery-exit.json',{'schema':1,'run_id':a.run_id,
+                    'pid':owned.pid,'birth':owned_birth,'returncode':owned.returncode,
+                    'stop_requested':stop_requested,'termination_signal':termination_signal,
+                    'rescue_used':rescue_used,'cleanup_error':cleanup_error})
+        need(not rescue_used and cleanup_error is None and
+             (owned_phase!='recovery' or (stop_requested and owned.returncode==0)),
+             'supervised child unexpected exit or cleanup rescue')
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)

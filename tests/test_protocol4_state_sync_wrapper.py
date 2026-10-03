@@ -113,8 +113,18 @@ class Protocol4StateSyncWrapperTests(unittest.TestCase):
         ready=event(self.control,'recovery-ready.json',self.process)
         self.assertNotEqual(ready['pid'],killed['pid'])
         with Client(self.sock) as client:
-            lower=type(self.desc)();lower.CopyFrom(self.desc);lower.height=3
-            self.assertEqual(self.offer(client,lower),3)
+            # A valid earlier composite snapshot distinguishes rollback refusal
+            # from malformed metadata rejection.
+            import base64
+            with Protocol4Application(':memory:',expected_genesis=self.g) as older:
+                older.init_chain(self.g['chain_id'],self.g,self.g['validator_registry']['validators'])
+                for row in self.source.history()[:3]:
+                    state,result=older._execute([base64.b64decode(x) for x in row['txs']],row['height'])
+                    older.state,older.height,older.app_hash=state,row['height'],result['app_hash']
+                    older.db.execute('INSERT INTO history VALUES (?,?)',(row['height'],encode(row['txs']).decode()))
+                req=Request();req.list_snapshots.SetInParent();lower=dispatch(older,req).list_snapshots.snapshots[0]
+                self.assertEqual(json.loads(lower.metadata)['height'],lower.height)
+                self.assertEqual(self.offer(client,lower,bytes.fromhex(older.app_hash)),3)
             self.assertEqual(self.offer(client),1);self.assertEqual(self.apply(client),1)
         recovered=event(self.control,'recovered.json',self.process)
         again=json.loads((self.control/recovered['record_file']).read_bytes())
@@ -127,3 +137,12 @@ class Protocol4StateSyncWrapperTests(unittest.TestCase):
         self.assertIsNotNone(exit_event)
         self.assertEqual(exit_event['pid'],ready['pid'])
         self.assertEqual(exit_event['returncode'],0)
+        self.assertTrue(exit_event['stop_requested'])
+        self.assertEqual(exit_event['termination_signal'],15)
+        self.assertFalse(exit_event['rescue_used'])
+        self.assertIsNone(exit_event['cleanup_error'])
+
+    def test_observe_wrapper_sigterm_reaps_zero_without_rescue(self):
+        self.start('observe');event(self.control,'normal-ready.json',self.process)
+        self.process.terminate();self.process.wait(timeout=3)
+        self.assertEqual(self.process.returncode,0)
