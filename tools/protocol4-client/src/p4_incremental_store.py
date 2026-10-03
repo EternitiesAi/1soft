@@ -92,8 +92,18 @@ class P4IncrementalStore:
         need(self.db is not None and not self.db.in_transaction and not(write and self.read_only),
              'incremental transaction or mode conflict')
         self.db.execute('BEGIN IMMEDIATE' if write else 'BEGIN')
+        self._write_trust_checkpoint=None
+        self._write_latest_ns=self.clock() if write else None
         try:
             yield
+            if write:
+                # Nothing that constructs/deep-copies a returned view runs after this guard.
+                final=self.clock()
+                check_clock(self.policy,final,self._write_latest_ns,
+                            checkpoint=self._write_trust_checkpoint)
+                if self._cursor is not None and self._cursor.summary is not None:
+                    need(final-self._cursor.summary['time_ns']<=300*10**9,
+                         'checkpoint became stale before commit')
             self.db.execute('COMMIT')
         except BaseException:
             if self.db.in_transaction:self.db.execute('ROLLBACK')
@@ -312,6 +322,7 @@ class P4IncrementalStore:
         try:
             with self.atomic():
                 previous=self._ensure()
+                self._write_trust_checkpoint=previous
                 actual_tip=None if previous is None else previous['id']
                 need(expected_tip==actual_tip and s['parent_checkpoint']==actual_tip,
                      'reviewed incremental tip changed')
@@ -326,6 +337,7 @@ class P4IncrementalStore:
                 need(observed-self._cursor.summary['time_ns']<=300*10**9,
                      'new checkpoint freshness bound exceeded')
                 checked=self.clock()
+                self._write_latest_ns=max(self._write_latest_ns,checked)
                 check_clock(self.policy,checked,observed,checkpoint=previous)
                 cp={'schema':1,'format':CHECKPOINT_FORMAT,'parent_id':actual_tip,
                     'height':self._cursor.app.height,'app_hash':self._cursor.app.app_hash,

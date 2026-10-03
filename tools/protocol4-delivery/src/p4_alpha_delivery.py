@@ -1,5 +1,6 @@
 """At-most-one local dispatch with original history references, not proof copies."""
 from __future__ import annotations
+from contextlib import contextmanager
 import hashlib
 import time
 from pathlib import Path
@@ -23,6 +24,27 @@ class P4AlphaDelivery(P4Delivery):
     def __init__(self,wallet_path,path,genesis,policy,endpoint,store,*,create=False,clock=time.time_ns):
         self.store=store
         super().__init__(wallet_path,path,genesis,policy,endpoint,create=create,clock=clock)
+
+    @contextmanager
+    def atomic(self,write=True):
+        with super().atomic(write=write):
+            started=self.clock() if write else None
+            self._commit_checkpoint=None
+            yield
+            if write:
+                _,_,_,latest=self.wallet._catalog()
+                dates=[latest,started]
+                for table,column in [('config','created_ns'),('attempts','claimed_ns'),('responses','observed_ns'),('receipts','checked_ns')]:
+                    value=self.db.execute(f'SELECT max({column}) FROM {table}').fetchone()[0]
+                    if value is not None:dates.append(integer(value))
+                final=self.clock();cid=self._commit_checkpoint or self.wallet._active_checkpoint
+                if cid is None:check_clock(self.wallet.policy,final,max(dates))
+                else:self.store.check_current(cid,now=final,previous_ns=max(dates))
+
+    def _response_atomic(self):
+        # Endpoint feedback is inert observational data after the original durable
+        # claim, not a new dispatch approval or positive execution receipt.
+        return P4Delivery.atomic(self)
 
     def _open_wallet(self,path,genesis,policy,clock):
         return P4AlphaWallet(path,genesis,policy,self.store,clock=clock)
@@ -98,6 +120,7 @@ class P4AlphaDelivery(P4Delivery):
                 size=self.db.execute('SELECT coalesce(sum(length(payload)),0) FROM receipts').fetchone()[0]
                 need(len(receipts)<MAX_RECEIPTS and size+len(raw)<=MAX_RECEIPT_BYTES,'alpha receipt capacity reached; no eviction')
                 at=self.clock();self.store.check_current(checkpoint_id,now=at,previous_ns=now)
+                self._commit_checkpoint=checkpoint_id
                 self.db.execute('INSERT INTO receipts VALUES (?,?,?,?,?)',(len(receipts)+1,decision_id,checkpoint_id,at,raw))
         return {'status':'receipt_collected','decision_id':decision_id,'evidence_id':checkpoint_id,'wallet_reservations_changed':False}
 

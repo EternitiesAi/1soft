@@ -110,6 +110,9 @@ class P4Delivery:
     def _open_wallet(self, path, genesis, policy, clock):
         return P4Wallet(path, genesis, policy, clock=clock)
 
+    def _response_atomic(self):
+        return self.atomic()
+
     def _check_clock(self, now, previous_ns=None):
         return self.wallet._check_clock(now, previous_ns)
 
@@ -317,7 +320,7 @@ class P4Delivery:
         # fictitious transaction spanning a local DB and an external node.
         raw=bytes.fromhex(d['wire_hex'])
         outcome=observation(submit_once(self.endpoint,raw,len(attempts)+1))
-        with self.atomic():
+        with self._response_atomic():
             need(self._config()==self.config,'delivery configuration changed during dispatch')
             row=self.db.execute('SELECT claimed_ns,review FROM attempts WHERE decision_id=?',(d['id'],)).fetchone()
             need(row is not None and row[1]==encode(review),'attempt record changed during dispatch')

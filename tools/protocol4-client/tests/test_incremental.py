@@ -138,6 +138,19 @@ class IncrementalTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.store.import_segment(segment(self.case,8,start=6,parent=first['checkpoint']['id']),expected_tip=first['checkpoint']['id'])
         self.assertEqual(self.rows(),before)
 
+    def test_expiry_during_return_view_refuses_before_commit(self):
+        first=self.append(6);before=self.rows()
+        self.now=nanos(self.case['headers'][8]['signed_header']['header']['time'])+10**9
+        expiry=first['checkpoint']['lookahead_time_ns']+3600*10**9
+        original=self.store._cursor.view
+        def slow_view(*args,**kwargs):
+            result=original(*args,**kwargs)
+            if kwargs.get('current_authority'):self.now=expiry
+            return result
+        self.store._cursor.view=slow_view
+        with self.assertRaises(ValueError):self.store.import_segment(segment(self.case,8,start=6,parent=first['checkpoint']['id']),expected_tip=first['checkpoint']['id'])
+        self.assertEqual(self.rows(),before)
+
     def test_expired_or_backdated_import_cannot_renew_trust(self):
         first=self.append(6);before=self.rows()
         old=self.now

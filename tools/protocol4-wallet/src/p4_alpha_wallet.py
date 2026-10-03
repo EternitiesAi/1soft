@@ -5,6 +5,7 @@ The retained history is required to audit exact origins. Historical recovery is
 inert; copied workspaces and hostile host rollback are not fenced.
 """
 from __future__ import annotations
+from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
@@ -60,6 +61,21 @@ class P4AlphaWallet(P4Wallet):
             self._catalog();need(self.db.execute('PRAGMA journal_mode').fetchone()[0]=='wal','alpha wallet journal mode differs')
             self.db.execute('PRAGMA synchronous=FULL')
         except BaseException:self.close();raise
+
+    @contextmanager
+    def atomic(self,write=True):
+        try:
+            with super().atomic(write=write):
+                started=self.clock() if write else None
+                yield
+                if write:
+                    _,obs,_,latest=self._catalog()
+                    final=self.clock();previous=max(started,latest)
+                    if obs:self.store.check_current(obs[-1][1],now=final,previous_ns=previous)
+                    else:check_clock(self.policy,final,previous)
+        except BaseException:
+            self._active_checkpoint=None
+            raise
 
     def _catalog(self):
         private_path(self.path)
