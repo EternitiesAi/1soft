@@ -22,8 +22,17 @@ python scripts/run_protocol4_state_sync.py \
 
 Run the interruption profile separately with `--profile final-apply-crash` and
 different new output directories. An external bounded controller must save the
-actual runner return code, timeout flag, stdout/stderr truncation flag and log
-digest as a process receipt. The runner writes a canonical private `result.json`.
+actual runner return code, timeout and stdout/stderr truncation flags, PID/birth,
+actual final liveness, cleanup completion, rescue/error/survivor lists and survivor
+count. Zero exit, literal false timeout/truncation/liveness, literal true cleanup,
+empty lists and an integer zero survivor count are mandatory. A timeout rescue,
+unexpected nonzero exit, log read/write/fsync/close failure or missing actual
+receipt cannot qualify. Engine roles may exit zero or by explicitly requested
+SIGTERM; application/supervisor/recovery roles must exit zero after requested
+SIGTERM. SIGKILL is accepted only for the identified deliberate final-Apply pause
+child with its retained actual exit receipt.
+
+The runner writes a canonical private `result.json`.
 It preserves fresh node homes, original raw engine/native genesis, fixed original
 read policy, signed payment wires, complete signed evidence, format 2 chunks and
 ABCI packets, databases, disposable fixture keys and bounded original logs in the
@@ -46,8 +55,10 @@ python tools/release/check_protocol4_state_sync.py \
   --output /separate/new-semantic-validation.json
 ```
 
-The runner selects and records its fresh controlled genesis, trust height/hash and
-original policy before starting either the target app or engine. Those pins are
+The runner independently verifies and retains complete signed source evidence,
+then selects and records its fresh controlled genesis, trust height/hash and
+original policy before starting either the target app or engine. The checked time
+precedes the fixed pin time and actual retained target Popen start time. Those pins are
 printed as digests before target launch; snapshot metadata cannot choose trust.
 Comet's discovery delay is five seconds, meeting the pinned configuration's
 nonzero minimum. All RPC/P2P addresses and peers are loopback; ABCI uses private
@@ -85,8 +96,13 @@ reopening must audit the same snapshot-only database; the next actual engine
 Offer/Apply must show `checkpoint_recovery=True`. Recovery may accept the same
 checkpoint or a newer signed, externally trusted checkpoint. The report labels
 `recovery_kind` as `same` or `newer` and retains both original checkpoints;
-newer recovery is never described as exact same-height restoration. A lower-height
-offer must refuse without changing committed state. Original signed post-sync
+newer recovery is never described as exact same-height restoration. A canonical
+older snapshot is built by unchanged offline P4 replay from independently verified
+earlier source headers through Hprev+1. Its format 2 descriptor, metadata, domain,
+genesis, chunks, AppHash and payload hash are checked before a direct ABCI
+OfferSnapshot probe must return rejection without changing committed state. This
+probe is labelled manual direct ABCI; it does not claim an actual Comet rollback
+offer. Original signed post-sync
 payment and ordinary continuation remain required.
 
 At install, `snapshot_marker` matches `committed`, history/state audit succeeds
@@ -104,8 +120,18 @@ policy. It checks the original signed pre/post payments and current checkpoint
 freshness within 300 seconds. This does not claim that the target serves the
 existing complete-genesis `p4_rpc.collect` path; that target-only read remains
 unassessed. Captured equal checkpoints are compared while source tips may advance.
-The same database/home restart is separately authenticated, followed by another
+The same database/home restart is separately authenticated using actual device and
+inode observations before/after, immutable key-file digests, observed node ID,
+initial roster and retained process PID/birth/command records. Four distinct source
+validator homes and one distinct fresh nonvalidator must match the original
+genesis and process records. This is followed by another
 ordinary target advance and a fresh captured proof.
+
+A successful runner retains status
+`completed-awaiting-external-validation` and exits zero after checking its evidence
+core. It cannot attest its own final outer exit or cleanup. Only the standalone
+validator with the original external process receipt emits a passed validation
+artifact. The private result remains unchanged during external validation.
 
 Focused tests include synthetic quorum evidence over actual P4 execution and
 real private P4 socket/process SIGKILL/reoffer tests. Synthetic signed fixtures

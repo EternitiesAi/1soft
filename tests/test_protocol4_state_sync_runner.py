@@ -52,3 +52,71 @@ class Protocol4StateSyncRunnerTests(unittest.TestCase):
         self.assertEqual(config['trust_height'],11)
         self.assertEqual(config['trust_hash'],'AB'*32)
         self.assertEqual(config['rpc_servers'],'http://127.0.0.1:1111,http://127.0.0.1:2222')
+
+class Protocol4CaptureOutcomeTests(unittest.TestCase):
+    def test_read_failure_after_partial_bytes_is_not_a_complete_log(self):
+        import io
+        from run_protocol4_state_sync import Capture
+        class Broken(io.BytesIO):
+            def read(self,n=-1):
+                if self.tell():raise OSError('controlled read fault')
+                return super().read(n)
+        with tempfile.TemporaryDirectory() as d:
+            capture=Capture(Broken(b'partial stdout'),Path(d)/'read.log')
+            with self.assertRaises(ValueError):capture.finish()
+    def test_write_failure_is_not_a_complete_log(self):
+        import io
+        from unittest.mock import patch
+        from run_protocol4_state_sync import Capture
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'write.log';original_open=Path.open
+            class Writer:
+                def __enter__(self):self.stream=original_open(path,'xb');return self
+                def write(self,raw):raise OSError('controlled disk write fault')
+                def __exit__(self,*a):self.stream.close()
+            with patch.object(Path,'open',return_value=Writer()):
+                capture=Capture(io.BytesIO(b'original stdout'),path)
+                capture.thread.join(timeout=2)
+            with self.assertRaises(ValueError):capture.finish()
+    def test_fsync_failure_is_not_a_complete_log(self):
+        import io
+        from unittest.mock import patch
+        from run_protocol4_state_sync import Capture
+        with tempfile.TemporaryDirectory() as d, patch('run_protocol4_state_sync.os.fsync',side_effect=OSError('controlled fsync fault')):
+            capture=Capture(io.BytesIO(b'original stdout'),Path(d)/'sync.log')
+            with self.assertRaises(ValueError):capture.finish()
+
+
+class Protocol4OwnedOutcomeTests(unittest.TestCase):
+    def test_unexpected_nonzero_exit_is_rejected_after_actual_reap(self):
+        import sys
+        from run_protocol4_state_sync import Owned
+        with tempfile.TemporaryDirectory() as d:
+            owned=Owned(Path(d));item=owned.start('engine0',[sys.executable,'-c',
+                "print('actual child stdout',flush=True);raise SystemExit(7)"])
+            item['process'].wait(timeout=3)
+            with self.assertRaises(ValueError):owned.finish()
+            self.assertEqual(item['process'].returncode,7)
+    def test_rescue_sigkill_is_retained_but_never_qualified(self):
+        import sys,time
+        from run_protocol4_state_sync import Owned
+        with tempfile.TemporaryDirectory() as d:
+            owned=Owned(Path(d));item=owned.start('engine0',[sys.executable,'-c',
+                "import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);print('ready',flush=True);time.sleep(20)"])
+            end=time.monotonic()+3
+            while (not (Path(d)/'engine0.log').exists() or not (Path(d)/'engine0.log').stat().st_size) and time.monotonic()<end:
+                time.sleep(.01)
+            owned.stop_seconds=.05
+            with self.assertRaises(ValueError):owned.finish()
+            self.assertEqual(item['process'].returncode,-9)
+    def test_requested_sigterm_for_actual_owned_engine_role_is_explicit(self):
+        import sys
+        from run_protocol4_state_sync import Owned
+        with tempfile.TemporaryDirectory() as d:
+            owned=Owned(Path(d));item=owned.start('engine0',[sys.executable,'-c',
+                "import time;print('ready',flush=True);time.sleep(20)"])
+            owned.stop(item);records=owned.finish()
+            self.assertEqual(records[0]['role'],'engine')
+            self.assertTrue(records[0]['stop_requested'])
+            self.assertEqual(records[0]['termination_signal'],15)
+            self.assertFalse(records[0]['rescue_used'])

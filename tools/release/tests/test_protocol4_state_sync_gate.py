@@ -1,5 +1,6 @@
 """Refusal behavior for the P4 gate; no engine or network substitutes."""
 import copy
+import json
 import unittest
 from check_protocol4_state_sync import CHECK_IDS, validate_envelope
 
@@ -7,8 +8,10 @@ def envelope():
     source = {'commit': 'a'*40, 'tree': 'b'*40, 'source_id': 'c'*64,
               'files': [{'path': 'scripts/run_protocol4_state_sync.py',
                          'mode': '100644', 'sha256': 'd'*64}]}
-    process = {'returncode': 0, 'timed_out': False, 'log_truncated': False}
-    value = {'schema': '1soft-protocol4-state-sync-v1', 'status': 'passed',
+    process = {'returncode':0,'timed_out':False,'log_truncated':False,'cleanup_complete':True,
+               'rescue_actions':[],'cleanup_errors':[],'owned_survivors':[],'owned_survivor_count':0,
+               'pid':999,'birth':'999','alive_after':False}
+    value = {'schema': '1soft-protocol4-state-sync-v1', 'status': 'completed-awaiting-external-validation',
              'profile': 'basic', 'source': copy.deepcopy(source),
              'source_dirty_before': False, 'source_dirty_after': False,
              'engine_version': '0.38.25', 'engine_sha256': 'e'*64,
@@ -85,6 +88,15 @@ class Protocol4GateEnvelopeTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 self.validate(value, source, process)
 
+    def test_outer_cleanup_rescue_survivors_missing_or_bad_types_refused(self):
+        for key,replacement in (('cleanup_complete',False),('rescue_actions',[{'signal':9}]),
+                ('cleanup_errors',['disk fault']),('owned_survivors',[1]),('owned_survivor_count',True),
+                ('alive_after',True),('pid',True),('birth','')):
+            value,source,process=envelope();process[key]=replacement
+            with self.subTest(key=key),self.assertRaises(ValueError):self.validate(value,source,process)
+        value,source,process=envelope();process.pop('cleanup_complete')
+        with self.assertRaises(ValueError):self.validate(value,source,process)
+
 
 
 class Protocol4GateSemanticTests(unittest.TestCase):
@@ -126,9 +138,9 @@ class Protocol4GateSemanticTests(unittest.TestCase):
             target_restart={'database_before':'/private/a.db','database_after':'/private/a.db',
                 'home_before':'/private/home','home_after':'/private/home',
                 'before':copy.deepcopy(final['state']),'after':copy.deepcopy(final['state']),
-                'old_pid':101,'new_pid':102,'evidence':copy.deepcopy(final)},
+                'old_pid':10,'new_pid':11,'evidence':copy.deepcopy(final)},
             processes=[{'pid':i,'birth':str(i),'alive_after':False,'returncode':0} for i in range(1,11)],
-            logs=[{'bytes':100,'truncated':False,'sha256':'a'*64}])
+            logs=[{'bytes':100,'truncated':False,'sha256':'a'*64,'complete':True,'closed':True,'fsynced':True,'capture_error':None}])
         # Real ABCI dispatcher traffic supplies the test's transfer trace.
         from protocol4_application import Protocol4Application
         from protocol4_abci_wire import Request
@@ -159,6 +171,33 @@ class Protocol4GateSemanticTests(unittest.TestCase):
         self.value['evidence_origin']={'state':'target-ABCI-query',
             'headers':'source-engine-RPC','history':'source-blocks-with-target-durable-equality'}
         self.value['engine_sync']={'original_log':'Snapshot restored\nVerified ABCI app\n'}
+        gengine=json.loads(c['genesis'])
+        nodes=[]
+        for i in range(5):
+            pk=base64.b64decode(gengine['validators'][i]['pub_key']['value']).hex() if i<4 else 'f'*64
+            nodes.append({'index':i,'node_id':format(i+1,'040x'),'validator_public_key':pk,
+                'home_path':'/private/nodes/node'+str(i),'home_device':1,'home_inode':84+i,
+                'node_key_sha256':format(i+1,'064x'),'validator_key_sha256':format(i+6,'064x')})
+        self.value['nodes']=nodes
+        names=['engine'+str(i) for i in range(5)]+['app'+str(i) for i in range(5)]+['app4-restart','engine4-restart']
+        self.value['processes']=[{'name':name,'role':'engine' if name.startswith('engine') else 'app',
+            'pid':i+1,'birth':str(i+1),'returncode':0,'alive_after':False,
+            'stop_requested':True,'termination_signal':15,'rescue_used':False,'cleanup_error':None}
+            for i,name in enumerate(names)]
+        self.value['service_cleanup']={'complete':True,'rescue_actions':[],'errors':[],'owned_survivors':[]}
+        trust=self.value['trust_pin']
+        trust.update(pinned_at_ns=c['now_ns']-1,target_started_at_ns=c['now_ns'],
+            source_pids=[1,2,3,4],sources=[{'index':i,'engine_pid':i+1,'engine_birth':str(i+1),
+                'app_pid':i+6,'app_birth':str(i+6),'observed_height':3} for i in range(4)],
+            pre_target={'evidence':self.bundle(c,2),'checked_at_ns':c['now_ns']-2},
+            target_initial_inventory=['config/config.toml','config/genesis.json','config/node_key.json',
+                                      'config/priv_validator_key.json','data/priv_validator_state.json'])
+        restart=self.value['target_restart'];restart.update(old_birth='10',new_birth='11',
+            identity_before=copy.deepcopy(nodes[4]),identity_after=copy.deepcopy(nodes[4]),
+            database_device_before=1,database_device_after=1,database_inode_before=99,database_inode_after=99,
+            database_before='/private/app4/state.sqlite',database_after='/private/app4/state.sqlite',
+            home_before=nodes[4]['home_path'],home_after=nodes[4]['home_path'])
+
 
 
     def validate(self):
@@ -244,6 +283,45 @@ class Protocol4GateSemanticTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.validate()
 
 
+    def test_unexpected_nonzero_engine_exit_refused(self):
+        self.value['processes'][0]['returncode']=1
+        with self.assertRaises(ValueError):self.validate()
+    def test_service_rescue_sigkill_refused(self):
+        self.value['processes'][0].update(returncode=-9,rescue_used=True)
+        with self.assertRaises(ValueError):self.validate()
+    def test_any_log_or_cleanup_failure_refused(self):
+        self.value['service_cleanup']['errors']=['capture-fsync']
+        with self.assertRaises(ValueError):self.validate()
+    def test_changed_source_pid_or_validator_identity_refused(self):
+        for field in ('pid','pubkey'):
+            with self.subTest(field=field):
+                original=copy.deepcopy(self.value)
+                if field=='pid':self.value['trust_pin']['sources'][0]['engine_pid']=777
+                else:self.value['nodes'][0]['validator_public_key']='e'*64
+                with self.assertRaises(ValueError):self.validate()
+                self.value=original
+    def test_changed_database_home_node_id_or_key_hash_refused(self):
+        for field in ('database_inode_after','home_inode','node_id','node_key_sha256'):
+            with self.subTest(field=field):
+                original=copy.deepcopy(self.value)
+                if field=='database_inode_after':self.value['target_restart'][field]=100
+                else:self.value['target_restart']['identity_after'][field]=123 if field=='home_inode' else 'e'*40
+                with self.assertRaises(ValueError):self.validate()
+                self.value=original
+    def test_unverified_or_postlaunch_pre_target_checkpoint_refused(self):
+        for field in ('signature','time'):
+            with self.subTest(field=field):
+                original=copy.deepcopy(self.value)
+                if field=='signature':self.value['trust_pin']['pre_target']['evidence']['headers'][0]['signed_header']['commit']['signatures'][0]['signature']='AA=='
+                else:self.value['trust_pin']['pre_target']['checked_at_ns']=self.case['now_ns']+1
+                with self.assertRaises(ValueError):self.validate()
+                self.value=original
+
+    def test_stdout_incomplete_read_write_fsync_or_close_refused(self):
+        for key,replacement in (('complete',False),('closed',False),('fsynced',False),('capture_error','read fault')):
+            self.setUp();self.value['logs'][0][key]=replacement
+            with self.subTest(key=key),self.assertRaises(ValueError):self.validate()
+
 class Protocol4CrashSemanticTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -304,6 +382,34 @@ class Protocol4CrashSemanticTests(unittest.TestCase):
             'rollback_after':copy.deepcopy(reopened),'rollback_offer_result':3,
             'recovery_kind':'newer' if newer else 'same','home_device':1,'home_inode':88}
         v['profile']='final-apply-crash';v['checks'] += [{'id':x,'passed':True} for x in CRASH_IDS]
+        v['processes'][9]['role']='crash-supervisor'
+        v['processes'] += [
+            {'name':'engine4-recovery','role':'engine','pid':13,'birth':'13','alive_after':False,
+             'returncode':0,'stop_requested':True,'termination_signal':15,'rescue_used':False,'cleanup_error':None},
+            {'name':'pause-ready.json','role':'final-apply-pause-child','pid':201,'birth':'10',
+             'returncode':-9,'alive_after':False,'stop_requested':True,'termination_signal':9,
+             'rescue_used':False,'cleanup_error':None},
+            {'name':'recovery-ready.json','role':'recovery-child','pid':202,'birth':'20',
+             'returncode':0,'alive_after':False,'stop_requested':True,'termination_signal':15,
+             'rescue_used':False,'cleanup_error':None}]
+        v['crash']['identity_before']=copy.deepcopy(v['nodes'][4])
+        v['crash']['identity_after']=copy.deepcopy(v['nodes'][4])
+        from run_protocol4_state_sync import canonical_older_offer
+        from protocol4_abci_wire import Request
+        from protocol4_abci_server import dispatch
+        from protocol4_application import Protocol4Application
+        from commit_verifier import load_json
+        older=self.bundle(self.case,3)
+        request,chunks=canonical_older_offer(older,self.case['genesis'],self.case['policy'],now_ns=self.case['now_ns'])
+        with Protocol4Application(':memory:',expected_genesis=self.case['g']) as target:
+            target.state_sync._install(load_json(base64.b64decode(initial_trace['chunks'][0])),False)
+            answer=dispatch(target,request)
+        self.assertEqual(answer.offer_snapshot.result,3)
+        v['crash']['rollback_probe']={'kind':'manual-direct-ABCI-coherent-older-checkpoint','evidence':older,
+            'request':base64.b64encode(request.SerializeToString(deterministic=True)).decode(),
+            'response':base64.b64encode(answer.SerializeToString(deterministic=True)).decode(),
+            'chunks':[base64.b64encode(x).decode() for x in chunks]}
+
         return v
     def validate(self):
         from check_protocol4_state_sync import validate_result
@@ -331,3 +437,22 @@ class Protocol4CrashSemanticTests(unittest.TestCase):
     def test_wrong_owned_child_identity_refused(self):
         self.crash_value();self.value['crash']['killed']['birth']='11'
         with self.assertRaises(ValueError):self.validate()
+
+    def test_malformed_older_descriptor_is_not_a_rollback_qualification(self):
+        import base64
+        from protocol4_abci_wire import Request
+        self.crash_value()
+        probe=self.value['crash']['rollback_probe']
+        request=Request.FromString(base64.b64decode(probe['request']))
+        request.offer_snapshot.snapshot.height-=1
+        probe['request']=base64.b64encode(request.SerializeToString()).decode()
+        with self.assertRaises(ValueError):self.validate()
+    def test_missing_or_unsigned_older_proof_or_engine_label_refused(self):
+        for mutation in ('missing','signature','label','chunk'):
+            self.setUp();self.crash_value()
+            probe=self.value['crash']['rollback_probe']
+            if mutation=='missing':self.value['crash'].pop('rollback_probe')
+            elif mutation=='signature':probe['evidence']['headers'][0]['signed_header']['commit']['signatures'][0]['signature']='AA=='
+            elif mutation=='label':probe['kind']='actual-engine-rollback-offer'
+            else:probe['chunks'][0]='AA=='
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):self.validate()

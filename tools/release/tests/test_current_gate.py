@@ -242,7 +242,11 @@ class CurrentJavascriptTests(unittest.TestCase):
         source = {**self.source, 'tracked_files': 1}
         scenarios = [{'path': p, 'status': 'unassessed',
                       'reason': 'requires separate scenario qualification'} for p in JS_SCENARIOS]
-        profile = {'javascript_groups': JS_UNITS, 'javascript_scenarios': scenarios}
+        engine_scenarios=[{'path':'scripts/run_protocol4_state_sync.py','profile':name,
+            'status':'unassessed','reason':'requires separate real engine qualification'}
+            for name in ('basic','final-apply-crash')]
+        profile = {'javascript_groups': JS_UNITS, 'javascript_scenarios': scenarios,
+                   'python_engine_scenarios':engine_scenarios}
 
         def process(command, root, log, timeout):
             if command[0] == 'node': return self.process(command, root, log, timeout)
@@ -272,7 +276,8 @@ class CurrentJavascriptTests(unittest.TestCase):
                 self.assertEqual(result['local_checks'], 'passed' if mode is None else 'failed')
                 self.assertEqual(result['release_status'], 'blocked')
                 self.assertFalse(result['public_network_ready'])
-                self.assertEqual(result['scenario_qualification'], scenarios)
+                self.assertEqual(result['scenario_qualification'], scenarios+engine_scenarios)
+                self.assertTrue(all(x['status']=='unassessed' for x in result['scenario_qualification']))
                 self.assertEqual(len(result['javascript']['groups']), 3)
                 for record in result['javascript']['groups']:
                     self.assertEqual(record['run_id'], result['run_id'])
