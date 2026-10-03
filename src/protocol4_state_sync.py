@@ -8,6 +8,8 @@ They are not authenticated block IDs, votes, or historical response evidence.
 """
 from __future__ import annotations
 
+from development_profile import max_height_for
+
 from collections import OrderedDict
 import hashlib
 import sqlite3
@@ -41,7 +43,7 @@ def _metadata(genesis: dict, height: int, app_hash: str, size: int, chunks: int)
                      'genesis_sha256': digest(genesis), 'app_hash': app_hash})
 
 
-def _parse_metadata(raw: bytes) -> dict:
+def _parse_metadata(raw: bytes, *, max_height: int = 512) -> dict:
     require(type(raw) is bytes and len(raw) <= MAX_METADATA_BYTES,
             'invalid protocol-4 snapshot metadata')
     try:
@@ -55,7 +57,7 @@ def _parse_metadata(raw: bytes) -> dict:
     require(type(value['schema']) is int and value['schema'] == 2 and
             value['domain'] == DOMAIN and type(value['format']) is int and
             value['format'] == FORMAT, 'unsupported protocol-4 snapshot metadata')
-    require(type(value['height']) is int and 1 <= value['height'] <= 512 and
+    require(type(value['height']) is int and 1 <= value['height'] <= max_height and
             type(value['chunks']) is int and 1 <= value['chunks'] <= MAX_CHUNKS and
             type(value['chunk_bytes']) is int and value['chunk_bytes'] == CHUNK_BYTES and
             type(value['payload_bytes']) is int and 0 < value['payload_bytes'] <= MAX_SNAPSHOT_BYTES and
@@ -119,7 +121,9 @@ class Protocol4StateSync:
             return [dict(desc)]
 
     def load(self, height: int, format_: int, index: int) -> bytes:
-        require(type(height) is int and 1 <= height <= 512 and
+        pinned = self.app.expected_genesis or self.app.genesis
+        limit = 512 if pinned is None else max_height_for(pinned)
+        require(type(height) is int and 1 <= height <= limit and
                 type(format_) is int and format_ == FORMAT and
                 type(index) is int and 0 <= index < MAX_CHUNKS,
                 'invalid protocol-4 snapshot chunk request')
@@ -150,8 +154,8 @@ class Protocol4StateSync:
             try:
                 height, chunks, hash_ = (snapshot.get('height'), snapshot.get('chunks'),
                                          snapshot.get('hash'))
-                metadata = _parse_metadata(snapshot.get('metadata'))
-                require(type(height) is int and 1 <= height <= 512 and
+                metadata = _parse_metadata(snapshot.get('metadata'), max_height=max_height_for(app.expected_genesis))
+                require(type(height) is int and 1 <= height <= max_height_for(self.app.expected_genesis or self.app.genesis) and
                         (not checkpoint_recovery or height >= app.height) and
                         type(chunks) is int and 1 <= chunks <= MAX_CHUNKS and
                         type(hash_) is bytes and len(hash_) == 32 and

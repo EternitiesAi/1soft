@@ -82,7 +82,7 @@ def server(service_factory,*,port=0):
         def log_message(self,*_):pass
         def setup(self):
             super().setup();self.connection.settimeout(10)
-        def reply_headers(self,code,size,mime='application/json',filename=None):
+        def reply_headers(self,code,size,mime='application/json',filename=None,*,backup_format=None):
             self.send_response(code);self.send_header('Content-Type',mime)
             self.send_header('Content-Length',str(size));self.send_header('Cache-Control','no-store')
             self.send_header('Content-Security-Policy',CSP)
@@ -90,15 +90,24 @@ def server(service_factory,*,port=0):
             self.send_header('X-Frame-Options','DENY');self.send_header('Cross-Origin-Resource-Policy','same-origin')
             self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
             if filename:self.send_header('Content-Disposition','attachment; filename="'+filename+'"')
+            if backup_format:self.send_header('X-1Soft-Backup-Format',backup_format)
             self.end_headers()
         def reply(self,code,raw,mime='application/json',filename=None):
             self.reply_headers(code,len(raw),mime,filename);self.wfile.write(raw)
         def history_reply(self,item):
             from platform_service import HISTORY_BACKUP_BYTES,HISTORY_BLOCK_BYTES
-            size=item['size'];need(type(size) is int and 0<size<=HISTORY_BACKUP_BYTES,'history response bound differs')
+            alpha='format' in item
+            if alpha:need(type(item['format']) is str and item['format']=='alpha-v1','unknown history backup format')
+            limit=180*1024*1024 if alpha else HISTORY_BACKUP_BYTES
+            magic=b'1SOFTP4A1\n' if alpha else b'1SOFTP4B3\n'
+            filename='1soft-recovery-history.p4alpha' if alpha else '1soft-recovery-history.p4b3'
+            size=item['size'];need(type(size) is int and 10<=size<=limit,'history response bound differs')
+            prefix=item['source'].read(10)
+            need(type(prefix) is bytes and prefix==magic,'history backup magic differs')
             self.binary_started=True
-            self.reply_headers(200,size,'application/octet-stream','1soft-recovery-history.p4b3')
-            remaining=size
+            self.reply_headers(200,size,'application/octet-stream',filename,backup_format='alpha-v1' if alpha else None)
+            self.wfile.write(prefix)
+            remaining=size-len(prefix)
             while remaining:
                 raw=item['source'].read(min(remaining,HISTORY_BLOCK_BYTES))
                 need(type(raw) is bytes and 0<len(raw)<=remaining,'history output truncated')

@@ -30,7 +30,9 @@ def main():
         p=sub.add_parser(name);p.add_argument('--workspace',type=Path,required=True)
         if name!='status':p.add_argument('--engine',type=Path,required=True)
         if name in ('new','start'):p.add_argument('--port',type=int,default=0)
+        if name in ('new','init'):p.add_argument('--profile',choices=('legacy','durable-private-alpha-v1'),default='legacy',help='Select a fresh finite development profile; existing workspaces cannot be migrated')
     p=sub.add_parser('qualify');p.add_argument('--engine',type=Path,required=True)
+    p.add_argument('--profile',choices=('legacy','durable-private-alpha-v1'),default='legacy')
     p.add_argument('--output',type=Path,required=True)
     p=sub.add_parser('doctor',help='Inspect installed prerequisites without starting a network')
     p.add_argument('--engine',type=Path)
@@ -52,8 +54,12 @@ def main():
     from local_devnet import initialize,LocalNetwork,load_configuration,PIN_SHA
     from platform_http import server
     if args.command=='qualify':
-        from release_check import qualify
-        result=qualify(args.engine,args.output)
+        if args.profile=='durable-private-alpha-v1':
+            from alpha_acceptance import qualify_alpha
+            result=qualify_alpha(args.engine,args.output)
+        else:
+            from release_check import qualify
+            result=qualify(args.engine,args.output)
         print(encode(result).decode());return 0 if result['status']=='passed' else 1
     if args.command=='status':
         cfg=load_configuration(args.workspace)
@@ -63,7 +69,7 @@ def main():
             'running_state':'not probed','data_modified':False,'trust_renewed':False}).decode());return 0
     secret=None
     if args.command in ('new','init'):
-        secret=password(confirm=True);initialize(args.workspace,args.engine,PIN_SHA,password=secret)
+        secret=password(confirm=True);initialize(args.workspace,args.engine,PIN_SHA,password=secret,profile=None if args.profile=='legacy' else args.profile)
         if args.command=='init':
             print(encode({'status':'private_development_workspace_initialized','ready':False,
                 'next':'start with the same workspace and engine; original password required once'}).decode());return 0
@@ -78,7 +84,8 @@ def main():
         web=server(net.service,port=args.port);web.timeout=.25
         print(encode({'status':'local_development_wallet_running','url':f'http://127.0.0.1:{web.server_port}/',
             'validator_count':4,'workspace':str(net.root),'genesis_sha256':net.config['genesis_sha256'],
-            'rpc_collection_height_limit':64,'real_funds_supported':False,
+            'rpc_collection_height_limit':4096 if net.alpha else 64,'rpc_batch_blocks':64,
+            'checkpoint_progression':net.alpha,'real_funds_supported':False,
             'shutdown':'Ctrl+C stops only owned processes and preserves data'}).decode(),flush=True)
         while not stopped.is_set():
             net.health();web.handle_request()

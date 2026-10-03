@@ -10,7 +10,8 @@ from check_current import COMPONENTS, GROUPS, coverage
 
 JS_UNITS = {'reference': 'reference/kernel.test.mjs',
             'wallet': 'tools/local-platform/tests/wallet.test.cjs',
-            'history_backup': 'tools/local-platform/tests/backup_history.test.cjs'}
+            'history_backup': 'tools/local-platform/tests/backup_history.test.cjs',
+            'alpha_history': 'tools/local-platform/tests/alpha_history.test.cjs'}
 JS_SCENARIOS = ['tools/local-platform/tests/browser_service.test.cjs',
                 'tools/local-platform/tests/browser_workflow.test.cjs',
                 'tools/private-payments/tests/browser_comet.test.cjs']
@@ -142,7 +143,7 @@ class CurrentJavascriptTests(unittest.TestCase):
     def process(self, command, root, log, timeout):
         name = next(name for name, path in JS_UNITS.items() if command[-1] == path)
         self.calls.append((command, root, log.name, timeout))
-        tests = {'reference':30, 'wallet':8, 'history_backup':5}[name]
+        tests = {'reference':30, 'wallet':8, 'history_backup':5, 'alpha_history':8}[name]
         mode = self.bad if name == self.bad_group else None
         if mode != 'missing':
             cases = ''.join(f'{"not ok" if mode == "failed" and i == tests else "ok"} '
@@ -164,8 +165,8 @@ class CurrentJavascriptTests(unittest.TestCase):
 
     def test_both_suites_have_distinct_source_bound_results(self):
         result = self.check()
-        self.assertTrue(result['passed']); self.assertEqual(result['tests'], 43)
-        self.assertEqual(result['qualified_tests'], 43)
+        self.assertTrue(result['passed']); self.assertEqual(result['tests'], 51)
+        self.assertEqual(result['qualified_tests'], 51)
         self.assertEqual([r['name'] for r in result['groups']], list(JS_UNITS))
         for record, call in zip(result['groups'], self.calls):
             self.assertEqual(record['source_id'], self.source['source_id'])
@@ -181,15 +182,20 @@ class CurrentJavascriptTests(unittest.TestCase):
     def test_failed_wallet_suite_cannot_inherit_reference_pass(self):
         self.bad = 'failed'; result = self.check()
         self.assertFalse(result['passed']); self.assertEqual(result['fail'], 1)
-        self.assertEqual(result['qualified_tests'], 35)
-        self.assertEqual([r['passed'] for r in result['groups']], [True, False, True])
+        self.assertEqual(result['qualified_tests'], 43)
+        self.assertEqual([r['passed'] for r in result['groups']], [True, False, True, True])
 
     def test_failed_history_suite_cannot_inherit_the_two_original_passes(self):
         self.bad_group = 'history_backup'; self.bad = 'failed'
         result = self.check()
         self.assertFalse(result['passed']); self.assertEqual(result['fail'], 1)
-        self.assertEqual(result['qualified_tests'], 38)
-        self.assertEqual([r['passed'] for r in result['groups']], [True, True, False])
+        self.assertEqual(result['qualified_tests'], 46)
+        self.assertEqual([r['passed'] for r in result['groups']], [True, True, False, True])
+
+    def test_failed_alpha_suite_cannot_inherit_three_original_passes(self):
+        self.bad_group='alpha_history';self.bad='failed';result=self.check()
+        self.assertFalse(result['passed']);self.assertEqual(result['qualified_tests'],43)
+        self.assertEqual([r['passed'] for r in result['groups']],[True,True,True,False])
 
     def test_source_change_before_history_prevents_its_execution(self):
         changed = {**self.source, 'source_id': 'e' * 64}
@@ -201,9 +207,9 @@ class CurrentJavascriptTests(unittest.TestCase):
 
     def test_missing_wallet_log_remains_failed_and_named(self):
         self.bad = 'missing'; result = self.check()
-        self.assertFalse(result['passed']); self.assertEqual(len(result['groups']), 3)
+        self.assertFalse(result['passed']); self.assertEqual(len(result['groups']), 4)
         self.assertEqual(result['groups'][1]['error_type'], 'FileNotFoundError')
-        self.assertEqual(result['qualified_tests'], 35)
+        self.assertEqual(result['qualified_tests'], 43)
 
     def test_incomplete_wallet_summary_is_refused(self):
         self.bad = 'incomplete'; result = self.check()
@@ -278,7 +284,7 @@ class CurrentJavascriptTests(unittest.TestCase):
                 self.assertFalse(result['public_network_ready'])
                 self.assertEqual(result['scenario_qualification'], scenarios+engine_scenarios)
                 self.assertTrue(all(x['status']=='unassessed' for x in result['scenario_qualification']))
-                self.assertEqual(len(result['javascript']['groups']), 3)
+                self.assertEqual(len(result['javascript']['groups']), 4)
                 for record in result['javascript']['groups']:
                     self.assertEqual(record['run_id'], result['run_id'])
                     self.assertEqual(record['source_id'], result['source_id'])

@@ -117,7 +117,7 @@ def fresh(evidence, policy, now_ns, previous_ns=None):
 
 
 def transfer_review(evidence, report, prior, wallet_id, policy_id, *, payer,
-                    recipient, units, valid_until, grant_id='', invoice_terms=None, genesis_sha256=None):
+                    recipient, units, valid_until, grant_id='', invoice_terms=None, genesis_sha256=None, height_limit=512):
     """Internal: report must have been reverified from the supplied evidence."""
     identifier(payer); identifier(recipient)
     integer(units, 1, MAX_UNITS)
@@ -125,7 +125,7 @@ def transfer_review(evidence, report, prior, wallet_id, policy_id, *, payer,
     if grant_id:
         identifier(grant_id)
     height = report['state_height']
-    integer(valid_until, height + 1, min(512, height + MAX_VALIDITY_BLOCKS))
+    integer(valid_until, height + 1, min(height_limit, height + MAX_VALIDITY_BLOCKS))
     need(payer != FEE_ACCOUNT and recipient not in (payer, FEE_ACCOUNT), 'invalid transfer endpoint')
     held = pending(report, prior)
     need(not rotation_pending(report, prior, payer),
@@ -209,12 +209,12 @@ def invoice_review_context(review, genesis, genesis_sha256, now_ns):
 
 
 def rotation_review(evidence, report, prior, wallet_id, policy_id, *, payer,
-                    new_public_key, valid_until, acceptance=''):
+                    new_public_key, valid_until, acceptance='', height_limit=512):
     """Derive fee/nonce/authority solely from reverified canonical wallet state."""
     identifier(payer); pubkey(new_public_key)
     need(payer != FEE_ACCOUNT, 'system account cannot rotate')
     height = report['state_height']
-    integer(valid_until, height+1, min(512, height+MAX_VALIDITY_BLOCKS))
+    integer(valid_until, height+1, min(height_limit, height+MAX_VALIDITY_BLOCKS))
     need(type(acceptance) is str, 'invalid incoming consent')
     held = pending(report, prior)
     need(not any(d['review']['body']['sender'] == payer and
@@ -261,19 +261,19 @@ def rotation_review_context(review, *, accepted):
     return body
 
 
-def decision_review(e, r, prior, wallet_id, policy_id, review, genesis_sha256, now_ns):
+def decision_review(e, r, prior, wallet_id, policy_id, review, genesis_sha256, now_ns, *, height_limit=512):
     """Exact format dispatch for stored decisions; legacy transfer bytes unchanged."""
     if review.get('format') == ROTATION_REVIEW_FORMAT:
         body = rotation_review_context(review,accepted=True)
         return rotation_review(e,r,prior,wallet_id,policy_id,payer=body['sender'],
             new_public_key=body['op']['public_key'],valid_until=body['valid_until'],
-            acceptance=body['op']['acceptance'])
+            acceptance=body['op']['acceptance'],height_limit=height_limit)
     body = review['body']; exact(body,BODY_FIELDS,'reviewed transfer body'); op=body['op']
     invoice = invoice_review_context(review,e['state']['genesis'],genesis_sha256,now_ns)
     need(op['type'] == 'transfer', 'wallet transfer review only supports transfers')
     return transfer_review(e,r,prior,wallet_id,policy_id,payer=body['sender'],
         recipient=op['to'],units=op['units'],valid_until=body['valid_until'],
-        grant_id=body['grant_id'],invoice_terms=invoice,genesis_sha256=genesis_sha256)
+        grant_id=body['grant_id'],invoice_terms=invoice,genesis_sha256=genesis_sha256,height_limit=height_limit)
 
 
 class P4Wallet:
@@ -292,7 +292,7 @@ class P4Wallet:
         p4_genesis(self.genesis, self.policy['genesis_sha256'])
         self.clock = clock; self.db = None; self.path = private_path(path)
         if create:
-            now = self.clock(); check_clock(self.policy, now)
+            now = self.clock(); self._check_clock(now)
             fd = os.open(self.path, os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW, 0o600)
             os.close(fd)
         else:
@@ -318,6 +318,21 @@ class P4Wallet:
             self.db.execute('PRAGMA synchronous=FULL')
         except BaseException:
             self.close(); raise
+
+    def _check_clock(self, now, previous_ns=None):
+        return check_clock(self.policy, now, previous_ns)
+
+    def _fresh(self, context, now, previous_ns=None):
+        return fresh(context, self.policy, now, previous_ns)
+
+    def _transfer_review(self, *args, **kwargs):
+        return transfer_review(*args, **kwargs)
+
+    def _rotation_review(self, *args, **kwargs):
+        return rotation_review(*args, **kwargs)
+
+    def _decision_review(self, *args, **kwargs):
+        return decision_review(*args, **kwargs)
 
     @property
     def policy(self):
@@ -393,7 +408,7 @@ class P4Wallet:
     def _load(self, *, historical=False):
         wallet_id, obs, decisions, latest_ns = self._catalog()
         now = latest_ns if historical else self.clock()
-        check_clock(self.policy, now, latest_ns)
+        self._check_clock(now, latest_ns)
         need(obs, 'no authenticated P4 wallet checkpoint')
         raw_by_id = {r[1]: r for r in obs}
         audit = _EvidenceAudit(self.genesis, self.policy)
@@ -410,9 +425,9 @@ class P4Wallet:
             e, r = verify_at(proof, d['signed_ns'])
             need(raw_by_id[proof][0] >= last_proof_seq, 'signing evidence moved backward')
             last_proof_seq = raw_by_id[proof][0]
-            fresh(e, self.policy, d['signed_ns'])
+            self._fresh(e,d['signed_ns'])
             body = review['body']
-            expected = decision_review(e,r,decisions[:n],wallet_id,self.policy_id,review,
+            expected = self._decision_review(e,r,decisions[:n],wallet_id,self.policy_id,review,
                                        self.policy['genesis_sha256'],d['signed_ns'])
             need(encode(review) == encode(expected), 'stored review differs from verified origin')
             wire = bytes.fromhex(d['wire_hex']); packet = load_json(wire, max_bytes=16384)
@@ -430,7 +445,7 @@ class P4Wallet:
         # Previously confirmed execution may never disappear/change in later state.
         for d in decisions: matched_receipt(report, d)
         if not historical:
-            check_clock(self.policy, self.clock(), now)
+            self._check_clock(self.clock(), now)
         return wallet_id, e, report, decisions, latest_ns
 
     def _revision(self, wallet_id, report, decisions):
@@ -440,7 +455,7 @@ class P4Wallet:
         e = freeze(evidence)
         with self.atomic():
             wallet_id, obs, decisions, latest_ns = self._catalog()
-            now = self.clock(); check_clock(self.policy, now, latest_ns)
+            now = self.clock(); self._check_clock(now, latest_ns)
             if obs:
                 wallet_id, previous, old, decisions, latest_ns = self._load()
                 need(expected_revision == self._revision(wallet_id, old, decisions), 'reviewed wallet revision changed')
@@ -450,13 +465,13 @@ class P4Wallet:
             if obs:
                 extends(previous, e)
                 if report['state_height'] == old['state_height']:
-                    check_clock(self.policy, self.clock(), now)
+                    self._check_clock(self.clock(), now)
                     return {'status':'already_recorded','revision':self._revision(wallet_id,old,decisions)}
             for d in decisions: matched_receipt(report, d)
             raw = encode(e)
             need(len(obs) < MAX_OBSERVATIONS and sum(len(r[4]) for r in obs)+len(raw) <= MAX_PAYLOAD,
                  'wallet observation capacity reached; no evidence evicted')
-            checked = self.clock(); check_clock(self.policy, checked, max(now,latest_ns))
+            checked = self.clock(); self._check_clock(checked, max(now,latest_ns))
             self.db.execute('INSERT INTO observations VALUES (?,?,?,?,?)',
                 (len(obs)+1, report['evidence_id'], obs[-1][1] if obs else ZERO, checked, raw))
         return {'status':'checkpoint_recorded','revision':self._revision(wallet_id,report,decisions),
@@ -465,38 +480,42 @@ class P4Wallet:
     def status(self):
         with self.atomic(write=False):
             wallet_id, e, report, decisions, _ = self._load()
-            held = pending(report, decisions)
-            def total_for(field, value):
-                return sum(int(d['review']['debit_units']) for d in held
-                           if (d['review']['body']['sender'] if field=='payer' else d['review']['budget_id']) == value)
-            accounts = [{**a, 'pending_debit_units':str(total_for('payer',a['id'])),
-                         'uncommitted_units':str(max(0,int(a['recorded_balance'])-total_for('payer',a['id']))),
-                         'reservation_deficit_units':str(max(0,total_for('payer',a['id'])-int(a['recorded_balance'])))}
-                        for a in report['accounts']]
-            return {'status':'verified-wallet-observation',
-                    'revision':self._revision(wallet_id,report,decisions),
-                    'state_height':report['state_height'], 'registry_epoch':report['registry_epoch'],
-                    'accounts':accounts, 'budgets':[{'id':b[0],'cap':str(b[3]),'spent':str(b[4]),
-                    'pending_debit_units':str(total_for('budget',b[0])),
-                    'uncommitted_units':str(max(0,b[3]-b[4]-total_for('budget',b[0]))),
-                    'reservation_deficit_units':str(max(0,b[4]+total_for('budget',b[0])-b[3]))}
-                    for b in report['budgets']],
-                    'decisions':[{'id':d['id'],'status':'pending' if d in held else 'recorded',
-                                  'debit_units':d['review']['debit_units']} for d in decisions],
-                    'pending_debit_units':str(sum(int(d['review']['debit_units']) for d in held)),
-                    'latest_state_guaranteed':False, 'spending_authorized':False,
-                    'coordination_scope':'this local journal only', 'broadcast':False}
+            return self._status_from_verified(wallet_id,e,report,decisions)
+
+    def _status_from_verified(self,wallet_id,e,report,decisions):
+        """Projection only: callers must authenticate the original journal first."""
+        held = pending(report, decisions)
+        def total_for(field, value):
+            return sum(int(d['review']['debit_units']) for d in held
+                       if (d['review']['body']['sender'] if field=='payer' else d['review']['budget_id']) == value)
+        accounts = [{**a, 'pending_debit_units':str(total_for('payer',a['id'])),
+                     'uncommitted_units':str(max(0,int(a['recorded_balance'])-total_for('payer',a['id']))),
+                     'reservation_deficit_units':str(max(0,total_for('payer',a['id'])-int(a['recorded_balance'])))}
+                    for a in report['accounts']]
+        return {'status':'verified-wallet-observation',
+                'revision':self._revision(wallet_id,report,decisions),
+                'state_height':report['state_height'], 'registry_epoch':report['registry_epoch'],
+                'accounts':accounts, 'budgets':[{'id':b[0],'cap':str(b[3]),'spent':str(b[4]),
+                'pending_debit_units':str(total_for('budget',b[0])),
+                'uncommitted_units':str(max(0,b[3]-b[4]-total_for('budget',b[0]))),
+                'reservation_deficit_units':str(max(0,b[4]+total_for('budget',b[0])-b[3]))}
+                for b in report['budgets']],
+                'decisions':[{'id':d['id'],'status':'pending' if d in held else 'recorded',
+                              'debit_units':d['review']['debit_units']} for d in decisions],
+                'pending_debit_units':str(sum(int(d['review']['debit_units']) for d in held)),
+                'latest_state_guaranteed':False, 'spending_authorized':False,
+                'coordination_scope':'this local journal only', 'broadcast':False}
 
     def prepare(self, *, payer, recipient, units, valid_until, grant_id='', invoice_terms=None):
         with self.atomic(write=False):
             wallet_id, e, report, decisions, latest_ns = self._load()
-            fresh(e,self.policy,self.clock(),latest_ns)
+            self._fresh(e,self.clock(),latest_ns)
             need(len(decisions) < MAX_DECISIONS,'wallet decision capacity reached')
-            review = transfer_review(e,report,decisions,wallet_id,self.policy_id,payer=payer,
+            review = self._transfer_review(e,report,decisions,wallet_id,self.policy_id,payer=payer,
                 recipient=recipient,units=units,valid_until=valid_until,grant_id=grant_id,
                 invoice_terms=invoice_terms,genesis_sha256=self.policy['genesis_sha256'])
             invoice_review_context(review,e['state']['genesis'],self.policy['genesis_sha256'],self.clock())
-            fresh(e,self.policy,self.clock(),latest_ns)
+            self._fresh(e,self.clock(),latest_ns)
             return {'review':review,'confirmation':content_id(review),
                     'reserved':False,'signed':False,'broadcast':False}
 
@@ -507,13 +526,13 @@ class P4Wallet:
         with self.atomic():
             wallet_id, e, report, decisions, latest_ns = self._load()
             need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
-            now = self.clock(); fresh(e,self.policy,now,latest_ns)
+            now = self.clock(); self._fresh(e,now,latest_ns)
             body = review['body']; exact(body, BODY_FIELDS, 'reviewed body')
             op = body['op']
             invoice = invoice_review_context(review,e['state']['genesis'],
                 self.policy['genesis_sha256'],now)
             need(op['type']=='transfer','wallet only supports transfers')
-            expected = transfer_review(e,report,decisions,wallet_id,self.policy_id,
+            expected = self._transfer_review(e,report,decisions,wallet_id,self.policy_id,
                 payer=body['sender'],recipient=op['to'],units=op['units'],
                 valid_until=body['valid_until'],grant_id=body['grant_id'],
                 invoice_terms=invoice,genesis_sha256=self.policy['genesis_sha256'])
@@ -522,13 +541,13 @@ class P4Wallet:
             # have all passed within the one writer transaction.
             key = _load_vault(Path(vault),password)
             need(public(key)==review['signer_public_key'],'vault does not control the reviewed role')
-            fresh(e,self.policy,self.clock(),now)
+            self._fresh(e,self.clock(),now)
             invoice_review_context(review,e['state']['genesis'],self.policy['genesis_sha256'],self.clock())
             packet = sign(key,body)
             ledger = restore(e['state']['genesis'],e['state']['native'])
             try: ledger.apply(packet,height=report['state_height']+1)
             finally: ledger.close()
-            signed = self.clock(); fresh(e,self.policy,signed,now)
+            signed = self.clock(); self._fresh(e,signed,now)
             invoice_review_context(review,e['state']['genesis'],self.policy['genesis_sha256'],signed)
             decision = {'id':confirmation,'review':review,
                         'wire_hex':canonical(packet).hex(),'signed_ns':signed}
@@ -554,11 +573,11 @@ class P4Wallet:
     def prepare_rotation(self, *, payer, new_public_key, valid_until):
         with self.atomic(write=False):
             wallet_id,e,r,decisions,latest = self._load()
-            fresh(e,self.policy,self.clock(),latest)
+            self._fresh(e,self.clock(),latest)
             need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
-            review = rotation_review(e,r,decisions,wallet_id,self.policy_id,payer=payer,
+            review = self._rotation_review(e,r,decisions,wallet_id,self.policy_id,payer=payer,
                                      new_public_key=new_public_key,valid_until=valid_until)
-            fresh(e,self.policy,self.clock(),latest)
+            self._fresh(e,self.clock(),latest)
             return {'review':review,'confirmation':content_id(review),'reserved':False,
                     'owner_signed':False,'incoming_consent':False,'broadcast':False}
 
@@ -568,18 +587,18 @@ class P4Wallet:
              'explicit rotation confirmation differs')
         with self.atomic():
             wallet_id,e,r,decisions,latest = self._load()
-            now=self.clock(); fresh(e,self.policy,now,latest)
+            now=self.clock(); self._fresh(e,now,latest)
             need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
             body=rotation_review_context(review,accepted=False)
-            expected=rotation_review(e,r,decisions,wallet_id,self.policy_id,payer=body['sender'],
+            expected=self._rotation_review(e,r,decisions,wallet_id,self.policy_id,payer=body['sender'],
                 new_public_key=body['op']['public_key'],valid_until=body['valid_until'])
             need(encode(review)==encode(expected),'reviewed wallet state or rotation changed; review again')
             key=_load_vault(Path(incoming_vault),password)
             need(public(key)==body['op']['public_key'],'vault does not control incoming key')
-            fresh(e,self.policy,self.clock(),now)
+            self._fresh(e,self.clock(),now)
             accepted=accept_account_key(key,body)
             result={**review,'body':accepted}
-            fresh(e,self.policy,self.clock(),now)
+            self._fresh(e,self.clock(),now)
         return {'review':result,'confirmation':content_id(result),'reserved':False,
                 'owner_signed':False,'incoming_consent':True,'broadcast':False}
 
@@ -589,19 +608,19 @@ class P4Wallet:
              'explicit rotation confirmation differs')
         with self.atomic():
             wallet_id,e,r,decisions,latest=self._load()
-            now=self.clock(); fresh(e,self.policy,now,latest)
+            now=self.clock(); self._fresh(e,now,latest)
             need(len(decisions)<MAX_DECISIONS,'wallet decision capacity reached')
             body=rotation_review_context(review,accepted=True)
-            expected=decision_review(e,r,decisions,wallet_id,self.policy_id,review,
+            expected=self._decision_review(e,r,decisions,wallet_id,self.policy_id,review,
                                      self.policy['genesis_sha256'],now)
             need(encode(review)==encode(expected),'reviewed wallet state or rotation changed; review again')
             key=_load_vault(Path(owner_vault),password)
             need(public(key)==review['signer_public_key'],'vault does not control reviewed owner')
-            fresh(e,self.policy,self.clock(),now)
+            self._fresh(e,self.clock(),now)
             packet=sign(key,body); ledger=restore(e['state']['genesis'],e['state']['native'])
             try: ledger.apply(packet,height=r['state_height']+1)
             finally: ledger.close()
-            signed=self.clock(); fresh(e,self.policy,signed,now)
+            signed=self.clock(); self._fresh(e,signed,now)
             decision={'id':confirmation,'review':review,'wire_hex':canonical(packet).hex(),'signed_ns':signed}
             self.db.execute('INSERT INTO decisions VALUES (?,?,?,?)',
                             (len(decisions)+1,confirmation,signed,encode(decision)))
@@ -615,13 +634,13 @@ class P4Wallet:
         hash_text(decision_id); identifier(payer); incoming=freeze(evidence)
         with self.atomic(write=False):
             _,e,_,decisions,latest=self._load()
-            now=self.clock(); check_clock(self.policy,now,latest)
+            now=self.clock(); self._check_clock(now,latest)
             rows=[d for d in decisions if d['id']==decision_id]
             need(len(rows)==1,'rotation decision unavailable')
             d=rows[0]; body=rotation_review_context(d['review'],accepted=True)
             need(body['sender']==payer,'rotation payer differs')
             r=verify_evidence(incoming,self.genesis,self.policy,now_ns=now)
-            fresh(incoming,self.policy,now,latest); extends(e,incoming)
+            self._fresh(incoming,now,latest); extends(e,incoming)
             found=matched_receipt(r,d)
             owner=next(a for a in r['accounts'] if a['id']==payer)
             result={'status':'rotation-unobserved' if found is None else 'rotation-recorded',
@@ -662,5 +681,5 @@ class P4Wallet:
                     g['id'] in grants and (grants[g['id']][3]!=owner['epoch'] or
                     bool(grants[g['id']][9]) or grants[g['id']][7]<r['state_height']+1)
                     for g in d['review']['affected_grants'])
-            fresh(incoming,self.policy,self.clock(),now)
+            self._fresh(incoming,self.clock(),now)
             return result

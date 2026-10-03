@@ -19,6 +19,9 @@ from validator_sets_core import canonical_roster
 from commit_verifier import header_hash
 from p4_evidence import need, integer, hash_text, policy_checked, p4_genesis
 from p4_read_store import private_path
+from development_profile import DURABLE_PROFILE,max_height_for
+from p4_incremental_evidence import policy_v2_checked
+from validator_witness import nanos
 from p4_delivery import collect_evidence
 from platform_service import PlatformService
 from run_devnet import free_ports, patch_toml
@@ -107,7 +110,9 @@ def immutable_names():
     return names
 
 
-def initialize(workspace,engine,expected_sha256=PIN_SHA,*,password):
+def initialize(workspace,engine,expected_sha256=PIN_SHA,*,password,profile=None):
+    need(profile is None or type(profile) is str and profile==DURABLE_PROFILE,
+         'unknown explicit development profile')
     binary=verify_engine(engine,expected_sha256);_password(password)
     root=Path(workspace).absolute()
     need(not root.is_relative_to(ROOT),'development workspace must be outside source')
@@ -135,6 +140,7 @@ def initialize(workspace,engine,expected_sha256=PIN_SHA,*,password):
     genesis={'chain_id':chain,'asset':'DEV','fee':2,'protocol_version':4,
         'allocations':[{'public_key':keys['owner'],'units':1000},{'public_key':keys['merchant'],'units':0}],
         'validator_registry':registry}
+    if profile is not None:genesis['development_profile']=profile
     private_new(root/'app-genesis.json',encode(genesis))
     engine_genesis.update(chain_id=chain,initial_height='1',app_state=genesis,validators=initial)
     engine_genesis['consensus_params']['block'].update(max_bytes='1048576',max_gas='-1')
@@ -184,10 +190,14 @@ def load_configuration(workspace):
 
 
 class LocalNetwork:
+    # Existing subclasses with their own constructor retain the legacy profile.
+    alpha=False
+    _alpha_store=None
     def __init__(self,workspace,engine,*,clock=time.time_ns):
         self.root=Path(workspace).absolute();self.config=load_configuration(self.root)
         self.binary=verify_engine(engine);self.clock=clock
-        self.lock=None;self.apps=[];self.engines=[];self.handles=[];self.stopped=False
+        self.lock=None;self.apps=[];self.engines=[];self.handles=[];self.stopped=False;self._alpha_store=None
+        self.alpha=load_json(read_private(self.root/'app-genesis.json')).get('development_profile')==DURABLE_PROFILE
     def _log(self,name):
         p=private_path(self.root/name)
         need(not p.exists() or p.stat().st_size<=MAX_LOG,'node log capacity reached')
@@ -223,10 +233,19 @@ class LocalNetwork:
                  [self.root/f'{kind}{i}.log' for kind in ('app','engine') for i in range(4)]),
                  'node log capacity reached; stop and preserve data')
     def policy(self):
-        q=policy_checked(load_json(read_private(self.root/'policy.json')))
+        q=(policy_v2_checked if self.alpha else policy_checked)(load_json(read_private(self.root/'policy.json')))
         need(q['genesis_sha256']==self.config['genesis_sha256'],'workspace policy belongs to another genesis')
         return q
     def service(self,**kw):
+        if self.alpha:
+            from p4_incremental_store import P4IncrementalStore
+            from p4_alpha_platform_service import AlphaPlatformService
+            genesis=read_private(self.root/'engine-genesis.json');policy=self.policy()
+            if self._alpha_store is None:
+                self._alpha_store=P4IncrementalStore(self.root/'ledger.sqlite',genesis,policy,
+                    create=kw.get('create',False),clock=self.clock)
+            return AlphaPlatformService(self.root,genesis,policy,self.config['endpoint'],
+                self.config['roles'],clock=self.clock,store=self._alpha_store,**kw)
         return PlatformService(self.root,read_private(self.root/'engine-genesis.json'),self.policy(),
                                self.config['endpoint'],self.config['roles'],clock=self.clock,**kw)
     def ready(self):
@@ -244,11 +263,12 @@ class LocalNetwork:
         _password(password);genesis=load_json(read_private(self.root/'app-genesis.json'))
         key=_load_vault(self.root/'owner.pem',password)
         need(public(key)==genesis['allocations'][0]['public_key'],'development owner vault differs')
+        expiry=4096 if self.alpha else 500
         recipient=self.config['merchant'];port=self.config['ports'][4];ops=[{
-            'type':'budget_create','id':'studio','cap':100,'expires':500,'recipients':[recipient]}]
+            'type':'budget_create','id':'studio','cap':100,'expires':expiry,'recipients':[recipient]}]
         for name in ('raven','atlas'):
             pk=public(_load_vault(self.root/(name+'.pem'),password))
-            ops.append({'type':'grant','id':name,'public_key':pk,'cap':100,'expires':500,
+            ops.append({'type':'grant','id':name,'public_key':pk,'cap':100,'expires':expiry,
                         'recipients':[recipient],'budget_id':'studio'})
         # This setup exists only before the canonical financial journal. Each
         # original setup wire/claim is retained; uncertain claims are not resent.
@@ -280,10 +300,17 @@ class LocalNetwork:
             policy={'schema':1,'format':'1soft/protocol4-read-policy/v1','genesis_sha256':self.config['genesis_sha256'],
                 'anchor_height':1,'anchor_hash':header_hash(first).hex(),'anchor_time':first['time'],
                 'trust_period_seconds':3600,'max_clock_drift_seconds':5,'expected_block_version':11}
-            private_new(policy_path,encode(policy_checked(policy)))
-        proof=collect_evidence(self.config['endpoint'],read_private(self.root/'engine-genesis.json'),self.policy(),self.clock())['evidence']
-        with self.service(create=True) as svc:
-            svc.import_checkpoint(proof,expected_tip=None);svc.sync(expected_revision=None)
+            if self.alpha:
+                policy.update(schema=2,format='1soft/protocol4-read-policy/v2',checkpoint_progression=True,
+                    absolute_not_after_ns=nanos(policy['anchor_time'])+86400*10**9)
+            private_new(policy_path,encode((policy_v2_checked if self.alpha else policy_checked)(policy)))
+        if self.alpha:
+            with self.service(create=True) as svc:
+                svc.refresh(expected_tip=None);svc.sync(expected_revision=None)
+        else:
+            proof=collect_evidence(self.config['endpoint'],read_private(self.root/'engine-genesis.json'),self.policy(),self.clock())['evidence']
+            with self.service(create=True) as svc:
+                svc.import_checkpoint(proof,expected_tip=None);svc.sync(expected_revision=None)
         private_new(self.root/'READY.json',encode({'schema':1,'format':'1soft/local-development-ready/v1',
             'workspace_sha256':hashlib.sha256(read_private(self.root/'workspace.json')).hexdigest(),
             'policy_sha256':hashlib.sha256(read_private(policy_path)).hexdigest()}))
@@ -299,6 +326,7 @@ class LocalNetwork:
                     p.kill();p.wait(timeout=10);errors.append('owned process required kill; inspect retained socket before restart')
         for h in self.handles:h.close()
         self.handles=[]
+        if self._alpha_store is not None:self._alpha_store.close();self._alpha_store=None
         if self.lock is not None:self.lock.__exit__();self.lock=None
         self.stopped=True
         return {'status':'owned_processes_stopped','data_preserved':True,'warnings':errors}

@@ -113,6 +113,12 @@ class _WalletAudit:
         self.policy_id = content_id(self.policy)
         self._policy_bytes = encode(self.policy)
 
+    _check_clock = P4Wallet._check_clock
+    _fresh = P4Wallet._fresh
+    _transfer_review = P4Wallet._transfer_review
+    _rotation_review = P4Wallet._rotation_review
+    _decision_review = P4Wallet._decision_review
+
     def _catalog(self): return P4Wallet._catalog(self)
     def load(self): return P4Wallet._load(self, historical=True)
 
@@ -127,6 +133,13 @@ class _DeliveryAudit:
         from payment_rpc import endpoint_port
         endpoint_port(self.endpoint)
         self.config = self._config()
+
+    APPLICATION_ID = DELIVERY_ID
+    VERSION = 1
+    REVIEW_FORMAT = P4Delivery.REVIEW_FORMAT
+    _fresh = P4Delivery._fresh
+    _check_clock = P4Delivery._check_clock
+    _derive_review = P4Delivery._derive_review
 
     def _config(self): return P4Delivery._config(self)
     def _review(self, *args): return P4Delivery._review(self, *args)

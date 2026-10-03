@@ -53,6 +53,11 @@ raise SystemExit(int(os.environ.get('ENTRYPOINT_TEST_RETURN','0')))
         result=self.launch('--help',no_site=True)
         self.assertEqual(0,result.returncode,result.stderr)
         self.assertIn(b'doctor',result.stdout);self.assertIn(b'check',result.stdout)
+    def test_new_profile_is_explicit_and_cannot_be_selected_for_existing_start(self):
+        result=self.launch('new','--help',no_site=True)
+        self.assertEqual(0,result.returncode);self.assertIn(b'durable-private-alpha-v1',result.stdout)
+        result=self.launch('start','--workspace',self.base/'unused','--engine',self.base/'missing','--profile','durable-private-alpha-v1')
+        self.assertEqual(2,result.returncode);self.assertFalse((self.base/'unused').exists())
     def test_check_routes_current_checker_and_clears_inherited_import_path(self):
         output=self.base/'evidence'
         result=self.launch('check','--output',output,'--timeout','47',

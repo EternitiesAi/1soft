@@ -21,14 +21,18 @@ workspace recovery. With the pinned prerequisites already installed on Linux/WSL
 ```sh
 python tools/local-platform/scripts/1soft.py doctor --engine /path/to/cometbft
 python tools/local-platform/scripts/1soft.py new \
-  --workspace "$HOME/1soft-demo" --engine /path/to/cometbft
+  --profile durable-private-alpha-v1 \
+  --workspace "$HOME/1soft-alpha" --engine /path/to/cometbft
 ```
 
 Open the exact loopback URL printed by the command. This starts four disposable
-local validators and encrypted development vaults. Complete a short demo and stop
-with Ctrl+C: the collector is bounded to 64 blocks, roughly four minutes at this
-configuration. The original one-hour trust deadline keeps elapsing while stopped.
-The [local platform reference](tools/local-platform/README.md) explains the limits.
+local validators and encrypted development vaults. The explicit durable alpha
+retains up to 4,096 authenticated blocks in batches of at most 64, while preserving
+the original signing journal and payment obligations across restart. Its original
+24-hour horizon and uninterrupted checkpoint deadlines keep elapsing while stopped.
+Stop with Ctrl+C. The default legacy profile retains its short-demo limits.
+See [durable alpha](docs/DURABLE_ALPHA.md) and the
+[local platform reference](tools/local-platform/README.md) for exact behavior.
 
 ## What you can build with it
 
@@ -40,6 +44,7 @@ The [local platform reference](tools/local-platform/README.md) explains the limi
 | Changing validator committees | The opt-in P4 client verifies the complete signed roster history and replays payments from independently pinned genesis. | [P4 client](tools/protocol4-client/README.md) |
 | Owner key replacement | Incoming-key consent and current-owner approval share the wallet's fee reservation and exact receipt confirmation. | [Owner replacement](docs/P4_KEY_ROTATION.md) |
 | Encrypted historical recovery | Original journal rows, signed wires, holds and receipts survive complete backups, including larger admitted journals. Restored archives cannot sign or send. | [Custody and recovery](tools/protocol4-custody/README.md) |
+| Durable private alpha | Incremental authenticated history, preserved original journal and an actual-hour qualification command; fresh genesis and explicit finite trust policy. | [Durable alpha](docs/DURABLE_ALPHA.md) |
 | Browser history download | Explicit encrypted export of all retained shared wallet/delivery history; no private keys or active restoration. | [Browser recovery](docs/BROWSER_HISTORY_BACKUP.md) |
 | Portable payment evidence | An offline checker verifies the original invoice, signed transaction, receipt and public content under external trust pins. | [Merchant proofs](docs/PORTABLE_MERCHANT_PROOF.md) |
 

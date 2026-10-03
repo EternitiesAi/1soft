@@ -1,0 +1,14 @@
+# Durable private alpha implementation
+
+Goal: deliver the explicitly opted-in finite alpha described by the approved design, preserve original financial obligations, independently qualify real sustained execution, and privately merge/package exact tested source.
+Architecture: root-pinned incremental history with process-local replay, small immutable contexts referenced by one new monetary journal, prospective sequential trust under an immutable deadline.
+Stack: existing Python/SQLite/cryptography, cached CometBFT0.38.25, existing browser/Node tools; no dependency installation.
+Spec: ../specs/2026-10-03-durable-alpha-design.md
+Global constraints: exclusions and preservation rules in that spec apply to every worker. Separate subagent worktrees; Root owns integration.
+
+1. Root: add `src/development_profile.py`; explicitly validate P4-only genesis profile in `src/native_core.py`; derive bounded application/replay/state-sync heights in `src/protocol4_application.py` and `src/protocol4_state_sync.py`. Freeze legacy full-proof rejection in `p4_evidence.py`. Add detecting boundary/genesis/legacy tests.
+2. Builder: new `p4_incremental_evidence.py`, `p4_incremental_store.py`, `p4_incremental_rpc.py` with v2 policy, exact signed delta replay, cold audit, finite quotas, atomic CAS, historical contexts and archive export. Test against unchanged legacy oracle and adversarial cases. No imported unchecked replay state.
+3. Root: extract overridable authenticated clock/context/review hooks while preserving default P4Wallet behavior; implement new reference-backed wallet and delivery/custody modules. Integrate an explicit alpha profile in local service/devnet/CLI with accurate limits and inert recovery. Shared checkpoint IDs must authenticate exact origin reviews/signatures/holds and original attempt/receipt identity.
+4. Independent reviewer: mathematical expiry oracle, coherent history/financial mutations, exact CAS/precommit/cold reopen tests against integrated source; report source-bound blockers. Root repairs failures without changing acceptance criteria.
+5. Root: freeze candidate, run relevant existing compatibility/current gates and new product flows, then actual cached-engine qualification in one new private workspace for over one real hour and beyond512 blocks. Collect bounded deltas, preserve same policy/genesis/home/journals, interrupt/reopen owned processes and test exact old wire/receipt and post-boundary payment. Record sanitized raw logs, UTC and monotonic time, source/engine hashes, owned cleanup and independent original-artifact review.
+6. Root: update product docs/presentation to tested limits, privately publish and merge with existing GH authorization without Actions. Package exact source, source patch, sanitized execution logs and CODEX_RESULT.md/json. Independently inspect archive and verify extraction, publication tree and runtime closure. Seal project continuity at completed checkpoint.

@@ -140,6 +140,7 @@ def verify_evidence(value, genesis_bytes, policy, *, now_ns):
     """
     p = policy_checked(policy); expiry = check_clock(p, now_ns)
     g, initial_roster = p4_genesis(genesis_bytes, p['genesis_sha256'])
+    need('development_profile' not in g, 'explicit alpha requires incremental evidence format')
     e = freeze(value)
     exact(e, {'schema', 'format', 'state', 'history', 'headers'}, 'P4 evidence')
     integer(e['schema'], 1, 1)

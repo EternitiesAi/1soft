@@ -103,6 +103,22 @@ class P4Delivery:
     execution. Copies, other journals, raw signed-byte submission and hostile local
     filesystem/clock control are outside the coordination boundary.
     """
+    APPLICATION_ID = APP_ID
+    VERSION = 1
+    REVIEW_FORMAT = REVIEW_FORMAT
+
+    def _open_wallet(self, path, genesis, policy, clock):
+        return P4Wallet(path, genesis, policy, clock=clock)
+
+    def _response_atomic(self):
+        return self.atomic()
+
+    def _check_clock(self, now, previous_ns=None):
+        return self.wallet._check_clock(now, previous_ns)
+
+    def _fresh(self, context, now, previous_ns=None):
+        return self.wallet._fresh(context, now, previous_ns)
+
     def __init__(self, wallet_path, path, genesis, policy, endpoint, *, create=False,
                  clock=time.time_ns):
         need(type(create) is bool, 'invalid delivery creation mode')
@@ -110,12 +126,12 @@ class P4Delivery:
         wallet_path, self.path = disjoint_paths(wallet_path,path)
         self.wallet=None; self.db=None; self.clock=clock; self.endpoint=endpoint
         try:
-            self.wallet=P4Wallet(wallet_path,genesis,policy,clock=clock)
+            self.wallet=self._open_wallet(wallet_path,genesis,policy,clock)
             with self.wallet.atomic(write=False):
                 wid,_,_,_=self.wallet._catalog()
             self.wallet_id=wid
             if create:
-                now=clock(); check_clock(self.wallet.policy,now)
+                now=clock(); self._check_clock(now)
                 fd=os.open(self.path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
                 os.close(fd)
             else:
@@ -125,12 +141,12 @@ class P4Delivery:
             if create:
                 self.db.execute('PRAGMA journal_mode=WAL'); self.db.execute('PRAGMA synchronous=FULL')
                 with self.atomic():
-                    self.db.execute(f'PRAGMA application_id={APP_ID}')
+                    self.db.execute(f'PRAGMA application_id={self.APPLICATION_ID}')
                     self.db.execute('CREATE TABLE config(id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, delivery_id TEXT NOT NULL, wallet_id TEXT NOT NULL, policy_id TEXT NOT NULL, genesis_sha256 TEXT NOT NULL, endpoint TEXT NOT NULL, created_ns INTEGER NOT NULL)')
                     self.db.execute('CREATE TABLE attempts(seq INTEGER PRIMARY KEY, decision_id TEXT UNIQUE NOT NULL, claimed_ns INTEGER NOT NULL, review BLOB NOT NULL)')
                     self.db.execute('CREATE TABLE responses(decision_id TEXT PRIMARY KEY, observed_ns INTEGER NOT NULL, payload BLOB NOT NULL)')
                     self.db.execute('CREATE TABLE receipts(seq INTEGER PRIMARY KEY, decision_id TEXT UNIQUE NOT NULL, evidence_id TEXT NOT NULL, checked_ns INTEGER NOT NULL, payload BLOB NOT NULL)')
-                    self.db.execute('INSERT INTO config VALUES (1,1,?,?,?,?,?,?)',
+                    self.db.execute(f'INSERT INTO config VALUES (1,{self.VERSION},?,?,?,?,?,?)',
                         (secrets.token_hex(32),wid,self.wallet.policy_id,
                          self.wallet.policy['genesis_sha256'],endpoint,now))
                 fd=os.open(self.path.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
@@ -160,7 +176,7 @@ class P4Delivery:
             raise
 
     def _config(self):
-        need(self.db.execute('PRAGMA application_id').fetchone()[0]==APP_ID,
+        need(self.db.execute('PRAGMA application_id').fetchone()[0]==self.APPLICATION_ID,
              'not a P4 delivery database; no migration or repair')
         objects=self.db.execute("SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchall()
         need(set(objects)=={('table',x) for x in COLUMNS},'unexpected delivery schema')
@@ -168,7 +184,7 @@ class P4Delivery:
             need(tuple(r[1] for r in self.db.execute(f'PRAGMA table_info({table})'))==cols,
                  'delivery columns differ')
         rows=self.db.execute('SELECT * FROM config').fetchall()
-        need(len(rows)==1 and rows[0][:2]==(1,1),'delivery configuration missing or malformed')
+        need(len(rows)==1 and rows[0][:2]==(1,self.VERSION),'delivery configuration missing or malformed')
         r=rows[0]; hash_text(r[2]);integer(r[7])
         need(r[3:7]==(self.wallet_id,self.wallet.policy_id,self.wallet.policy['genesis_sha256'],self.endpoint),
              'delivery wallet, policy, genesis or endpoint differs')
@@ -186,7 +202,10 @@ class P4Delivery:
         return d
 
     def _review(self,e,r,decisions,d,now,config):
-        fresh(e,self.wallet.policy,now)
+        self._fresh(e,now)
+        return self._derive_review(e,r,decisions,d,now,config)
+
+    def _derive_review(self,e,r,decisions,d,now,config):
         need(matched_receipt(r,d) is None,'payment is already recorded; no submission allowed')
         body=d['review']['body'];payer=body['sender'];raw=bytes.fromhex(d['wire_hex'])
         need(d['review']['format']==ROTATION_REVIEW_FORMAT or
@@ -207,7 +226,7 @@ class P4Delivery:
                 need(b['spent']+total<=b['cap'],'shared budget reservations exceed remaining allowance')
             ledger.apply(load_json(raw,max_bytes=16384),height=r['state_height']+1)
         finally:ledger.close()
-        return {'schema':1,'format':REVIEW_FORMAT,'delivery_id':config[2],
+        return {'schema':1,'format':self.REVIEW_FORMAT,'delivery_id':config[2],
             'wallet_id':self.wallet_id,'policy_id':self.wallet.policy_id,
             'wallet_revision':revision(self.wallet_id,self.wallet.policy_id,r['evidence_id'],decisions),
             'decision_count':len(decisions),'evidence_id':r['evidence_id'],'decision_id':d['id'],
@@ -273,9 +292,9 @@ class P4Delivery:
                 attempts,_,receipts,last=self._audit(ds)
                 need(decision_id not in attempts,'dispatch already claimed; collect evidence, never auto-resend')
                 need(decision_id not in receipts,'receipt already collected; reconcile instead')
-                now=self.clock();check_clock(self.wallet.policy,now,max(wclock,last))
+                now=self.clock();self._check_clock(now,max(wclock,last))
                 review=self._review(e,r,ds,d,now,self.config)
-                fresh(e,self.wallet.policy,self.clock(),now)
+                self._fresh(e,self.clock(),now)
                 return {'review':review,'confirmation':content_id(review),
                         'submission_performed':False,'wallet_reservations_changed':False}
 
@@ -291,17 +310,17 @@ class P4Delivery:
                 need(d['id'] not in attempts,'dispatch already claimed; no retry permitted')
                 need(d['id'] not in receipts,'receipt already collected; no submission permitted')
                 need(len(attempts)<MAX_ATTEMPTS,'delivery capacity reached')
-                now=self.clock();check_clock(self.wallet.policy,now,max(wclock,last))
+                now=self.clock();self._check_clock(now,max(wclock,last))
                 expected=self._review(e,r,ds,d,now,self.config)
                 need(encode(expected)==encode(review),'wallet or delivery review changed; review again')
-                at=self.clock();fresh(e,self.wallet.policy,at,now)
+                at=self.clock();self._fresh(e,at,now)
                 self.db.execute('INSERT INTO attempts VALUES (?,?,?,?)',
                                 (len(attempts)+1,d['id'],at,encode(review)))
         # Both SQLite locks are released before HTTP. There is deliberately no
         # fictitious transaction spanning a local DB and an external node.
         raw=bytes.fromhex(d['wire_hex'])
         outcome=observation(submit_once(self.endpoint,raw,len(attempts)+1))
-        with self.atomic():
+        with self._response_atomic():
             need(self._config()==self.config,'delivery configuration changed during dispatch')
             row=self.db.execute('SELECT claimed_ns,review FROM attempts WHERE decision_id=?',(d['id'],)).fetchone()
             need(row is not None and row[1]==encode(review),'attempt record changed during dispatch')
@@ -330,23 +349,23 @@ class P4Delivery:
             _,old,report,ds,wclock=self.wallet._load();d=self._selected(ds,decision_id,payer,grant_id)
             with self.atomic():
                 _,_,receipts,last=self._audit(ds)
-                now=self.clock();check_clock(self.wallet.policy,now,max(wclock,last))
+                now=self.clock();self._check_clock(now,max(wclock,last))
                 r=verify_evidence(e,self.wallet.genesis,self.wallet.policy,now_ns=now);extends(old,e)
                 receipt=matched_receipt(r,d)
                 if receipt is None:
-                    check_clock(self.wallet.policy,self.clock(),now)
+                    self._check_clock(self.clock(),now)
                     return {'status':'unavailable','decision_id':decision_id,
                             'historical_absence_proven':False,'wallet_reservations_changed':False}
                 if decision_id in receipts:
                     need(encode(receipt['record'])==encode(receipts[decision_id]['receipt']['record']),
                          'conflicting execution receipt')
-                    check_clock(self.wallet.policy,self.clock(),now)
+                    self._check_clock(self.clock(),now)
                     return {'status':'already_collected','decision_id':decision_id,
                             'evidence_id':receipts[decision_id]['evidence_id'],'wallet_reservations_changed':False}
                 raw=encode({'wallet_evidence_id':report['evidence_id'],'evidence':e})
                 size=self.db.execute('SELECT coalesce(sum(length(payload)),0) FROM receipts').fetchone()[0]
                 need(len(receipts)<MAX_RECEIPTS and size+len(raw)<=MAX_RECEIPT_BYTES,'receipt capacity reached; no eviction')
-                at=self.clock();check_clock(self.wallet.policy,at,now)
+                at=self.clock();self._check_clock(at,now)
                 self.db.execute('INSERT INTO receipts VALUES (?,?,?,?,?)',
                     (len(receipts)+1,decision_id,r['evidence_id'],at,raw))
         return {'status':'receipt_collected','decision_id':decision_id,
@@ -357,7 +376,7 @@ class P4Delivery:
         with self.wallet.atomic(write=False):
             _,_,_,ds,wclock=self.wallet._load();self._selected(ds,decision_id,payer,grant_id)
             with self.atomic(write=False): _,_,_,last=self._audit(ds)
-            now=self.clock();check_clock(self.wallet.policy,now,max(wclock,last))
+            now=self.clock();self._check_clock(now,max(wclock,last))
         result=collect_evidence(self.endpoint,self.wallet.genesis,self.wallet.policy,now)
         fresh(result['evidence'],self.wallet.policy,self.clock(),now)
         return {**self.import_receipt(decision_id,result['evidence'],payer=payer,grant_id=grant_id),
@@ -383,7 +402,7 @@ class P4Delivery:
             existing=matched_receipt(r,d)
             if existing is not None:
                 need(encode(existing['record'])==encode(received['record']),'wallet and collected receipt conflict')
-                check_clock(self.wallet.policy,self.clock())
+                self._check_clock(self.clock())
                 return {'status':'already_recorded','decision_id':decision_id,
                         'wallet_sync_performed':False,'revision':expected_revision}
         # No multi-database atomicity claim: if sync commits and the return is lost,

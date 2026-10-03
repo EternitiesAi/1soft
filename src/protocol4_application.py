@@ -5,6 +5,8 @@ public service, or qualify custody. P1/P2/P3 application bytes stay separate.
 """
 from __future__ import annotations
 
+from development_profile import max_height_for
+
 import base64
 import binascii
 import hashlib
@@ -169,7 +171,7 @@ class Protocol4Application:
     def _audit_state(self, genesis: dict, state: dict, height: int, app_hash: str) -> None:
         require(type(state) is dict and set(state) == {'native', 'registry'},
                 'invalid protocol-4 composite state')
-        require(type(height) is int and 0 <= height <= MAX_HEIGHT,
+        require(type(height) is int and 0 <= height <= max_height_for(genesis),
                 'protocol-4 height out of development bound')
         rules = RegistryRules(genesis['validator_registry'], bound_genesis_sha256=digest(genesis))
         rules.audit_state(state['registry'])
@@ -298,7 +300,7 @@ class Protocol4Application:
         require(self.genesis is not None and self.state is not None and self.rules is not None,
                 'protocol-4 chain not initialized')
         self._bounds(txs)
-        require(type(height) is int and height == self.height + 1 and height <= MAX_HEIGHT,
+        require(type(height) is int and height == self.height + 1 and height <= max_height_for(self.genesis),
                 'protocol-4 block height differs')
         classes = [_classify(raw) for raw in txs]
         registry_txs = [raw for raw, kind in zip(txs, classes) if kind == 'registry']
@@ -471,10 +473,11 @@ class Protocol4Application:
                     value = self.info()
                 elif path.startswith('/block/'):
                     suffix = path[len('/block/'):]
-                    require(re.fullmatch(r'[1-9][0-9]{0,2}', suffix) is not None,
+                    require(re.fullmatch(r'[1-9][0-9]{0,2}' if max_height_for(self.genesis) == MAX_HEIGHT
+                                         else r'[1-9][0-9]{0,3}', suffix) is not None,
                             'invalid protocol-4 block height')
                     wanted = int(suffix)
-                    require(wanted <= MAX_HEIGHT, 'protocol-4 block height out of bound')
+                    require(wanted <= max_height_for(self.genesis), 'protocol-4 block height out of bound')
                     value = self.committed_result(wanted)
                 elif path.startswith('/account/'):
                     name = path[len('/account/'):]
@@ -515,7 +518,7 @@ class Protocol4Replay:
     def advance(self, txs: list[bytes], height: int) -> tuple[dict, dict]:
         require(not self.closed, 'protocol-4 replay is closed')
         Protocol4Application._bounds(txs)
-        require(type(height) is int and height == self.height + 1 and height <= MAX_HEIGHT,
+        require(type(height) is int and height == self.height + 1 and height <= max_height_for(self.genesis),
                 'protocol-4 block height differs')
         try:
             classes = [_classify(raw) for raw in txs]
