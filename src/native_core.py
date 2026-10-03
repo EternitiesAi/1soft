@@ -146,19 +146,26 @@ class NativeLedger:
         require(type(genesis) is dict and set(genesis) in
                 (GENESIS_FIELDS, GENESIS_FIELDS | {"protocol_version"},
                  GENESIS_FIELDS | {"protocol_version", "state_commitment"},
-                 P4_GENESIS_FIELDS, P4_GENESIS_FIELDS | {"invoice_commitment_version"}),
+                 P4_GENESIS_FIELDS, P4_GENESIS_FIELDS | {"invoice_commitment_version"},
+                 P4_GENESIS_FIELDS | {"development_profile"},
+                 P4_GENESIS_FIELDS | {"invoice_commitment_version", "development_profile"}),
                 "unexpected or missing genesis fields")
         self.protocol_version = genesis.get("protocol_version", 1)
         require(type(self.protocol_version) is int and self.protocol_version in (1, 2, 3, 4),
                 "unsupported genesis protocol version")
         if self.protocol_version == 4:
             require(set(genesis) in (P4_GENESIS_FIELDS,
-                    P4_GENESIS_FIELDS | {"invoice_commitment_version"}),
+                   P4_GENESIS_FIELDS | {"invoice_commitment_version"},
+                   P4_GENESIS_FIELDS | {"development_profile"},
+                   P4_GENESIS_FIELDS | {"invoice_commitment_version", "development_profile"}),
                     "protocol 4 requires a fresh composite genesis")
             from registry_rules_core import RegistryRules
             policy = RegistryRules(genesis["validator_registry"])
             require(policy.genesis["chain_id"] == genesis["chain_id"],
                     "monetary and validator chain identities differ")
+        if "development_profile" in genesis:
+            from development_profile import max_height_for
+            max_height_for(genesis)
         if "invoice_commitment_version" in genesis:
             require(self.protocol_version == 4 and
                     type(genesis["invoice_commitment_version"]) is int and
