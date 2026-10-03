@@ -9,11 +9,30 @@ portable receipt export and cold recovery.
 
 This release uses valueless **DEV atomic units**. It is a bounded developer
 workflow; public operation, production custody and real-money payments are not
-qualified. The native engine, P1/P2/P3 interfaces and existing P4 components are
-unchanged. The older static web client continues to refuse P4 spending.
+qualified. The native engine and default P1/P2/P3/legacy P4 behavior remain compatible. The older static web client continues to refuse P4 spending.
 
 Follow the [first-run payment and recovery guide](../../docs/LOCAL_DEMO_GUIDE.md)
 for a short demonstration with the exact wallet controls.
+
+## Explicit durable alpha
+
+For sustained private local development, select `--profile durable-private-alpha-v1`
+on **new** or **init**. It pins a fresh genesis, retains up to 4,096 blocks in
+64-block incremental authenticated batches, and references that history from the
+same original financial journal. It has a fixed 24-hour horizon and uninterrupted
+one-hour admission windows; expired gaps refuse authority. Original signatures,
+fee-inclusive holds, role nonces, budgets, attempts and receipts survive restart.
+
+```sh
+python tools/local-platform/scripts/1soft.py new \
+  --profile durable-private-alpha-v1 \
+  --workspace "$HOME/1soft-alpha" --engine /path/to/cometbft
+```
+
+The [durable-alpha guide](../../docs/DURABLE_ALPHA.md) covers its explicit bounds,
+A1 recovery-only export, stable historical receipts and actual hour-long validator
+qualification. It does not migrate existing workspaces. The legacy-default walkthrough
+and bounds below remain applicable to `new` without a profile.
 
 ## Run in Linux or Ubuntu WSL
 

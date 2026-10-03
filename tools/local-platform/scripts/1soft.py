@@ -32,6 +32,7 @@ def main():
         if name in ('new','start'):p.add_argument('--port',type=int,default=0)
         if name in ('new','init'):p.add_argument('--profile',choices=('legacy','durable-private-alpha-v1'),default='legacy',help='Select a fresh finite development profile; existing workspaces cannot be migrated')
     p=sub.add_parser('qualify');p.add_argument('--engine',type=Path,required=True)
+    p.add_argument('--profile',choices=('legacy','durable-private-alpha-v1'),default='legacy')
     p.add_argument('--output',type=Path,required=True)
     p=sub.add_parser('doctor',help='Inspect installed prerequisites without starting a network')
     p.add_argument('--engine',type=Path)
@@ -53,8 +54,12 @@ def main():
     from local_devnet import initialize,LocalNetwork,load_configuration,PIN_SHA
     from platform_http import server
     if args.command=='qualify':
-        from release_check import qualify
-        result=qualify(args.engine,args.output)
+        if args.profile=='durable-private-alpha-v1':
+            from alpha_acceptance import qualify_alpha
+            result=qualify_alpha(args.engine,args.output)
+        else:
+            from release_check import qualify
+            result=qualify(args.engine,args.output)
         print(encode(result).decode());return 0 if result['status']=='passed' else 1
     if args.command=='status':
         cfg=load_configuration(args.workspace)
