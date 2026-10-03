@@ -121,7 +121,9 @@ class Protocol4StateSync:
             return [dict(desc)]
 
     def load(self, height: int, format_: int, index: int) -> bytes:
-        require(type(height) is int and 1 <= height <= max_height_for(self.app.expected_genesis or self.app.genesis) and
+        pinned = self.app.expected_genesis or self.app.genesis
+        limit = 512 if pinned is None else max_height_for(pinned)
+        require(type(height) is int and 1 <= height <= limit and
                 type(format_) is int and format_ == FORMAT and
                 type(index) is int and 0 <= index < MAX_CHUNKS,
                 'invalid protocol-4 snapshot chunk request')
