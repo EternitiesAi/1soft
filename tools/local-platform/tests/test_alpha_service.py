@@ -51,6 +51,16 @@ class AlphaServiceTests(unittest.TestCase):
             state=self.s.state();q=self.s.prepare(rid,'raven',valid_until=30)
         self.assertEqual(state['wallet']['pending_debit_units'],'0')
         self.assertFalse(q['signed']);self.assertIsNone(self.s.book.selected(rid)['decision_id'])
+    def test_qualifier_uses_original_payer_qualified_role_and_budget_ids(self):
+        from alpha_acceptance import role_budget_observation
+        recorded=self.s.state()['ledger']
+        raven,atlas,budget=role_budget_observation(recorded,self.c.payer)
+        self.assertEqual(raven['id'],self.c.payer+'::raven')
+        self.assertEqual(atlas['id'],self.c.payer+'::atlas')
+        self.assertEqual(budget['id'],self.c.payer+'::studio')
+        self.assertEqual(raven['nonce'],'0');self.assertEqual(atlas['nonce'],'0')
+        self.assertEqual(budget['cap'],'100');self.assertEqual(budget['spent'],'0')
+
     def test_profile_limits_match_actual_new_callers(self):
         state=self.s.state()
         self.assertEqual(state['limits']['rpc_height'],4096)

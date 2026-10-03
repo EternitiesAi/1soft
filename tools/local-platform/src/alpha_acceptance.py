@@ -62,6 +62,12 @@ def stop_with_facts(network,rows):
     return valid
 
 
+def role_budget_observation(recorded,payer):
+    """Select the native ledger's fully qualified IDs, never role-label aliases."""
+    grants={g['id']:g for g in recorded['grants']};budgets={b['id']:b for b in recorded['budgets']}
+    return grants[payer+'::raven'],grants[payer+'::atlas'],budgets[payer+'::studio']
+
+
 def qualify_alpha(engine,output,*,duration_seconds=3660):
     need(type(duration_seconds) is int and 3600<duration_seconds<=7200,'qualification requires more than one real hour, at most two')
     sys.path.insert(0,str(ROOT/'tools/release'))
@@ -156,7 +162,8 @@ def qualify_alpha(engine,output,*,duration_seconds=3660):
             private_new(output/'original-receipt.json',capsule_before)
             check('receipt_reference_and_packet_retained',ref['capsule_id']==load_json(capsule_before,max_bytes=64*1024*1024+65536)['capsule_id'])
             rid2,did2,wire2=sign_payment(svc,'atlas',11)
-            check('second_original_signature_fee_hold',svc.wallet.status()['pending_debit_units']=='13')
+            raven,atlas,budget=role_budget_observation(svc.state()['ledger'],config['roles']['owner']['payer'])
+            check('second_original_signature_fee_hold',svc.wallet.status()['pending_debit_units']=='13' and raven['nonce']=='1' and raven['spent']=='7' and atlas['nonce']=='0' and budget['cap']=='100' and budget['spent']=='7')
             report['original_payments']=[{'request_id':rid1,'decision_id':did1,'wire_sha256':hashlib.sha256(wire1).hexdigest(),'role':'raven','units':'5','fee':'2'},
                 {'request_id':rid2,'decision_id':did2,'wire_sha256':hashlib.sha256(wire2).hexdigest(),'role':'atlas','units':'11','fee':'2','never_dispatched':True}]
             phase(svc,'original-payment-and-held-signature')
@@ -193,10 +200,10 @@ def qualify_alpha(engine,output,*,duration_seconds=3660):
             check('continuous_checkpoint_lineage',len(ordered)>32 and prior['height']==height,checkpoints=len(ordered))
             check('over32_original_wallet_observations',svc.wallet.db.execute('SELECT count(*) FROM observations').fetchone()[0]>32)
             check('original_policy_identity_unchanged',read_private(workspace/'policy.json')==policy_bytes and content_id(net.policy())==policy_id)
-            recorded=svc.state()['ledger'];grants={g['id']:g for g in recorded['grants']};budgets={b['id']:b for b in recorded['budgets']}
+            recorded=svc.state()['ledger'];raven,atlas,budget=role_budget_observation(recorded,config['roles']['owner']['payer'])
             check('original_account_role_nonce_and_budget_preserved',svc.wallet._catalog()[0]==identities['wallet_id'] and svc.delivery.config[2]==identities['delivery_id'] and svc.store.store_id==identities['store_id'] and
-                grants['raven']['nonce']=='1' and grants['raven']['spent']=='7' and grants['atlas']['nonce']=='0' and grants['atlas']['spent']=='0' and
-                budgets['studio']['cap']=='100' and budgets['studio']['spent']=='7',grants=grants,budget=budgets['studio'])
+                raven['nonce']=='1' and raven['spent']=='7' and atlas['nonce']=='0' and atlas['spent']=='0' and
+                budget['cap']=='100' and budget['spent']=='7',grants={'raven':raven,'atlas':atlas},budget=budget)
             check('same_original_wires_after_one_hour',svc.recover(rid1)==wire1 and svc.recover(rid2)==wire2)
             check('unobserved_hold_not_discarded',svc.wallet.status()['pending_debit_units']=='13' and svc.delivery.db.execute('SELECT count(*) FROM attempts WHERE decision_id=?',(did2,)).fetchone()[0]==0)
             check('original_receipt_packet_unchanged',svc.capsule(rid1,ref['capsule_id'])==capsule_before)
@@ -204,10 +211,10 @@ def qualify_alpha(engine,output,*,duration_seconds=3660):
             check('post_hour_new_payment_signed',svc.wallet.status()['pending_debit_units']=='22')
             last_receipt=send_and_settle(svc,rid3,did3)
             check('post_hour_exact_native_execution',last_receipt['status']=='receipt_collected')
-            post=svc.state()['ledger'];post_grants={g['id']:g for g in post['grants']};post_budgets={b['id']:b for b in post['budgets']};post_accounts={a['id']:a for a in post['accounts']}
+            post=svc.state()['ledger'];post_raven,post_atlas,post_budget=role_budget_observation(post,config['roles']['owner']['payer']);post_accounts={a['id']:a for a in post['accounts']}
             check('post_hour_positive_receipt_and_hold_reconciliation',svc.wallet.status()['pending_debit_units']=='13' and
-                post_grants['raven']['nonce']=='2' and post_grants['raven']['spent']=='16' and post_grants['atlas']['nonce']=='0' and
-                post_budgets['studio']['spent']=='16' and post_accounts[config['roles']['owner']['payer']]['recorded_balance']=='978' and
+                post_raven['nonce']=='2' and post_raven['spent']=='16' and post_atlas['nonce']=='0' and
+                post_budget['spent']=='16' and post_accounts[config['roles']['owner']['payer']]['recorded_balance']=='978' and
                 post_accounts[config['merchant']]['recorded_balance']=='12')
             check('original_attempt_not_resent',svc.delivery.db.execute('SELECT count(*) FROM attempts').fetchone()[0]==2 and svc.delivery.db.execute('SELECT count(*) FROM attempts WHERE decision_id=?',(did1,)).fetchone()[0]==1)
             report['post_hour_payment']={'request_id':rid3,'decision_id':did3,'wire_sha256':hashlib.sha256(wire3).hexdigest(),'role':'raven','units':'7','fee':'2'}
