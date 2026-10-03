@@ -132,7 +132,7 @@ class Protocol4RetainedProofBindingTests(unittest.TestCase):
                 path.write_bytes(json.dumps(item,sort_keys=True,separators=(',',':'),allow_nan=False).encode()+b'\n')
             with self.subTest(mutation=mutation),self.assertRaises(ValueError):self.validate()
     def test_financial_and_checkpoint_json_do_not_accept_event_newline_codec(self):
-        for filename in ('trust-pin.json','pre-target-evidence.json','control4/checkpoint-normal.json'):
+        for filename in ('trust-pin.json','pre-target-evidence.json','process-engine0-started.json','control4/checkpoint-normal.json'):
             self.tearDown();self.setUp();path=self.root/filename;path.write_bytes(path.read_bytes()+b'\n')
             if filename.startswith('control4'):
                 # Rebind the event digest to the changed bytes; strict financial
@@ -150,8 +150,14 @@ class Protocol4OriginalCodecTests(unittest.TestCase):
         from check_protocol4_state_sync import EVENT_RECEIPTS,retained_json
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);root.chmod(0o700);(root/'control4').mkdir(mode=0o700)
-            value={'schema':1,'pid':123,'birth':'456','run_id':'a'*32}
             for name in sorted(EVENT_RECEIPTS):
+                value={'schema':1,'pid':123,'birth':'456','run_id':'a'*32}
+                if 'ready' in name:
+                    value.update(device=1,inode=12,database='/private/state.sqlite',socket='/private/a.sock')
+                elif 'exit' in name or 'killed' in name:
+                    value.update(returncode=-9 if 'killed' in name else 0,stop_requested=True,
+                        termination_signal=9 if 'killed' in name else 15,rescue_used=False,cleanup_error=None)
+                else:value.update(record_file='checkpoint-normal.json',record_sha256='b'*64)
                 write_event(root/'control4',Path(name).name,value)
                 self.assertEqual(retained_json(root,name),value)
     def test_unknown_event_location_is_not_given_newline_exception(self):
@@ -166,4 +172,32 @@ class Protocol4OriginalCodecTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);(root/'control4').mkdir()
             (root/'control4/installed.json').write_bytes(b'{"pid":1,"pid":1}\n')
+            with self.assertRaises(ValueError):retained_json(root,'control4/installed.json')
+
+    def test_unknown_event_name_keeps_generic_canonical_codec(self):
+        from serve_abci_state_sync_crash import write_event
+        from check_protocol4_state_sync import retained_json
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);root.chmod(0o700);(root/'control4').mkdir(mode=0o700)
+            write_event(root/'control4','unexpected.json',{'schema':1})
+            with self.assertRaises(ValueError):retained_json(root,'control4/unexpected.json')
+    def test_nonobject_and_oversized_event_bytes_are_refused(self):
+        from serve_abci_state_sync_crash import write_event
+        from check_protocol4_state_sync import retained_json
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);root.chmod(0o700);control=root/'control4';control.mkdir(mode=0o700)
+            write_event(control,'installed.json',['not-an-object'])
+            with self.assertRaises(ValueError):retained_json(root,'control4/installed.json')
+            write_event(control,'recovered.json',{'schema':1})
+            path=control/'recovered.json';path.write_bytes(path.read_bytes()+b' '*4096)
+            with self.assertRaises(ValueError):retained_json(root,'control4/recovered.json')
+    def test_reordered_compact_event_body_is_refused(self):
+        import json
+        from serve_abci_state_sync_crash import write_event
+        from check_protocol4_state_sync import retained_json
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);root.chmod(0o700);control=root/'control4';control.mkdir(mode=0o700)
+            write_event(control,'installed.json',{'schema':1,'pid':123})
+            (control/'installed.json').write_bytes(json.dumps({'schema':1,'pid':123},
+                separators=(',',':'),sort_keys=False).encode()+b'\n')
             with self.assertRaises(ValueError):retained_json(root,'control4/installed.json')
