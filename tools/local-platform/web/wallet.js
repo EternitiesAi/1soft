@@ -10,7 +10,7 @@ function shortId(value){return typeof value==='string'&&value.length>24?value.sl
 function deadline(value){const ms=BigInt(value)/1000000n;return new Date(Number(ms)).toLocaleString();}
 const STAGES={request_open:'Unsigned request',review_bound_unsigned:'Original review retained; signature unrecorded',
   signed_reserved:'Signed · obligation retained',recorded:'Execution reconciled in wallet',recorded_historical:'Execution recorded historically'};
-function paymentProgress(e,inspected,live){
+function paymentProgress(e,inspected,live,ready=live){
   const signed=['signed_reserved','recorded','recorded_historical'].includes(e.stage),
     historical=e.stage==='recorded_historical',reconciled=e.stage==='recorded',
     receipt=e.delivery?.receipt_status==='verified_historical_receipt',
@@ -25,6 +25,9 @@ function paymentProgress(e,inspected,live){
   }else if(!live){title='Current authority unavailable';tone='warning';
     detail='The fixed trust deadline or retained evidence cannot authorize current actions. Original decisions remain retained.';
     next='Reload the retained view or export the original payment. Reloading does not renew trust.';
+  }else if(!ready){title='Wallet needs current verification';tone='warning';
+    detail='The read ledger is current. The saved wallet context is not ready to authorize signing or submission; original obligations remain retained.';
+    next='Use ledger in wallet to verify its context. A refused verification does not renew authority or release holds.';
   }else if(reconciled){title='Execution reconciled';tone='complete';
     detail='The wallet matched exact execution and retired this decision’s hold. Other pending obligations remain separate.';
     next=receipt?(e.capsule_ids?.length?'Export the retained receipt. It discloses full public chain history.':'Keep a portable receipt. It discloses full public chain history.'):'Collect a delivery receipt if needed. Ledger reconciliation does not create one.';
@@ -61,11 +64,18 @@ function backupInputs(passphrase,repeat,scope){
   if(scope!==true)throw Error('Confirm the complete shared-history scope before downloading.');
   return {passphrase,repeat_passphrase:repeat,scope_confirmed:true};
 }
+function historyProfile(response){
+  const format=response.headers.get('X-1Soft-Backup-Format');
+  if(format===null)return {limit:16*1024*1024,magic:'1SOFTP4B3\n',filename:'1soft-recovery-history.p4b3'};
+  if(format==='alpha-v1')return {limit:180*1024*1024,magic:'1SOFTP4A1\n',filename:'1soft-recovery-history.p4alpha'};
+  throw Error('History download format header is unsupported.');
+}
 async function historyBlob(response){
-  const limit=16*1024*1024;
-  if(!response.ok){await response.body?.cancel();throw Error('History backup was refused or unavailable. The journals are retained. For larger exports use the existing custody CLI with format 3.');}
-  const declared=response.headers.get('Content-Length');
-  if(response.headers.get('Content-Type')!=='application/octet-stream'||!declared||!(/^[1-9][0-9]{0,7}$/).test(declared)||Number(declared)>limit){
+  if(!response.ok){await response.body?.cancel();throw Error('History backup was refused or unavailable. The original journals are retained.');}
+  let profile;
+  try{profile=historyProfile(response);}catch(e){await response.body?.cancel();throw e;}
+  const {limit,magic}=profile,declared=response.headers.get('Content-Length');
+  if(response.headers.get('Content-Type')!=='application/octet-stream'||!declared||!(/^[1-9][0-9]{0,8}$/).test(declared)||Number(declared)>limit){
     await response.body?.cancel();throw Error('History download headers exceed the supported bound.');
   }
   const reader=response.body?.getReader();if(!reader)throw Error('History download body unavailable.');
@@ -78,11 +88,11 @@ async function historyBlob(response){
     if(size!==Number(declared))throw Error('History download was incomplete.');
     const blob=new Blob(parts,{type:'application/octet-stream'});
     const prefix=new Uint8Array(await blob.slice(0,10).arrayBuffer());
-    if(blob.size!==size||prefix.length!==10||prefix.some((b,i)=>b!==[49,83,79,70,84,80,52,66,51,10][i]))throw Error('History download format differs.');
+    if(blob.size!==size||prefix.length!==10||prefix.some((b,i)=>b!==magic.charCodeAt(i)))throw Error('History download format differs.');
     complete=true;return blob;
   }finally{if(!complete)await reader.cancel().catch(()=>{});reader.releaseLock();}
 }
-if(typeof module!=='undefined')module.exports={atomic,formatUnits,shortId,deadline,STAGES,paymentProgress,backupInputs,historyBlob};
+if(typeof module!=='undefined')module.exports={atomic,formatUnits,shortId,deadline,STAGES,paymentProgress,backupInputs,historyProfile,historyBlob};
 
 if(typeof document!=='undefined'){
   const $=id=>document.getElementById(id);
@@ -114,14 +124,14 @@ if(typeof document!=='undefined'){
   function requireCurrent(context){if(!current(context))throw Error('The selection changed. Review the selected payment again.');}
   function facts(id,rows){const el=$(id);el.replaceChildren();for(const [name,value]of rows){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=value;el.append(dt,dd);}}
   function entry(){return state?.requests.find(r=>r.request_id===selected);}
-  function controls(){const e=entry(),live=viewAvailable&&!!state?.current_evidence_available,signed=e&&['signed_reserved','recorded','recorded_historical'].includes(e.stage);
+  function controls(){const e=entry(),live=viewAvailable&&!!state?.current_evidence_available,ready=live&&(state?.signing_ready??live),signed=e&&['signed_reserved','recorded','recorded_historical'].includes(e.stage);
     if(busy)document.querySelectorAll('button,input,select,textarea').forEach(b=>b.disabled=true);
     $('request-form').querySelector('button').disabled=!viewAvailable||busy;$('import').disabled=!viewAvailable||busy;
     $('refresh').disabled=!live||busy;$('sync').disabled=!live||busy;
-    $('prepare').disabled=!live||!e||!e.request_open||signed||busy;
-    $('sign').disabled=!payment||!current(payment.context)||!$('sign-check').checked||(!!e?.invoice&&(!$('terms-check').checked||!payment?.terms_json||!e.request_open))||$('password').value.length<16||!live||busy;
-    $('submission-review').disabled=!signed||e.stage==='recorded'||e.stage==='recorded_historical'||!!e.delivery?.attempt_recorded||e.delivery?.receipt_status==='verified_historical_receipt'||(!!e.invoice&&!e.request_open)||!live||busy;
-    $('send').disabled=!dispatch||!current(dispatch.context)||!$('send-check').checked||(!!e?.invoice&&!e.request_open)||!live||busy;
+    $('prepare').disabled=!ready||!e||!e.request_open||signed||busy;
+    $('sign').disabled=!payment||!current(payment.context)||!$('sign-check').checked||(!!e?.invoice&&(!$('terms-check').checked||!payment?.terms_json||!e.request_open))||$('password').value.length<16||!ready||busy;
+    $('submission-review').disabled=!signed||e.stage==='recorded'||e.stage==='recorded_historical'||!!e.delivery?.attempt_recorded||e.delivery?.receipt_status==='verified_historical_receipt'||(!!e.invoice&&!e.request_open)||!ready||busy;
+    $('send').disabled=!dispatch||!current(dispatch.context)||!$('send-check').checked||(!!e?.invoice&&!e.request_open)||!ready||busy;
     $('collect').disabled=!signed||!live||busy;
     $('reconcile').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||e?.stage==='recorded'||!live||busy;
     $('retain').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||!live||busy;
@@ -129,14 +139,15 @@ if(typeof document!=='undefined'){
   }
   function clearReviews(){generation++;payment=null;dispatch=null;$('password').value='';$('sign-check').checked=false;$('terms-check').checked=false;$('terms-facts').replaceChildren();text('terms-digest','');show('merchant-terms-review',false);$('send-check').checked=false;show('payment-review',false);show('dispatch-review',false);}
   async function reload(){const next=await get('/api/state');state=next;clearReviews();viewAvailable=true;render();}
-  function render(){const live=viewAvailable&&state.current_evidence_available,w=live?state.wallet:null,l=live?state.ledger:null;
-    $('indicator').classList.toggle('verified',live);text('network-status',live?'Verified retained observation':'Current evidence unavailable');
-    text('checkpoint',live?`Wallet block ${w.state_height} · ledger block ${l?.checkpoint.state_height??'unavailable'}. Collection is explicit.`:'Trust expired, evidence unavailable, or local validation refused. Original decisions remain retained.');
+  function render(){const live=viewAvailable&&state.current_evidence_available,ready=live&&(state.signing_ready??live),walletCurrent=live&&(state.wallet_current??live),
+      w=viewAvailable&&(live||state.wallet_current!==undefined)?state.wallet:null,l=live?state.ledger:null;
+    $('indicator').classList.toggle('verified',live);text('network-status',live?(ready?'Verified retained observation':'Read current · wallet needs verification'):'Current evidence unavailable');
+    text('checkpoint',w?`Wallet block ${w.state_height}${walletCurrent?'':' (saved historical context)'} · ledger block ${l?.checkpoint.state_height??'unavailable'}. Collection and wallet verification are explicit.`:'Trust expired, evidence unavailable, or local validation refused. Original decisions remain retained.');
     const roles=Object.keys(state.roles).sort((a,b)=>['owner','raven','atlas'].indexOf(a)-['owner','raven','atlas'].indexOf(b)),payer=state.roles[roles[0]].payer,a=w?.accounts.find(a=>a.id===payer);
-    text('balance',a?formatUnits(a.recorded_balance):'Unavailable');text('pending',w?formatUnits(w.pending_debit_units):'Unavailable');
-    text('available',a?formatUnits(a.uncommitted_units):'Unavailable');text('deficit',a&&a.reservation_deficit_units!=='0'?`Reservation deficit: ${formatUnits(a.reservation_deficit_units)}`:'Within this shared local wallet');
-    const b=w?.budgets[0];text('budget-free',b?formatUnits(b.uncommitted_units)+' uncommitted':'Unavailable');
-    text('budget-text',b?`${formatUnits(b.cap)} cap · ${formatUnits(b.spent)} recorded spent · ${formatUnits(b.pending_debit_units)} pending. All agent lanes share this journal.`:'Current budget observation unavailable.');
+    text('balance',a?formatUnits(a.recorded_balance)+(walletCurrent?'':' · saved'):'Unavailable');text('pending',w?formatUnits(w.pending_debit_units)+(walletCurrent?'':' · saved obligations'):'Unavailable');
+    text('available',a&&ready?formatUnits(a.uncommitted_units):'Unavailable');text('deficit',a&&a.reservation_deficit_units!=='0'?`Reservation deficit: ${formatUnits(a.reservation_deficit_units)}`:ready?'Within this shared local wallet':'Saved obligations retained; current spending authority unavailable');
+    const b=w?.budgets[0];text('budget-free',b&&ready?formatUnits(b.uncommitted_units)+' uncommitted':'Unavailable');
+    text('budget-text',b?`${formatUnits(b.cap)} cap · ${formatUnits(b.spent)} recorded spent · ${formatUnits(b.pending_debit_units)} pending${walletCurrent?'':' at the saved wallet context'}. All agent lanes share this journal.`:'Current budget observation unavailable.');
     if(!$('recipient').value&&l?.grants[0]?.recipients[0])$('recipient').value=l.grants[0].recipients[0];
     const oldRole=$('role').value;$('role').replaceChildren();for(const r of roles){const option=document.createElement('option');option.value=r;option.textContent=r==='owner'?'Owner · treasury':`${r[0].toUpperCase()+r.slice(1)} · agent grant`;$('role').append(option);}if(roles.includes(oldRole))$('role').value=oldRole;
     const merchantMode=state.payment_mode==='committed_merchant_invoices';show('unsigned-compose',!merchantMode);show('merchant-inbox-info',merchantMode);
@@ -148,14 +159,14 @@ if(typeof document!=='undefined'){
     show('empty',state.requests.length===0);renderDetail();
     const table=$('payments');table.replaceChildren();for(const p of (l?.payments||[]).slice(-24).reverse()){const tr=document.createElement('tr');for(const value of [p.height,p.grant_id||'Owner',shortId(p.recipient),formatUnits(p.units),formatUnits(p.fee_units),shortId(p.native_txid)]){const td=document.createElement('td');td.textContent=value;tr.append(td);}tr.lastChild.title=p.native_txid;table.append(tr);}
     show('ledger-empty',!l?.payments.length);text('ledger-height',l?`Recorded through block ${l.checkpoint.state_height}`:'No current evidence');
-    text('trust-deadline',l?`Original trust deadline: ${deadline(l.checkpoint.trust_expires_ns)}`:'No current trust-qualified view.');text('genesis','External genesis · '+state.genesis_sha256);
+    text('trust-deadline',l?(state.limits?.absolute_not_after_ns?`Checkpoint trust deadline: ${deadline(l.checkpoint.trust_expires_ns)} · Fixed alpha horizon: ${deadline(String(state.limits.absolute_not_after_ns))}`:`Original trust deadline: ${deadline(l.checkpoint.trust_expires_ns)}`):'No current trust-qualified view.');text('genesis','External genesis · '+state.genesis_sha256);
     const validators=$('validators');validators.replaceChildren();for(const [i,v]of(l?.registry.active||[]).entries()){const box=document.createElement('div');box.className='validator';const label=document.createElement('p'),key=document.createElement('strong'),power=document.createElement('p');label.textContent='Validator '+(i+1);key.textContent=shortId(v.public_key);power.textContent='Voting power '+v.power;box.append(label,key,power);validators.append(box);}controls();
   }
   function renderDetail(){const e=entry();show('detail',!!e);if(!e)return;const signed=['signed_reserved','recorded','recorded_historical'].includes(e.stage);
     text('request-note',e.invoice?'Merchant invoice':e.request.note||'Payment request');
     show('invoice-detail',!!e.invoice);if(e.invoice)facts('invoice-facts',[['Merchant origin',e.invoice.merchant_origin],['Resource',e.invoice.resource_url],['Public resource digest',e.invoice.resource_sha256],['Native invoice commitment',e.invoice.invoice_commitment],['Quote expires',deadline(e.invoice.expires_ns)]]);text('request-id',e.request_id);$('request-download').href='/api/request/'+e.request_id;
     facts('request-facts',[['Recipient',e.request.recipient],['Requested',formatUnits(e.request.units)],['Request expires',deadline(String(e.request.expires_ns))],['Stage',STAGES[e.stage]],...(e.decision_id?[['Decision',e.decision_id]]:[])]);
-    const progress=paymentProgress(e,viewAvailable,viewAvailable&&state.current_evidence_available);
+    const progress=paymentProgress(e,viewAvailable,viewAvailable&&state.current_evidence_available,viewAvailable&&state.current_evidence_available&&(state.signing_ready??state.current_evidence_available));
     text('progress-title',progress.title);text('progress-detail',progress.detail);text('progress-next',progress.next);
     $('progress').dataset.tone=progress.tone;const steps=$('payment-progress');steps.replaceChildren();
     for(const step of progress.steps){const li=document.createElement('li'),label=document.createElement('strong'),status=document.createElement('span');
@@ -206,11 +217,11 @@ if(typeof document!=='undefined'){
       const response=await fetch('/api/backup-history',{method:'POST',credentials:'omit',cache:'no-store',
         headers:{'Content-Type':'application/json','X-1soft-CSRF':csrf},body:JSON.stringify(body)});
       body=null;const blob=await historyBlob(response);url=URL.createObjectURL(blob);
-      anchor=document.createElement('a');anchor.href=url;anchor.download='1soft-recovery-history.p4b3';
+      anchor=document.createElement('a');anchor.href=url;anchor.download=historyProfile(response).filename;
       anchor.hidden=true;document.body.append(anchor);anchor.click();
       text('backup-feedback','Encrypted history download requested. Keep the file, passphrase and original genesis/policy pins privately. This does not restore an active account or renew spending authority.');
     }catch{
-      text('backup-feedback','History download was refused, incomplete or unavailable. No payment was signed or submitted. Enter both passphrases again to retry explicitly; for exports beyond the browser’s 8 MiB history / 16 MiB file limits, use the existing custody CLI with format 3.');
+      text('backup-feedback','History download was refused, incomplete or unavailable. No payment was signed or submitted. Enter both passphrases again to retry explicitly; legacy downloads have an 8 MiB history / 16 MiB file limit; explicit alpha downloads have a 64 MiB history / 180 MiB file limit. Nothing is evicted to fit.');
       $('backup-feedback').classList.add('error');
     }finally{
       passphrase=repeat='';body=null;$('backup-passphrase').value='';$('backup-repeat').value='';$('backup-scope').checked=false;
