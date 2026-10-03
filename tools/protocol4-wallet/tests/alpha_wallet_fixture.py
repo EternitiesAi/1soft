@@ -22,7 +22,8 @@ from p4_evidence import FORMAT,POLICY_FORMAT
 PASSWORD=b'fixture passphrase not for funds'
 
 class AlphaChain:
-    def __init__(self, root, *, budget=100, balance=1000, invoice_commitments=False, native_asset='DEV'):
+    def __init__(self, root, *, budget=100, balance=1000, invoice_commitments=False, native_asset='DEV', time_step_seconds=1):
+        self.time_step_seconds=time_step_seconds
         self.root=Path(root); self.keys=[Ed25519PrivateKey.from_private_bytes(bytes([i])*32) for i in range(181,199)]
         self.admins=[Ed25519PrivateKey.from_private_bytes(bytes([i])*32) for i in range(171,175)]
         self.owner=Ed25519PrivateKey.from_private_bytes(b'\x8e'*32)
@@ -82,7 +83,7 @@ class AlphaChain:
         return encode({'body':b,'approvals':a})
     def header(self, height, root, txs, current, following):
         return {'version':{'block':'11','app':'4'},'chain_id':self.g['chain_id'],'height':str(height),
-            'time':(self.start+timedelta(seconds=height)).isoformat().replace('+00:00','Z'),
+            'time':(self.start+timedelta(seconds=height*self.time_step_seconds)).isoformat().replace('+00:00','Z'),
             'last_block_id':self.headers[-1]['signed_header']['commit']['block_id'] if self.headers else {'hash':'','parts':{'total':0,'hash':''}},
             'last_commit_hash':sha(b'fixture-last-commit').hex().upper(),
             'data_hash':merkle_root([sha(t) for t in txs]).hex().upper(),

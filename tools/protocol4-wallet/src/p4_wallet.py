@@ -480,27 +480,31 @@ class P4Wallet:
     def status(self):
         with self.atomic(write=False):
             wallet_id, e, report, decisions, _ = self._load()
-            held = pending(report, decisions)
-            def total_for(field, value):
-                return sum(int(d['review']['debit_units']) for d in held
-                           if (d['review']['body']['sender'] if field=='payer' else d['review']['budget_id']) == value)
-            accounts = [{**a, 'pending_debit_units':str(total_for('payer',a['id'])),
-                         'uncommitted_units':str(max(0,int(a['recorded_balance'])-total_for('payer',a['id']))),
-                         'reservation_deficit_units':str(max(0,total_for('payer',a['id'])-int(a['recorded_balance'])))}
-                        for a in report['accounts']]
-            return {'status':'verified-wallet-observation',
-                    'revision':self._revision(wallet_id,report,decisions),
-                    'state_height':report['state_height'], 'registry_epoch':report['registry_epoch'],
-                    'accounts':accounts, 'budgets':[{'id':b[0],'cap':str(b[3]),'spent':str(b[4]),
-                    'pending_debit_units':str(total_for('budget',b[0])),
-                    'uncommitted_units':str(max(0,b[3]-b[4]-total_for('budget',b[0]))),
-                    'reservation_deficit_units':str(max(0,b[4]+total_for('budget',b[0])-b[3]))}
-                    for b in report['budgets']],
-                    'decisions':[{'id':d['id'],'status':'pending' if d in held else 'recorded',
-                                  'debit_units':d['review']['debit_units']} for d in decisions],
-                    'pending_debit_units':str(sum(int(d['review']['debit_units']) for d in held)),
-                    'latest_state_guaranteed':False, 'spending_authorized':False,
-                    'coordination_scope':'this local journal only', 'broadcast':False}
+            return self._status_from_verified(wallet_id,e,report,decisions)
+
+    def _status_from_verified(self,wallet_id,e,report,decisions):
+        """Projection only: callers must authenticate the original journal first."""
+        held = pending(report, decisions)
+        def total_for(field, value):
+            return sum(int(d['review']['debit_units']) for d in held
+                       if (d['review']['body']['sender'] if field=='payer' else d['review']['budget_id']) == value)
+        accounts = [{**a, 'pending_debit_units':str(total_for('payer',a['id'])),
+                     'uncommitted_units':str(max(0,int(a['recorded_balance'])-total_for('payer',a['id']))),
+                     'reservation_deficit_units':str(max(0,total_for('payer',a['id'])-int(a['recorded_balance'])))}
+                    for a in report['accounts']]
+        return {'status':'verified-wallet-observation',
+                'revision':self._revision(wallet_id,report,decisions),
+                'state_height':report['state_height'], 'registry_epoch':report['registry_epoch'],
+                'accounts':accounts, 'budgets':[{'id':b[0],'cap':str(b[3]),'spent':str(b[4]),
+                'pending_debit_units':str(total_for('budget',b[0])),
+                'uncommitted_units':str(max(0,b[3]-b[4]-total_for('budget',b[0]))),
+                'reservation_deficit_units':str(max(0,b[4]+total_for('budget',b[0])-b[3]))}
+                for b in report['budgets']],
+                'decisions':[{'id':d['id'],'status':'pending' if d in held else 'recorded',
+                              'debit_units':d['review']['debit_units']} for d in decisions],
+                'pending_debit_units':str(sum(int(d['review']['debit_units']) for d in held)),
+                'latest_state_guaranteed':False, 'spending_authorized':False,
+                'coordination_scope':'this local journal only', 'broadcast':False}
 
     def prepare(self, *, payer, recipient, units, valid_until, grant_id='', invoice_terms=None):
         with self.atomic(write=False):

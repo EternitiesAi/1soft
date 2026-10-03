@@ -205,6 +205,12 @@ class P4AlphaWallet(P4Wallet):
             self._active_checkpoint=cp['id']
         return {'status':'checkpoint_recorded','revision':self._revision(wid,r,ds),'state_height':cp['height'],'signing_performed':False}
 
+    def historical_status(self):
+        with self.atomic(write=False):
+            wid,e,report,ds,_=self._load(historical=True)
+            return {**self._status_from_verified(wid,e,report,ds),
+                    'historical_context':True,'current_spending_authority':False}
+
     def rotation_status(self,decision_id,*,payer,evidence):
         # The old full-proof interface cannot authorize the new reference profile.
         raise ValueError('alpha rotation status uses authenticated wallet status and retained receipts; legacy full evidence refused')
