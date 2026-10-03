@@ -101,6 +101,9 @@ This creates disposable loopback validators and test keys. Follow the
 [engine guide](docs/P4_DELIVERY_ENGINE.md) before running it. These keys and genesis
 must never hold value. Owner replacement, fresh-node recovery, lost Commit replies,
 browser merchant checkout and legacy protocol matrices have their own scenarios.
+Fresh format-2 bootstrap and final snapshot-reply interruption are registered in
+[the P4 state-sync gate](docs/PROTOCOL4_STATE_SYNC_QUALIFICATION.md); unit checks
+and an old legacy state-sync pass do not qualify those real-engine profiles.
 
 ## Current engineering priorities
 
