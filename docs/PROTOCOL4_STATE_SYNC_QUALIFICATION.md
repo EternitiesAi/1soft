@@ -34,7 +34,13 @@ without a requested stop after the deliberate final-Apply child SIGKILL. That
 exception requires its original PID/birth/start receipt, a live non-zombie engine
 observation within one second before kill, actual child kill/reap timestamps,
 an exit observation within ten seconds after reap, and the retained exact Comet
-consensus EOF/application-crash diagnostic. Its outcome records
+proxy application-crash diagnostic. The pinned proxy selects whichever of its
+consensus, query, mempool or snapshot connections reports failure first. A complete
+same-line diagnostic must identify one of those four callbacks, exactly one
+module=proxy and exactly one error field: either read message EOF or the exact
+Unix connection-reset error for the original target app4 socket. The original
+pause-ready socket, retained application command and causal receipt must agree;
+unrelated/client-only/unknown-channel or other errors cannot qualify. Its outcome records
 `stop_requested=False` and no termination signal truthfully. The original kill
 event and engine log digests are independently rebound during retained-artifact
 validation. All other spontaneous engine exits and nonzero supervisor exits
@@ -44,6 +50,11 @@ remains the primary failure if subsequent cleanup also fails; both causes are
 retained privately.
 
 The runner writes a canonical private `result.json`.
+Every profile requires a typed run ID of exactly 32 lowercase hexadecimal
+characters. Install and crash-control receipts must bind to that scenario ID;
+every original application command must contain exactly one matching --run-id
+and exactly one original --socket. Explicitly requested engine stops cannot
+bypass these common identity checks.
 It preserves fresh node homes, original raw engine/native genesis, fixed original
 read policy, signed payment wires, complete signed evidence, format 2 chunks and
 ABCI packets, databases, disposable fixture keys and bounded original logs in the

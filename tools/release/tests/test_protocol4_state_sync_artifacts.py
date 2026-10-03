@@ -67,7 +67,8 @@ class Protocol4RetainedProofBindingTests(unittest.TestCase):
             name=row['name'];i=int(name[6] if name.startswith('engine') else name[3])
             row['argv']=['/pinned/engine','start','--home',v['nodes'][i]['home_path']] if name.startswith('engine') else [
                 '/python','/wrapper','--database',str(self.root/('app'+str(i))/'state.sqlite'),
-                '--genesis',str(self.root/'protocol4-genesis.json'),'--run-id',v['run_id']]
+                '--genesis',str(self.root/'protocol4-genesis.json'),'--run-id',v['run_id'],
+                '--socket',str(self.root/('app'+str(i))/'a.sock')]
             row['spawned_at_ns']=v['trust_pin']['target_started_at_ns'] if name=='app4' else v['trust_pin']['pinned_at_ns']-1
             save('process-'+name+'-started.json',{k:row[k] for k in ('name','pid','birth','role','argv','spawned_at_ns')})
             save('process-'+name+'-exit.json',row)
@@ -223,6 +224,12 @@ class Protocol4RetainedControlledExitTests(unittest.TestCase):
         killed=copy.deepcopy(self.value['crash']['killed']);killed['install']=installed
         write_event(control,'killed.json',killed)
         self.row['causal_exit']['event_sha256']=hashlib.sha256((control/'killed.json').read_bytes()).hexdigest()
+        socket=str(self.root/'app4/a.sock')
+        self.value['crash']['ready']['socket']=socket;self.row['causal_exit']['socket_path']=socket
+        write_event(control,'pause-ready.json',self.value['crash']['ready'])
+        from serve_abci_p4_state_sync_test import write_private
+        write_private(self.root/'process-app4-started.json',encode({'name':'app4','role':'crash-supervisor',
+            'argv':['/fixture/python','/fixture/wrapper','--socket',socket,'--run-id',self.value['run_id']]}))
         raw=self.value['engine_sync']['original_logs']['engine4'].encode()
         (self.root/'engine4.log').write_bytes(raw);(self.root/'engine4.log').chmod(0o600)
     def tearDown(self):self.tmp.cleanup()
@@ -248,6 +255,9 @@ class Protocol4RetainedControlledExitTests(unittest.TestCase):
         path=self.root/'control4/killed.json';path.write_bytes(path.read_bytes().rstrip(b'\n'))
         self.row['causal_exit']['event_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
         with self.assertRaises(ValueError):self.validate()
+    def test_causal_socket_must_match_original_app_command_and_pause_ready(self):
+        self.row['causal_exit']['socket_path']='/other/a.sock'
+        with self.assertRaises(ValueError):self.validate()
     def test_rebound_original_log_cannot_replace_reported_engine_diagnostic(self):
         import hashlib
         path=self.root/'engine4.log';path.write_bytes(b'unrelated engine stdout\n')
@@ -260,14 +270,15 @@ class Protocol4RetainedApplicationRunTests(unittest.TestCase):
     def test_every_original_application_command_has_one_matching_run_id(self):
         from commit_verifier import encode
         for name in ('app0','app4','app4-restart'):
-            for mutation in ('missing','duplicate','mismatch'):
+            for mutation in ('missing','duplicate','mismatch','missing-socket','duplicate-socket','mismatch-socket'):
                 case=Protocol4RetainedProofBindingTests();case.setUp()
                 try:
                     row=next(r for r in case.value['processes'] if r['name']==name)
-                    index=row['argv'].index('--run-id')
-                    if mutation=='missing':del row['argv'][index:index+2]
-                    elif mutation=='duplicate':row['argv']+=['--run-id',case.value['run_id']]
-                    else:row['argv'][index+1]='a'*32
+                    option='--socket' if mutation.endswith('-socket') else '--run-id'
+                    index=row['argv'].index(option)
+                    if mutation.startswith('missing'):del row['argv'][index:index+2]
+                    elif mutation.startswith('duplicate'):row['argv'] += [option,row['argv'][index+1]]
+                    else:row['argv'][index+1]='/other/a.sock' if option=='--socket' else 'a'*32
                     case.save('process-'+name+'-started.json',{k:row[k] for k in (
                         'name','pid','birth','role','argv','spawned_at_ns')})
                     case.save('process-'+name+'-exit.json',row)

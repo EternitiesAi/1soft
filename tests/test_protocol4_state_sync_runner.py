@@ -170,7 +170,8 @@ class Protocol4ControlledEngineExitTests(unittest.TestCase):
                         'reaped_at_ns':reaped}
                 write_event(control,'killed.json',killed)
                 engine['controlled_application_kill']={'profile':'final-apply-crash','run_id':run_id,
-                    'killed':killed,'initial':initial,'event_file':control/'killed.json'}
+                    'killed':killed,'initial':initial,'event_file':control/'killed.json',
+                    'socket_path':str(root/'app4/a.sock')}
                 trigger.write_text('actual child kill has completed')
                 engine['process'].wait(timeout=3)
                 if name=='engine4':

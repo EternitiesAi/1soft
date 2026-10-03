@@ -9,6 +9,7 @@ import argparse
 import base64
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -48,11 +49,18 @@ def validate_envelope(value,profile,source,engine_sha256,process):
     validate_process_receipt(process)
     return scenario_envelope(value,profile,source,engine_sha256)
 
+def scenario_run_id(value):
+    run_id=value.get('run_id')
+    require(type(run_id) is str and re.fullmatch('[0-9a-f]{32}',run_id),
+            'P4 scenario run identity must be 32 lowercase hex characters')
+    return run_id
+
 def scenario_envelope(value,profile,source,engine_sha256):
     require(profile in PROFILES,'unknown P4 profile')
     require(type(value) is dict and value.get('schema') == '1soft-protocol4-state-sync-v1'
             and value.get('status') == 'completed-awaiting-external-validation' and value.get('profile') == profile,
             'P4 scenario incomplete')
+    scenario_run_id(value)
     require(value.get('source') == source and value.get('source_dirty_before') is False
             and value.get('source_dirty_after') is False, 'source differs or is dirty')
     require(value.get('engine_sha256') == engine_sha256 and value.get('engine_version') == PIN,
@@ -141,7 +149,7 @@ def validate_core(value,profile,source,engine_sha256,genesis_bytes,policy,*,now_
     Protocol4Application._audit_history(payload['genesis'], payload['state'], sh,
                                         payload['app_hash'], payload['history'], strict_txs=True)
     install = value['install']
-    require(type(install) is dict and install.get('height') == sh
+    require(type(install) is dict and install.get('run_id')==value['run_id'] and install.get('height') == sh
             and install.get('app_hash') == payload['app_hash'] and install.get('state') == payload['state']
             and install.get('history') == payload['history'] and install.get('marker') ==
                 {'height':sh,'app_hash':payload['app_hash']}
@@ -262,9 +270,10 @@ def validate_trace(transfer, chunks, *, crash=False, final_reply_required=True):
 def exact_integer(value,low=0):
     return type(value) is int and value>=low
 
-CONTROLLED_ENGINE_EOF = 'consensus connection terminated. Did the application crash? Please restart CometBFT'
+CONTROLLED_ENGINE_CONNECTIONS=('consensus','query','mempool','snapshot')
+CONTROLLED_ENGINE_MESSAGE='connection terminated. Did the application crash? Please restart CometBFT'
 
-def validate_controlled_engine_exit(row,profile,killed,initial,run_id,engine_log):
+def validate_controlled_engine_exit(row,profile,killed,initial,run_id,engine_log,socket_path):
     """Only first target engine EOF after the observed deliberate child kill."""
     import re
     cause=row.get('causal_exit')
@@ -277,7 +286,7 @@ def validate_controlled_engine_exit(row,profile,killed,initial,run_id,engine_log
     require(type(cause) is dict and set(cause)=={
             'kind','run_id','event_file','event_sha256','child_pid','child_birth',
             'engine_before_kill','kill_requested_at_ns','reaped_at_ns','observed_at_ns',
-            'log_name','log_sha256'}
+            'log_name','log_sha256','socket_path'}
             and cause['kind']=='controlled-final-apply-application-kill'
             and cause['event_file']=='control4/killed.json' and cause['log_name']=='engine4.log'
             and all(type(cause[k]) is str and re.fullmatch('[0-9a-f]{64}',cause[k])
@@ -305,10 +314,19 @@ def validate_controlled_engine_exit(row,profile,killed,initial,run_id,engine_log
             and times[3]==killed.get('reaped_at_ns') and times[2]-times[1]<=10**9
             and times[3]-times[2]<=5*10**9 and times[4]-times[3]<=10*10**9,
             'controlled engine exit outside observed post-kill window')
-    require(type(engine_log) is str and any(CONTROLLED_ENGINE_EOF in line and
-            'read message: EOF' in line for line in engine_log.splitlines())
+    require(type(socket_path) is str and Path(socket_path).is_absolute()
+            and str(Path(socket_path))==socket_path and cause['socket_path']==socket_path,
+            'controlled engine original target socket differs')
+    prefix=r'(?:E\[\d{4}-\d{2}-\d{2}\|\d{2}:\d{2}:\d{2}\.\d{3}\] )?'
+    errors=('read message: EOF','read message: read unix @->'+socket_path+
+            ': read: connection reset by peer')
+    diagnostics=[prefix+re.escape(connection+' '+CONTROLLED_ENGINE_MESSAGE+
+        ' module=proxy err='+json.dumps(error,ensure_ascii=False))
+        for connection in CONTROLLED_ENGINE_CONNECTIONS for error in errors]
+    require(type(engine_log) is str and any(re.fullmatch(pattern,line)
+            for line in engine_log.splitlines() for pattern in diagnostics)
             and hashlib.sha256(engine_log.encode()).hexdigest()==cause['log_sha256'],
-            'controlled engine original consensus EOF diagnostic missing')
+            'controlled engine original proxy transport-loss diagnostic missing')
 
 def validate_processes_and_identities(value,genesis_bytes):
     import re
@@ -339,7 +357,8 @@ def validate_processes_and_identities(value,genesis_bytes):
         if 'causal_exit' in row:
             validate_controlled_engine_exit(row,profile,value.get('crash',{}).get('killed',{}),
                 value.get('crash',{}).get('initial_install',{}),value.get('run_id'),
-                value.get('engine_sync',{}).get('original_logs',{}).get(name))
+                value.get('engine_sync',{}).get('original_logs',{}).get(name),
+                value.get('crash',{}).get('ready',{}).get('socket'))
         elif role=='final-apply-pause-child':
             require(row['stop_requested'] is True,'deliberate child stop absent')
             killed=value.get('crash',{}).get('killed',{})
@@ -397,7 +416,8 @@ def validate_processes_and_identities(value,genesis_bytes):
             'same-store/home/key/process restart binding differs')
     if profile=='final-apply-crash':
         crash=value['crash']
-        require(crash.get('identity_before')==crash.get('identity_after')==target
+        require(crash.get('ready',{}).get('socket')==str(Path(restart['database_before']).parent/'a.sock')
+                and crash.get('identity_before')==crash.get('identity_after')==target
                 and (crash['initial_install']['pid'],crash['initial_install']['birth'])==
                     (records['pause-ready.json']['pid'],records['pause-ready.json']['birth'])
                 and (crash['recovered']['pid'],crash['recovered']['birth'])==
@@ -425,7 +445,7 @@ def validate_crash(value,genesis_bytes,policy,*,now_ns):
             killed.get('signal')=='SIGKILL' and killed.get('install')==initial and
             killed.get('pid')==initial.get('pid')==ready.get('pid') and
             killed.get('birth')==initial.get('birth')==ready.get('birth') and
-            killed.get('run_id')==initial.get('run_id')==ready.get('run_id') and
+            killed.get('run_id')==initial.get('run_id')==ready.get('run_id')==value['run_id'] and
             initial.get('socket_device')==ready.get('device') and
             initial.get('socket_inode')==ready.get('inode'), 'owned SIGKILL boundary identity differs')
     require(recovered==value['install'] and recovered.get('checkpoint_recovery') is True
@@ -533,7 +553,20 @@ def verify_retained_controlled_engine_exit(value,row,root):
                 'rescue_used','cleanup_error','engine_before_kill','kill_requested_at_ns','reaped_at_ns')),
             'retained controlled engine kill cause differs')
     event_install=retained_json(root,'control4/installed.json')
-    require(killed.get('install')==event_install,'retained kill original install event differs')
+    require(killed.get('install')==event_install
+            and event_install.get('run_id')==killed.get('run_id')==value['run_id'],
+            'retained kill original install event differs')
+    ready=retained_json(root,'control4/pause-ready.json')
+    app_start=retained_json(root,'process-app4-started.json');argv=app_start.get('argv')
+    require(app_start.get('name')=='app4' and app_start.get('role')=='crash-supervisor'
+            and type(argv) is list and argv.count('--socket')==1
+            and argv.index('--socket')+1<len(argv)
+            and cause['socket_path']==ready.get('socket')==
+                argv[argv.index('--socket')+1]==str(root/'app4/a.sock')
+            and ready.get('run_id')==value['run_id']
+            and (ready.get('pid'),ready.get('birth'))==
+                (value['crash']['ready'].get('pid'),value['crash']['ready'].get('birth')),
+            'retained controlled engine original application socket differs')
     raw_log=(root/cause['log_name']).read_bytes()
     require(hashlib.sha256(raw_log).hexdigest()==cause['log_sha256']
             and raw_log.decode('utf-8')==value['engine_sync']['original_logs'][row['name']],
@@ -543,6 +576,7 @@ def verify_retained_controlled_engine_exit(value,row,root):
 def verify_retained_proofs(value,root):
     """Bind report fields to the original per-process and filesystem observations."""
     root=Path(root)
+    run_id=scenario_run_id(value)
     def original(name):
         return retained_json(root,name)
     fixed=original('trust-pin.json')
@@ -567,6 +601,11 @@ def verify_retained_proofs(value,root):
                     and argv[3]==value['nodes'][i]['home_path'],'engine home substituted')
         else:
             argv=row['argv']
+            require(argv.count('--run-id')==1 and argv.index('--run-id')+1<len(argv)
+                    and argv[argv.index('--run-id')+1]==run_id
+                    and argv.count('--socket')==1 and argv.index('--socket')+1<len(argv)
+                    and argv[argv.index('--socket')+1]==str(root/('app'+str(i))/'a.sock'),
+                    'application run identity/socket substituted')
             require('--database' in argv and argv[argv.index('--database')+1]==str(root/('app'+str(i))/'state.sqlite')
                     and '--genesis' in argv and argv[argv.index('--genesis')+1]==str(root/'protocol4-genesis.json'),
                     'application database/genesis substituted')
@@ -598,6 +637,7 @@ def verify_retained_proofs(value,root):
             'actual retained database replaced')
     def checkpoint(control,event_name,expected):
         event=original(control+'/'+event_name)
+        require(event.get('run_id')==run_id,'original checkpoint event run identity differs')
         raw=(root/control/event['record_file']).read_bytes()
         require(hashlib.sha256(raw).hexdigest()==event['record_sha256'] and original(control+'/'+event['record_file'])==expected,
                 'original install checkpoint receipt differs')
@@ -612,7 +652,9 @@ def verify_retained_proofs(value,root):
         checkpoint('control4','recovered.json',crash['recovered'])
         for ready_name,exit_name in (('pause-ready.json','killed.json'),('recovery-ready.json','recovery-exit.json')):
             ready=original('control4/'+ready_name);exit=original('control4/'+exit_name);row=processes[ready_name]
-            require((ready['pid'],ready['birth'])==(row['pid'],row['birth'])==
+            require(ready.get('run_id')==exit.get('run_id')==run_id
+                    and ready.get('socket')==str(root/'app4/a.sock')
+                    and (ready['pid'],ready['birth'])==(row['pid'],row['birth'])==
                     (exit['pid'],exit['birth']) and all(exit[k]==row[k] for k in
                         ('returncode','stop_requested','termination_signal','rescue_used','cleanup_error')),
                     'actual supervised child birth/exit differs')

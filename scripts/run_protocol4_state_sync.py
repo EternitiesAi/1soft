@@ -165,9 +165,10 @@ class Owned:
                     'engine_before_kill':killed['engine_before_kill'],
                     'kill_requested_at_ns':killed['kill_requested_at_ns'],'reaped_at_ns':killed['reaped_at_ns'],
                     'observed_at_ns':time.time_ns(),'log_name':'engine4.log',
-                    'log_sha256':hashlib.sha256(log_raw).hexdigest()}
+                    'log_sha256':hashlib.sha256(log_raw).hexdigest(),
+                    'socket_path':context['socket_path']}
             validate_controlled_engine_exit(self.record(item),context['profile'],killed,
-                context['initial'],context['run_id'],log_raw.decode('utf-8'))
+                context['initial'],context['run_id'],log_raw.decode('utf-8'),context['socket_path'])
         outcome=self.record(item)
         path=self.root/('process-'+item['name']+'-exit.json')
         if not path.exists():write_private(path,encode(outcome))
@@ -484,7 +485,8 @@ def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profil
         if profile=='final-apply-crash':
             killed=wait_until(lambda:read_event(initial_control,'killed.json'),15)
             engines[4]['controlled_application_kill']={'profile':profile,'run_id':run_id,
-                'killed':killed,'initial':initial_install,'event_file':initial_control/'killed.json'}
+                'killed':killed,'initial':initial_install,'event_file':initial_control/'killed.json',
+                'socket_path':str(sockets[4])}
             owned.stop(engines[4]);write_event(initial_control,'resume.json',{'schema':1,'run_id':run_id,'resume':True})
             wait_until(lambda:read_event(initial_control,'recovery-ready.json'),15)
             _,restart_checkpoint=read_checkpoint_event(initial_control,'restart-audited.json')

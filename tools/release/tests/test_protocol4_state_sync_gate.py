@@ -484,7 +484,8 @@ class Protocol4ControlledExitSemanticTests(unittest.TestCase):
         row['causal_exit']={'kind':'controlled-final-apply-application-kill','run_id':'f'*32,
             'event_file':'control4/killed.json','event_sha256':'a'*64,'child_pid':201,'child_birth':'10',
             'engine_before_kill':copy.deepcopy(before),'kill_requested_at_ns':30,'reaped_at_ns':40,
-            'observed_at_ns':50,'log_name':'engine4.log','log_sha256':hashlib.sha256(log.encode()).hexdigest()}
+            'observed_at_ns':50,'log_name':'engine4.log','log_sha256':hashlib.sha256(log.encode()).hexdigest(),
+            'socket_path':v['crash']['ready']['socket']}
         v['engine_sync']['original_logs']={'engine4':log}
         return row
     def test_controlled_target_selfexit_reaches_all_eighteen_semantic_checks(self):
