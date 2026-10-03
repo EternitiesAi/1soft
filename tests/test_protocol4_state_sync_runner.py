@@ -120,3 +120,21 @@ class Protocol4OwnedOutcomeTests(unittest.TestCase):
             self.assertTrue(records[0]['stop_requested'])
             self.assertEqual(records[0]['termination_signal'],15)
             self.assertFalse(records[0]['rescue_used'])
+
+class Protocol4RunnerSetupCallerTests(unittest.TestCase):
+    def test_actual_missing_engine_caller_retains_well_formed_unassessed_result(self):
+        import json
+        from run_protocol4_state_sync import run
+        # Exercise real setup and clean source pinning. The genuinely absent
+        # engine cannot execute; unassessed is the only acceptable outcome.
+        with tempfile.TemporaryDirectory() as d:
+            private=Path(d)/'private';public=Path(d)/'public'
+            result=run(Path(d)/'absent-cometbft',private,public,'a'*64,'basic')
+            self.assertEqual(result['status'],'unassessed')
+            self.assertEqual(result['reason'],'pinned engine absent')
+            self.assertRegex(result['run_id'],r'^[0-9a-f]{32}$')
+            self.assertEqual(result['processes'],[])
+            self.assertEqual(json.loads((private/'result.json').read_bytes()),result)
+            projection=json.loads((public/'result.json').read_bytes())
+            self.assertEqual(projection['status'],'unassessed')
+            self.assertEqual(projection['qualified_check_ids'],[])
