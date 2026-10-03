@@ -201,3 +201,55 @@ class Protocol4OriginalCodecTests(unittest.TestCase):
             (control/'installed.json').write_bytes(json.dumps({'schema':1,'pid':123},
                 separators=(',',':'),sort_keys=False).encode()+b'\n')
             with self.assertRaises(ValueError):retained_json(root,'control4/installed.json')
+
+
+class Protocol4RetainedControlledExitTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from test_protocol4_state_sync_gate import Protocol4ControlledExitSemanticTests
+        Protocol4ControlledExitSemanticTests.setUpClass()
+    def setUp(self):
+        import copy,hashlib
+        from commit_verifier import encode
+        from test_protocol4_state_sync_gate import Protocol4ControlledExitSemanticTests
+        from serve_abci_state_sync_crash import write_event
+        case=Protocol4ControlledExitSemanticTests();case.setUp()
+        self.row=case.controlled();self.value=case.value
+        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.root.chmod(0o700)
+        control=self.root/'control4';control.mkdir(mode=0o700)
+        # Real shared writer, with the kill's original install-event metadata.
+        installed={'record_file':'checkpoint-pause.json','record_sha256':'c'*64}
+        write_event(control,'installed.json',installed)
+        killed=copy.deepcopy(self.value['crash']['killed']);killed['install']=installed
+        write_event(control,'killed.json',killed)
+        self.row['causal_exit']['event_sha256']=hashlib.sha256((control/'killed.json').read_bytes()).hexdigest()
+        raw=self.value['engine_sync']['original_logs']['engine4'].encode()
+        (self.root/'engine4.log').write_bytes(raw);(self.root/'engine4.log').chmod(0o600)
+    def tearDown(self):self.tmp.cleanup()
+    def validate(self):
+        from check_protocol4_state_sync import verify_retained_controlled_engine_exit
+        return verify_retained_controlled_engine_exit(self.value,self.row,self.root)
+    def rewrite_kill(self,mutation):
+        import hashlib,json
+        from serve_abci_state_sync_crash import write_event
+        path=self.root/'control4/killed.json';item=json.loads(path.read_bytes());path.unlink()
+        mutation(item);write_event(path.parent,path.name,item)
+        self.row['causal_exit']['event_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+    def test_actual_event_writer_and_original_log_bind_to_cause(self):
+        self.assertTrue(self.validate())
+    def test_rebound_original_kill_cannot_substitute_child_identity(self):
+        self.rewrite_kill(lambda item:item.update(pid=999))
+        with self.assertRaises(ValueError):self.validate()
+    def test_kill_install_metadata_must_equal_original_install_event(self):
+        self.rewrite_kill(lambda item:item['install'].update(record_sha256='d'*64))
+        with self.assertRaises(ValueError):self.validate()
+    def test_kill_codec_remains_exact_even_after_cause_digest_rebound(self):
+        import hashlib
+        path=self.root/'control4/killed.json';path.write_bytes(path.read_bytes().rstrip(b'\n'))
+        self.row['causal_exit']['event_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+        with self.assertRaises(ValueError):self.validate()
+    def test_rebound_original_log_cannot_replace_reported_engine_diagnostic(self):
+        import hashlib
+        path=self.root/'engine4.log';path.write_bytes(b'unrelated engine stdout\n')
+        self.row['causal_exit']['log_sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+        with self.assertRaises(ValueError):self.validate()

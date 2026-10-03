@@ -64,21 +64,27 @@ class Protocol4StateSyncWrapperTests(unittest.TestCase):
         self.control=self.root/'control';self.control.mkdir(mode=0o700)
         self.gf=self.root/'genesis.json';self.gf.write_bytes(encode(self.g));self.gf.chmod(0o600)
         self.sock=self.root/'a.sock';self.db=self.root/'a.db';self.run_id=os.urandom(16).hex()
-        self.process=None;self.log=None
+        self.process=None;self.log=None;self.engine_probe=None
     def tearDown(self):
         self.source.close()
         if self.process is not None and self.process.poll() is None:self.process.terminate()
         if self.process is not None:
             try:self.process.wait(timeout=3)
             except subprocess.TimeoutExpired:self.process.kill();self.process.wait(timeout=3)
+        if self.engine_probe is not None:
+            if self.engine_probe.poll() is None:self.engine_probe.terminate()
+            self.engine_probe.wait(timeout=3)
         if self.log:self.log.close()
         self.tmp.cleanup()
     def start(self,mode):
         self.log=(self.root/'wrapper.log').open('wb')
-        self.process=subprocess.Popen([sys.executable,str(ROOT/'scripts/serve_abci_p4_state_sync_test.py'),
+        argv=[sys.executable,str(ROOT/'scripts/serve_abci_p4_state_sync_test.py'),
             '--genesis',str(self.gf),'--genesis-sha256',hashlib.sha256(self.gf.read_bytes()).hexdigest(),
             '--database',str(self.db),'--socket',str(self.sock),'--control-dir',str(self.control),
-            '--run-id',self.run_id,'--mode',mode,'--wait-seconds','10'],stdout=self.log,stderr=self.log)
+            '--run-id',self.run_id,'--mode',mode,'--wait-seconds','10']
+        if self.engine_probe is not None:
+            argv+=['--crash-engine-start-receipt',str(self.root/'engine-start.json')]
+        self.process=subprocess.Popen(argv,stdout=self.log,stderr=self.log)
     def offer(self,client,desc=None,app_hash=None):
         req=Request();req.offer_snapshot.snapshot.CopyFrom(desc or self.desc)
         req.offer_snapshot.app_hash=app_hash or bytes.fromhex(self.source.app_hash)
@@ -100,12 +106,25 @@ class Protocol4StateSyncWrapperTests(unittest.TestCase):
         self.assertEqual(len(list(self.control.glob('request-*.bin'))),2)
         self.assertEqual(len(list(self.control.glob('response-*.bin'))),2)
     def test_actual_sigkill_then_same_checkpoint_reoffer_and_lower_height_refusal(self):
+        from serve_abci_p4_state_sync_test import birth,write_private
+        # A private ordinary Python process supplies only the real live-PID
+        # observation boundary. This is not an engine or consensus substitute.
+        self.engine_probe=subprocess.Popen([sys.executable,'-c','import time;time.sleep(20)'],
+            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        engine_birth=birth(self.engine_probe.pid)
+        write_private(self.root/'engine-start.json',encode({'name':'engine4','role':'engine',
+            'pid':self.engine_probe.pid,'birth':engine_birth,'spawned_at_ns':time.time_ns()}))
         self.start('final-apply-crash');event(self.control,'pause-ready.json',self.process)
         with Client(self.sock) as client:
             self.assertEqual(self.offer(client),1)
             with self.assertRaises((ConnectionError,OSError)):self.apply(client)
         killed=event(self.control,'killed.json',self.process)
         self.assertEqual(killed['returncode'],-signal.SIGKILL)
+        observed=killed['engine_before_kill']
+        self.assertEqual((observed['pid'],observed['birth']),(self.engine_probe.pid,engine_birth))
+        self.assertTrue(observed['alive'])
+        self.assertLessEqual(observed['observed_at_ns'],killed['kill_requested_at_ns'])
+        self.assertLessEqual(killed['kill_requested_at_ns'],killed['reaped_at_ns'])
         record=json.loads((self.control/killed['install']['record_file']).read_bytes())
         self.assertEqual(record['height'],4);self.assertEqual(record['state'],self.source.state)
         self.assertFalse(self.sock.exists())
@@ -146,3 +165,15 @@ class Protocol4StateSyncWrapperTests(unittest.TestCase):
         self.start('observe');event(self.control,'normal-ready.json',self.process)
         self.process.terminate();self.process.wait(timeout=3)
         self.assertEqual(self.process.returncode,0)
+
+
+class Protocol4CrashEngineObservationTests(unittest.TestCase):
+    def test_reaped_engine_pid_is_never_a_live_pre_kill_observation(self):
+        from serve_abci_p4_state_sync_test import birth,write_private,observe_crash_engine
+        with tempfile.TemporaryDirectory() as d:
+            process=subprocess.Popen([sys.executable,'-c','import time;time.sleep(.1)'],
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            row={'name':'engine4','role':'engine','pid':process.pid,'birth':birth(process.pid),
+                 'spawned_at_ns':time.time_ns()}
+            process.wait(timeout=3);path=Path(d)/'start.json';write_private(path,encode(row))
+            with self.assertRaises((OSError,ValueError)):observe_crash_engine(path)

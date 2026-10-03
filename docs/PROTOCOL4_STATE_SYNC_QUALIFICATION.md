@@ -27,10 +27,21 @@ actual final liveness, cleanup completion, rescue/error/survivor lists and survi
 count. Zero exit, literal false timeout/truncation/liveness, literal true cleanup,
 empty lists and an integer zero survivor count are mandatory. A timeout rescue,
 unexpected nonzero exit, log read/write/fsync/close failure or missing actual
-receipt cannot qualify. Engine roles may exit zero or by explicitly requested
-SIGTERM; application/supervisor/recovery roles must exit zero after requested
-SIGTERM. SIGKILL is accepted only for the identified deliberate final-Apply pause
-child with its retained actual exit receipt.
+receipt cannot qualify. Engine roles must exit zero or by SIGTERM after an
+explicitly requested stop; application/supervisor/recovery roles must exit zero
+after requested SIGTERM. The first target engine alone may instead exit zero
+without a requested stop after the deliberate final-Apply child SIGKILL. That
+exception requires its original PID/birth/start receipt, a live non-zombie engine
+observation within one second before kill, actual child kill/reap timestamps,
+an exit observation within ten seconds after reap, and the retained exact Comet
+consensus EOF/application-crash diagnostic. Its outcome records
+`stop_requested=False` and no termination signal truthfully. The original kill
+event and engine log digests are independently rebound during retained-artifact
+validation. All other spontaneous engine exits and nonzero supervisor exits
+remain refusals. SIGKILL is accepted only for the identified deliberate
+final-Apply pause child with its retained actual exit receipt. A scenario failure
+remains the primary failure if subsequent cleanup also fails; both causes are
+retained privately.
 
 The runner writes a canonical private `result.json`.
 It preserves fresh node homes, original raw engine/native genesis, fixed original

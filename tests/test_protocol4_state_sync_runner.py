@@ -186,8 +186,9 @@ class Protocol4ControlledEngineExitTests(unittest.TestCase):
                     with self.assertRaises(ValueError):owned.finish()
             finally:
                 if pause.poll() is None:pause.kill();pause.wait(timeout=3)
-                try:owned.finish()
-                except ValueError:pass
+                if engine['process'].poll() is None or not engine['capture'].completed:
+                    try:owned.finish()
+                    except ValueError:pass
     def test_identified_target_clean_selfexit_after_actual_child_sigkill_is_truthful(self):
         self.exercise('engine4')
     def test_identical_cause_cannot_authorize_source_engine_selfexit(self):
@@ -199,3 +200,15 @@ class Protocol4ControlledEngineExitTests(unittest.TestCase):
             owned=Owned(Path(d));engine=owned.start('engine4',[sys.executable,'-c',"print('unrelated clean exit',flush=True)"])
             engine['process'].wait(timeout=3)
             with self.assertRaises(ValueError):owned.finish()
+
+
+class Protocol4FailurePreservationTests(unittest.TestCase):
+    def test_cleanup_failure_cannot_overwrite_original_scenario_cause(self):
+        from run_protocol4_state_sync import record_failure
+        report={'status':'running'}
+        record_failure(report,ValueError('first engine outcome'),'scenario')
+        record_failure(report,OSError('later cleanup fault'),'cleanup-or-validation')
+        self.assertEqual(report['reason'],'first engine outcome')
+        self.assertEqual(report['failure_type'],'ValueError')
+        self.assertEqual([x['reason'] for x in report['failures']],
+                         ['first engine outcome','later cleanup fault'])

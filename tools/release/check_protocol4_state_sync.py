@@ -262,6 +262,52 @@ def validate_trace(transfer, chunks, *, crash=False, final_reply_required=True):
 def exact_integer(value,low=0):
     return type(value) is int and value>=low
 
+CONTROLLED_ENGINE_EOF = 'consensus connection terminated. Did the application crash? Please restart CometBFT'
+
+def validate_controlled_engine_exit(row,profile,killed,initial,run_id,engine_log):
+    """Only first target engine EOF after the observed deliberate child kill."""
+    import re
+    cause=row.get('causal_exit')
+    require(profile=='final-apply-crash' and row.get('name')=='engine4'
+            and row.get('role')=='engine' and type(row.get('returncode')) is int
+            and row['returncode']==0 and row.get('stop_requested') is False
+            and row.get('termination_signal') is None and row.get('rescue_used') is False
+            and row.get('cleanup_error') is None and row.get('alive_after') is False,
+            'controlled engine exit role/outcome differs')
+    require(type(cause) is dict and set(cause)=={
+            'kind','run_id','event_file','event_sha256','child_pid','child_birth',
+            'engine_before_kill','kill_requested_at_ns','reaped_at_ns','observed_at_ns',
+            'log_name','log_sha256'}
+            and cause['kind']=='controlled-final-apply-application-kill'
+            and cause['event_file']=='control4/killed.json' and cause['log_name']=='engine4.log'
+            and all(type(cause[k]) is str and re.fullmatch('[0-9a-f]{64}',cause[k])
+                    for k in ('event_sha256','log_sha256')), 'controlled engine cause receipt differs')
+    before=cause['engine_before_kill']
+    require(type(before) is dict and set(before)=={
+            'name','pid','birth','spawned_at_ns','alive','observed_at_ns'}
+            and before['alive'] is True
+            and all(before.get(k)==row.get(k) for k in ('name','pid','birth','spawned_at_ns'))
+            and before==killed.get('engine_before_kill'), 'pre-kill owned engine observation differs')
+    require(cause['run_id']==run_id==killed.get('run_id')==initial.get('run_id')
+            and (cause['child_pid'],cause['child_birth'])==
+                (killed.get('pid'),killed.get('birth'))==(initial.get('pid'),initial.get('birth'))
+            and type(killed.get('returncode')) is int and killed['returncode']==-9
+            and killed.get('signal')=='SIGKILL' and killed.get('stop_requested') is True
+            and killed.get('termination_signal')==9 and killed.get('rescue_used') is False
+            and killed.get('cleanup_error') is None and initial.get('checkpoint_recovery') is False
+            and initial.get('transaction_active') is False, 'controlled final-Apply kill identity differs')
+    times=[before.get('spawned_at_ns'),before.get('observed_at_ns'),
+           cause['kill_requested_at_ns'],cause['reaped_at_ns'],cause['observed_at_ns']]
+    require(all(type(n) is int and n>0 for n in times) and times==sorted(times)
+            and times[2]==killed.get('kill_requested_at_ns')
+            and times[3]==killed.get('reaped_at_ns') and times[2]-times[1]<=10**9
+            and times[3]-times[2]<=5*10**9 and times[4]-times[3]<=10*10**9,
+            'controlled engine exit outside observed post-kill window')
+    require(type(engine_log) is str and any(CONTROLLED_ENGINE_EOF in line and
+            'read message: EOF' in line for line in engine_log.splitlines())
+            and hashlib.sha256(engine_log.encode()).hexdigest()==cause['log_sha256'],
+            'controlled engine original consensus EOF diagnostic missing')
+
 def validate_processes_and_identities(value,genesis_bytes):
     import re
     processes=value['processes'];profile=value['profile']
@@ -286,15 +332,20 @@ def validate_processes_and_identities(value,genesis_bytes):
         require(row.get('role')==role and exact_integer(row.get('pid'),1) and
                 type(row.get('birth')) is str and row['birth'].isdigit() and
                 row.get('alive_after') is False and row.get('rescue_used') is False and
-                row.get('cleanup_error') is None and row.get('stop_requested') is True and
+                row.get('cleanup_error') is None and type(row.get('stop_requested')) is bool and
                 type(row.get('returncode')) is int,'unobserved or rescued process outcome')
-        if role=='final-apply-pause-child':
+        if 'causal_exit' in row:
+            validate_controlled_engine_exit(row,profile,value.get('crash',{}).get('killed',{}),
+                value.get('crash',{}).get('initial_install',{}),value.get('run_id'),
+                value.get('engine_sync',{}).get('original_logs',{}).get(name))
+        elif role=='final-apply-pause-child':
+            require(row['stop_requested'] is True,'deliberate child stop absent')
             killed=value.get('crash',{}).get('killed',{})
             require(row['returncode']==-9 and row.get('termination_signal')==9 and
                     (row['pid'],row['birth'])==(killed.get('pid'),killed.get('birth')),
                     'SIGKILL is not the identified deliberate final-Apply child')
         else:
-            require(row.get('termination_signal')==15 and
+            require(row['stop_requested'] is True and row.get('termination_signal')==15 and
                     row['returncode'] in ((0,-15) if role=='engine' else (0,)),
                     'unexpected nonzero service exit')
     nodes=value.get('nodes')
@@ -469,6 +520,24 @@ def retained_json(root,name):
             'noncanonical original receipt: '+name)
     return item
 
+def verify_retained_controlled_engine_exit(value,row,root):
+    cause=row['causal_exit']
+    require(row['name']=='engine4' and cause['event_file']=='control4/killed.json'
+            and cause['log_name']=='engine4.log','retained controlled engine names differ')
+    raw=(root/cause['event_file']).read_bytes();killed=retained_json(root,cause['event_file'])
+    require(hashlib.sha256(raw).hexdigest()==cause['event_sha256']
+            and all(killed.get(k)==value['crash']['killed'].get(k) for k in (
+                'run_id','pid','birth','returncode','signal','stop_requested','termination_signal',
+                'rescue_used','cleanup_error','engine_before_kill','kill_requested_at_ns','reaped_at_ns')),
+            'retained controlled engine kill cause differs')
+    event_install=retained_json(root,'control4/installed.json')
+    require(killed.get('install')==event_install,'retained kill original install event differs')
+    raw_log=(root/cause['log_name']).read_bytes()
+    require(hashlib.sha256(raw_log).hexdigest()==cause['log_sha256']
+            and raw_log.decode('utf-8')==value['engine_sync']['original_logs'][row['name']],
+            'retained controlled engine log differs')
+    return True
+
 def verify_retained_proofs(value,root):
     """Bind report fields to the original per-process and filesystem observations."""
     root=Path(root)
@@ -485,6 +554,8 @@ def verify_retained_proofs(value,root):
         start=original('process-'+name+'-started.json');exit=original('process-'+name+'-exit.json')
         require(start=={k:row[k] for k in ('name','pid','birth','role','argv','spawned_at_ns')}
                 and exit==row,'retained owned PID/birth/start/exit differs')
+        if 'causal_exit' in row:
+            verify_retained_controlled_engine_exit(value,row,root)
         require(type(row['argv']) is list and all(type(x) is str for x in row['argv'])
                 and exact_integer(row['spawned_at_ns'],1),'owned command/start malformed')
         i=int(name[6] if name.startswith('engine') else name[3])
@@ -497,6 +568,12 @@ def verify_retained_proofs(value,root):
             require('--database' in argv and argv[argv.index('--database')+1]==str(root/('app'+str(i))/'state.sqlite')
                     and '--genesis' in argv and argv[argv.index('--genesis')+1]==str(root/'protocol4-genesis.json'),
                     'application database/genesis substituted')
+            if name=='app4' and value['profile']=='final-apply-crash':
+                require(argv.count('--crash-engine-start-receipt')==1 and
+                        argv[argv.index('--crash-engine-start-receipt')+1]==str(root/'process-engine4-started.json'),
+                        'crash engine observation receipt substituted')
+            else:
+                require('--crash-engine-start-receipt' not in argv,'unexpected crash observation role')
     require(value['trust_pin']['target_started_at_ns']==services['app4']['spawned_at_ns']
             and all(services['app'+str(i)]['spawned_at_ns']<fixed['pinned_at_ns']
                     and services['engine'+str(i)]['spawned_at_ns']<fixed['pinned_at_ns'] for i in range(4)),

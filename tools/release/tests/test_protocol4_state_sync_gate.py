@@ -456,3 +456,57 @@ class Protocol4CrashSemanticTests(unittest.TestCase):
             elif mutation=='label':probe['kind']='actual-engine-rollback-offer'
             else:probe['chunks'][0]='AA=='
             with self.subTest(mutation=mutation),self.assertRaises(ValueError):self.validate()
+
+
+class Protocol4ControlledExitSemanticTests(unittest.TestCase):
+    setUpClass=classmethod(Protocol4CrashSemanticTests.setUpClass.__func__)
+    setUp=Protocol4CrashSemanticTests.setUp
+    crash_value=Protocol4CrashSemanticTests.crash_value
+    validate=Protocol4CrashSemanticTests.validate
+    def controlled(self):
+        import hashlib
+        self.crash_value();v=self.value;v['run_id']='f'*32
+        row=next(x for x in v['processes'] if x['name']=='engine4')
+        row.update(stop_requested=False,termination_signal=None,spawned_at_ns=10)
+        before={k:row[k] for k in ('name','pid','birth','spawned_at_ns')}
+        before.update(alive=True,observed_at_ns=20)
+        killed=v['crash']['killed'];killed.update(stop_requested=True,termination_signal=9,
+            rescue_used=False,cleanup_error=None,engine_before_kill=before,
+            kill_requested_at_ns=30,reaped_at_ns=40)
+        log='consensus connection terminated. Did the application crash? Please restart CometBFT err="read message: EOF"\n'
+        row['causal_exit']={'kind':'controlled-final-apply-application-kill','run_id':'f'*32,
+            'event_file':'control4/killed.json','event_sha256':'a'*64,'child_pid':201,'child_birth':'10',
+            'engine_before_kill':copy.deepcopy(before),'kill_requested_at_ns':30,'reaped_at_ns':40,
+            'observed_at_ns':50,'log_name':'engine4.log','log_sha256':hashlib.sha256(log.encode()).hexdigest()}
+        v['engine_sync']['original_logs']={'engine4':log}
+        return row
+    def test_controlled_target_selfexit_reaches_all_eighteen_semantic_checks(self):
+        from check_protocol4_state_sync import CHECK_IDS,CRASH_IDS
+        self.controlled()
+        self.assertEqual(self.validate()['check_ids'],list(CHECK_IDS+CRASH_IDS))
+    def test_controlled_cause_cannot_authorize_other_role_or_nonzero(self):
+        for mutation in ('source','recovery','nonzero','supervisor'):
+            with self.subTest(mutation=mutation):
+                self.setUp();row=self.controlled()
+                if mutation=='nonzero':row['returncode']=2
+                else:
+                    name={'source':'engine0','recovery':'engine4-recovery','supervisor':'app4'}[mutation]
+                    other=next(x for x in self.value['processes'] if x['name']==name)
+                    other.update(causal_exit=row.pop('causal_exit'),stop_requested=False,termination_signal=None)
+                    row.update(stop_requested=True,termination_signal=15)
+                with self.assertRaises(ValueError):self.validate()
+    def test_missing_substituted_or_unbounded_cause_is_refused(self):
+        for mutation in ('missing','child','birth','run','window','before','signal','diagnostic','hash','extra'):
+            with self.subTest(mutation=mutation):
+                self.setUp();row=self.controlled();cause=row['causal_exit']
+                if mutation=='missing':row.pop('causal_exit')
+                elif mutation=='child':cause['child_pid']=999
+                elif mutation=='birth':cause['engine_before_kill']['birth']='999'
+                elif mutation=='run':cause['run_id']='a'*32
+                elif mutation=='window':cause['observed_at_ns']=40+11*10**9
+                elif mutation=='before':cause['engine_before_kill']['alive']=False
+                elif mutation=='signal':row['termination_signal']=15
+                elif mutation=='diagnostic':self.value['engine_sync']['original_logs']['engine4']='unrelated EOF'
+                elif mutation=='hash':cause['log_sha256']='b'*64
+                else:cause['invented']=True
+                with self.assertRaises(ValueError):self.validate()

@@ -129,6 +129,19 @@ def child(a):
         if server:server.server_close()
         app.close()
 
+def observe_crash_engine(path):
+    raw=Path(path).read_bytes();row=load_json(raw,max_bytes=4096)
+    need(encode(row)==raw and row.get('name')=='engine4' and row.get('role')=='engine'
+         and type(row.get('pid')) is int and row['pid']>0
+         and type(row.get('birth')) is str and row['birth'].isdigit()
+         and type(row.get('spawned_at_ns')) is int and row['spawned_at_ns']>0,
+         'original first target engine start receipt differs')
+    stat=Path('/proc').joinpath(str(row['pid']),'stat').read_text().rsplit(')',1)[1].split()
+    need(stat[0] not in ('Z','X') and stat[19]==row['birth'],
+         'first target engine is not alive before deliberate child kill')
+    return {**{k:row[k] for k in ('name','pid','birth','spawned_at_ns')},
+            'alive':True,'observed_at_ns':time.time_ns()}
+
 def supervise(a):
     control=directory(a.control_dir);need(not list(control.iterdir()),'control directory must be empty')
     stopped=[False];owned=None;owned_phase=None;owned_birth=None
@@ -153,7 +166,8 @@ def supervise(a):
              installed['birth']==ready['birth']==birth(owned.pid) and
              installed['checkpoint_recovery'] is False and installed['transaction_active'] is False,
              'initial install child or boundary differs')
-        owned.kill();code=owned.wait(timeout=5)
+        engine_before=observe_crash_engine(a.crash_engine_start_receipt) if a.crash_engine_start_receipt else None
+        kill_requested_at=time.time_ns();owned.kill();code=owned.wait(timeout=5);reaped_at=time.time_ns()
         need(code==-signal.SIGKILL,'final Apply child did not exit SIGKILL')
         saved=checkpoint(a.database,pid=owned.pid)
         need((saved['height'],saved['app_hash'])==(installed['height'],installed['app_hash']),
@@ -162,7 +176,9 @@ def supervise(a):
         write_event(control,'killed.json',{'schema':1,'run_id':a.run_id,'pid':owned.pid,
             'birth':ready['birth'],'returncode':code,'signal':'SIGKILL','install':installed,
             'height':saved['height'],'app_hash':saved['app_hash'],'stop_requested':True,
-            'termination_signal':9,'rescue_used':False,'cleanup_error':None})
+            'termination_signal':9,'rescue_used':False,'cleanup_error':None,
+            'engine_before_kill':engine_before,'kill_requested_at_ns':kill_requested_at,
+            'reaped_at_ns':reaped_at})
         end=time.monotonic()+a.wait_seconds
         while not stopped[0] and time.monotonic()<end:
             resume=read_event(control,'resume.json')
@@ -204,6 +220,7 @@ def main():
         p.add_argument('--'+name,required=True)
     p.add_argument('--mode',choices=('observe','final-apply-crash'),default='observe')
     p.add_argument('--wait-seconds',type=int,default=150)
+    p.add_argument('--crash-engine-start-receipt',help=argparse.SUPPRESS)
     p.add_argument('--child-phase',choices=('normal','pause','recovery'),help=argparse.SUPPRESS)
     a=p.parse_args();os.umask(0o077)
     need(os.name=='posix' and 2<=a.wait_seconds<=180,'POSIX and bounded wait required')

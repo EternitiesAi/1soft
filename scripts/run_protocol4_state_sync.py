@@ -28,7 +28,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from abci_wire import read_frame,write_frame
 from check_release import source_identity,require
-from check_protocol4_state_sync import (PIN,ENGINE_SHA256,CHECK_IDS,CRASH_IDS,validate_core,artifact_manifest)
+from check_protocol4_state_sync import (PIN,ENGINE_SHA256,CHECK_IDS,CRASH_IDS,validate_core,artifact_manifest,validate_controlled_engine_exit)
 from commit_verifier import encode,load_json,header_hash,block_id
 from native_core import public,address,digest
 from protocol4_application import Protocol4Application
@@ -133,7 +133,8 @@ class Owned:
     def record(self,item):
         return {**{k:item[k] for k in ('name','pid','birth','role','argv','spawned_at_ns',
                    'stop_requested','termination_signal','rescue_used','cleanup_error')},
-                'returncode':item['process'].returncode,'alive_after':item['process'].poll() is None}
+                'returncode':item['process'].returncode,'alive_after':item['process'].poll() is None,
+                **({'causal_exit':item['causal_exit']} if 'causal_exit' in item else {})}
     def stop(self,item):
         process=item['process']
         if process.poll() is None:
@@ -146,11 +147,33 @@ class Owned:
                 self.cleanup['rescue_actions'].append({'name':item['name'],'pid':item['pid'],
                     'birth':item['birth'],'signal':9,'reason':'TERM timeout'})
                 process.kill();process.wait(timeout=5)
+        if not item['stop_requested'] and item.get('controlled_application_kill') is not None:
+            context=item['controlled_application_kill'];killed=context['killed']
+            item['capture'].thread.join(timeout=5)
+            capture=item['capture']
+            require(capture.failure is None and capture.completed and capture.closed and capture.fsynced
+                    and not capture.truncated,
+                    'controlled engine log incomplete')
+            event_raw=context['event_file'].read_bytes()
+            require(event_raw==encode(killed)+b'\n','controlled kill original event codec differs')
+            log_raw=capture.path.read_bytes()
+            if 'causal_exit' not in item:
+                item['causal_exit']={'kind':'controlled-final-apply-application-kill',
+                    'run_id':context['run_id'],'event_file':'control4/killed.json',
+                    'event_sha256':hashlib.sha256(event_raw).hexdigest(),
+                    'child_pid':killed['pid'],'child_birth':killed['birth'],
+                    'engine_before_kill':killed['engine_before_kill'],
+                    'kill_requested_at_ns':killed['kill_requested_at_ns'],'reaped_at_ns':killed['reaped_at_ns'],
+                    'observed_at_ns':time.time_ns(),'log_name':'engine4.log',
+                    'log_sha256':hashlib.sha256(log_raw).hexdigest()}
+            validate_controlled_engine_exit(self.record(item),context['profile'],killed,
+                context['initial'],context['run_id'],log_raw.decode('utf-8'))
         outcome=self.record(item)
         path=self.root/('process-'+item['name']+'-exit.json')
         if not path.exists():write_private(path,encode(outcome))
         allowed=(0,-15) if item['role']=='engine' else (0,)
-        require(item['stop_requested'] and not item['rescue_used'] and process.returncode in allowed,
+        require((item['stop_requested'] or 'causal_exit' in item)
+                and not item['rescue_used'] and process.returncode in allowed,
                 'unexpected exit or internal rescue: '+item['name'])
         return process.returncode
     def records(self):
@@ -325,6 +348,12 @@ def state_sync_configuration(policy,ports):
         'statesync.trust_period':'1h0m0s','statesync.discovery_time':'5s',
         'statesync.chunk_request_timeout':'5s','statesync.chunk_fetchers':2,'statesync.max_snapshot_chunks':64}
 
+def record_failure(report,exc,stage):
+    failure={'stage':stage,'type':type(exc).__name__,'reason':str(exc)}
+    report.setdefault('failures',[]).append(failure)
+    if report.get('status')!='failed':
+        report.update(status='failed',failure_type=failure['type'],reason=failure['reason'])
+
 def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profile='basic'):
     require(os.name=='posix' and profile in ('basic','final-apply-crash'),'POSIX and known P4 profile required')
     private,public_out=output_paths(private_output,public_output);os.umask(0o077)
@@ -393,10 +422,13 @@ def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profil
                 'instrumentation.prometheus':False}))
         def start_app(i,control=None,mode='observe',suffix=''):
             if control is not None:controls[i]=control
-            apps[i]=owned.start('app'+str(i)+suffix,[sys.executable,
-                str(ROOT/'scripts/serve_abci_p4_state_sync_test.py'),'--genesis',str(gfile),
-                '--genesis-sha256',gsha,'--database',str(databases[i]),'--socket',str(sockets[i]),
-                '--control-dir',str(controls[i]),'--run-id',run_id,'--mode',mode,'--wait-seconds','150'])
+            argv=[sys.executable,str(ROOT/'scripts/serve_abci_p4_state_sync_test.py'),
+                '--genesis',str(gfile),'--genesis-sha256',gsha,'--database',str(databases[i]),
+                '--socket',str(sockets[i]),'--control-dir',str(controls[i]),'--run-id',run_id,
+                '--mode',mode,'--wait-seconds','150']
+            if mode=='final-apply-crash':
+                argv+=['--crash-engine-start-receipt',str(private/'process-engine4-started.json')]
+            apps[i]=owned.start('app'+str(i)+suffix,argv)
             phase='pause' if mode=='final-apply-crash' else 'normal'
             return wait_until(lambda:read_event(controls[i],phase+'-ready.json'),15)
         def start_engine(i,suffix=''):
@@ -451,6 +483,8 @@ def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profil
         initial_install=install
         if profile=='final-apply-crash':
             killed=wait_until(lambda:read_event(initial_control,'killed.json'),15)
+            engines[4]['controlled_application_kill']={'profile':profile,'run_id':run_id,
+                'killed':killed,'initial':initial_install,'event_file':initial_control/'killed.json'}
             owned.stop(engines[4]);write_event(initial_control,'resume.json',{'schema':1,'run_id':run_id,'resume':True})
             wait_until(lambda:read_event(initial_control,'recovery-ready.json'),15)
             _,restart_checkpoint=read_checkpoint_event(initial_control,'restart-audited.json')
@@ -544,7 +578,7 @@ def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profil
                 [controls[i] for i in range(4)]+[initial_control],initial_install,True,lost_only=True)
         report['status']='completed-awaiting-external-validation';save()
     except Exception as exc:
-        report.update(status='failed',failure_type=type(exc).__name__,reason=str(exc))
+        record_failure(report,exc,'scenario')
     finally:
         try:
             try:owned.finish()
@@ -568,9 +602,10 @@ def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profil
             current=source_identity(ROOT);require(current==source,'tracked source changed during scenario')
             require(hashlib.sha256(Path(binary).read_bytes()).hexdigest()==expected_sha256,
                     'engine bytes changed during scenario')
-            report['engine_sync']={'log_names':[x['name'] for x in report['logs'] if x['name'].startswith('engine4')],
-                'original_log':''.join((private/x['name']).read_bytes().decode('utf-8',errors='replace')
-                                      for x in report['logs'] if x['name'].startswith('engine4'))}
+            engine_logs={x['name'][:-4]:(private/x['name']).read_bytes().decode('utf-8',errors='replace')
+                         for x in report['logs'] if x['name'].startswith('engine4')}
+            report['engine_sync']={'log_names':[name+'.log' for name in engine_logs],
+                'original_logs':engine_logs,'original_log':''.join(engine_logs.values())}
             report['artifacts']=artifact_manifest(private)
             report['source_dirty_after']=False
             if report['status']=='completed-awaiting-external-validation':
@@ -579,7 +614,7 @@ def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profil
                 report['semantic_validation']=validate_core(report,profile,source,expected_sha256,
                     engine_genesis,policy,now_ns=time.time_ns())
         except Exception as exc:
-            report.update(status='failed',failure_type=type(exc).__name__,reason=str(exc))
+            record_failure(report,exc,'cleanup-or-validation')
         for item in report.get('logs',[]):
             public_raw=encode({'schema':'1soft-private-log-public-digest-v1',
                 **{k:item[k] for k in ('name','bytes','sha256','truncated')},
