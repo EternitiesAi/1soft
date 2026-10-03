@@ -8,6 +8,16 @@ function atomic(value,{positive=false}={}){
 function formatUnits(value){return atomic(value).toLocaleString('en-US')+' DEV';}
 function shortId(value){return typeof value==='string'&&value.length>24?value.slice(0,12)+'…'+value.slice(-8):value;}
 function deadline(value){const ms=BigInt(value)/1000000n;return new Date(Number(ms)).toLocaleString();}
+function prepareHeight(state){
+  let ceiling=512;
+  if(state.development_profile!==undefined){
+    if(state.development_profile!=='durable-private-alpha-v1'||state.limits?.rpc_height!==4096||state.limits?.offline_height!==4096)throw Error('Unsupported development profile or height bounds.');
+    ceiling=4096;
+  }
+  const height=state.wallet?.state_height;
+  if(!Number.isSafeInteger(height)||height<1||height>ceiling)throw Error('Wallet height is outside the development profile.');
+  return Math.min(ceiling,height+32);
+}
 const STAGES={request_open:'Unsigned request',review_bound_unsigned:'Original review retained; signature unrecorded',
   signed_reserved:'Signed · obligation retained',recorded:'Execution reconciled in wallet',recorded_historical:'Execution recorded historically'};
 function paymentProgress(e,inspected,live,ready=live){
@@ -183,7 +193,7 @@ if(typeof document!=='undefined'){
   $('sync').addEventListener('click',()=>run(async()=>{await post('sync',{expected_revision:state.wallet?.revision??null});await reload();tell('Wallet reconciled against the selected verified ledger observation.');}));
   $('role').addEventListener('change',()=>{clearReviews();controls();});
   $('prepare').addEventListener('click',()=>run(async()=>{clearReviews();const context=capture($('role').value);
-    const prepared=await post('prepare',{request_id:context.request_id,role:context.role,valid_until:Math.min(512,state.wallet.state_height+32)});
+    const prepared=await post('prepare',{request_id:context.request_id,role:context.role,valid_until:prepareHeight(state)});
     requireCurrent(context);if(prepared.request_id!==context.request_id||prepared.role!==context.role)throw Error('Returned review belongs to another request or role.');
     const e=entry();if(e.invoice){const t=prepared.terms_summary;
       if(typeof prepared.terms_json!=='string'||!prepared.terms_json||typeof prepared.terms_confirmation!=='string'||!t||t.request_id!==context.request_id||t.role!==context.role||t.native_confirmation!==prepared.confirmation||t.quote_sha256!==e.invoice.quote_sha256||t.invoice_commitment!==e.invoice.invoice_commitment||t.resource_sha256!==e.invoice.resource_sha256)throw Error('Returned merchant terms differ from the selected invoice.');

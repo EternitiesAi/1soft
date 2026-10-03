@@ -128,13 +128,16 @@ python tools/local-platform/scripts/1soft.py check \
 
 Then, with a clean Git checkout and the cached pinned engine, run the actual alpha
 gate into a different new external **private POSIX/Linux evidence directory**
-with an existing owned 0700 parent. Use `$HOME`, not a Windows DrvFS Downloads
-or `/mnt/c` directory whose permissions do not meet the private-path contract:
+with an existing owned 0700 parent. Create that parent under your Linux home;
+`$HOME` itself usually has a broader mode and must not be chmodded for this gate.
+Use a new child output path, rather than a Windows DrvFS Downloads or `/mnt/c`
+directory whose permissions do not meet the private-path contract:
 
 ```sh
+evidence_parent="$(mktemp -d "$HOME/1soft-alpha-evidence.XXXXXX")"
 python tools/local-platform/scripts/1soft.py qualify \
   --profile durable-private-alpha-v1 --engine /path/to/cometbft \
-  --output "$HOME/1soft-alpha-real-evidence"
+  --output "$evidence_parent/run-01"
 ```
 
 The gate takes more than **one real hour**. It uses unscaled wall and monotonic

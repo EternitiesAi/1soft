@@ -74,11 +74,21 @@ async function page(snapshot){
     if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);
   },querySelectorAll(){return [...elements.values()];},createElement(){return new Element();},body:new Element()};
   const calls=[];const context={document,TextEncoder,Blob,Uint8Array,URL,console,
-    fetch:async(url,options={})=>{calls.push({url,method:options.method??'GET'});
-      return {ok:true,json:async()=>url==='/api/session'?{csrf:'key-free-fixture'}:snapshot};}};
+    fetch:async(url,options={})=>{calls.push({url,method:options.method??'GET',...(options.body?{body:JSON.parse(options.body)}:{})});
+      return {ok:true,json:async()=>{
+        if(url==='/api/session')return {csrf:'key-free-fixture'};
+        if(url==='/api/prepare'){
+          const q=JSON.parse(options.body);return {request_id:q.request_id,role:q.role,
+            confirmation:'c'.repeat(64),review_json:'public key-free review fixture',
+            summary:{recipient:snapshot.requests[0].request.recipient,units:'58',fee_units:'2',
+              debit_units:'60',valid_until:q.valid_until,state_height:snapshot.wallet.state_height}};
+        }
+        return snapshot;
+      }};}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../web/wallet.js'),'utf8'),context);
   await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setImmediate(resolve));
   elements.get('requests').children[0].listeners.click();
+  elements.get('role').value='owner'; // Browser selects a valid role; the minimal DOM has no HTML select default.
   return {elements,calls};
 }
 test('actual alpha controls disable signing and dispatch on an older wallet while allowing explicit read refresh/sync',async()=>{
@@ -119,4 +129,43 @@ test('alpha deadline render distinguishes checkpoint interval from the immutable
   const snapshot=state({ready:true});snapshot.limits={absolute_not_after_ns:'4102444800000000000'};
   const {elements}=await page(snapshot);
   assert.match(elements.get('trust-deadline').textContent,/Checkpoint trust deadline:.*Fixed alpha horizon:/);
+});
+
+
+test('actual prepare sends a future alpha height above512 using the advertised4096 profile',async()=>{
+  const snapshot=state({ready:true});snapshot.wallet.state_height=513;
+  snapshot.development_profile='durable-private-alpha-v1';snapshot.limits={rpc_height:4096,offline_height:4096};
+  const {elements,calls}=await page(snapshot);await elements.get('prepare').listeners.click();
+  const posted=calls.find(x=>x.url==='/api/prepare');assert.ok(posted);
+  assert.equal(posted.body.valid_until,545);
+  assert.match(elements.get('payment-facts').children.map(x=>x.textContent??x.children.map(y=>y.textContent).join(' ')).join(' '),/545/);
+});
+test('actual legacy prepare keeps its512 ceiling without an alpha profile',async()=>{
+  const snapshot=state({ready:true});snapshot.wallet.state_height=500;
+  const {elements,calls}=await page(snapshot);await elements.get('prepare').listeners.click();
+  assert.equal(calls.find(x=>x.url==='/api/prepare').body.valid_until,512);
+});
+test('actual alpha prepare caps near its advertised4096 boundary',async()=>{
+  const snapshot=state({ready:true});snapshot.wallet.state_height=4090;
+  snapshot.development_profile='durable-private-alpha-v1';snapshot.limits={rpc_height:4096,offline_height:4096};
+  const {elements,calls}=await page(snapshot);await elements.get('prepare').listeners.click();
+  assert.equal(calls.find(x=>x.url==='/api/prepare').body.valid_until,4096);
+});
+test('unknown profile or incoherent alpha bounds refuse before prepare POST',async()=>{
+  for(const [profile,limits] of [['other-alpha',{rpc_height:4096,offline_height:4096}],
+    ['durable-private-alpha-v1',{rpc_height:8192,offline_height:4096}],
+    ['durable-private-alpha-v1',{rpc_height:4096,offline_height:'4096'}],
+    ['durable-private-alpha-v1',{}]]){
+    const snapshot=state({ready:true});snapshot.development_profile=profile;snapshot.limits=limits;
+    const {elements,calls}=await page(snapshot);await elements.get('prepare').listeners.click();
+    assert.equal(calls.filter(x=>x.url==='/api/prepare').length,0);
+  }
+});
+test('invalid or out-of-profile wallet heights refuse before prepare POST',async()=>{
+  for(const height of [0,-1,1.5,'513',NaN,Infinity,4097]){
+    const snapshot=state({ready:true});snapshot.wallet.state_height=height;
+    snapshot.development_profile='durable-private-alpha-v1';snapshot.limits={rpc_height:4096,offline_height:4096};
+    const {elements,calls}=await page(snapshot);await elements.get('prepare').listeners.click();
+    assert.equal(calls.filter(x=>x.url==='/api/prepare').length,0);
+  }
 });
