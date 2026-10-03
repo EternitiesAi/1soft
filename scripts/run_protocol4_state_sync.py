@@ -331,7 +331,7 @@ def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profil
     source=source_identity(ROOT)
     preflight=engine_preflight(engine,expected_sha256)
     private.mkdir(parents=True,mode=0o700);directory(private);public_out.mkdir(parents=True,mode=0o700)
-    run_id=uuid.uuid4().hex();binary=str(Path(engine).absolute())
+    run_id=uuid.uuid4().hex;binary=str(Path(engine).absolute())
     report={'schema':'1soft-protocol4-state-sync-v1','status':'unassessed','profile':profile,
         'run_id':run_id,'source':source,'source_dirty_before':False,'source_dirty_after':None,
         'public_network':False,'real_funds':False,'checks':[],'processes':[],'logs':[],
