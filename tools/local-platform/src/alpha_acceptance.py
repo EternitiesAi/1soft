@@ -7,6 +7,7 @@ The original fixtures and generated vaults remain private outside the source.
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import sys
 import time
@@ -46,12 +47,29 @@ def _files(root):
         if (p:=root/name).is_file()}
 
 
+def stop_with_facts(network,rows):
+    """Capture actual owned shutdown outcomes; reaping alone is not a pass."""
+    before={p.pid:p.poll() for p in network.apps+network.engines}
+    result=network.stop();valid=not result['warnings']
+    for row in rows:
+        if 'returncode' not in row:
+            matches=[p for p in network.apps+network.engines if p.pid==row['pid']]
+            if matches:
+                p=matches[0];row.update(returncode=p.returncode,returncode_before_stop=before[p.pid],
+                    reaped=p.poll() is not None,same_birth_still_present=_birth(row['pid'])==row['birth'])
+                row['expected_stop_outcome']=before[p.pid] is None and p.returncode in (0,-signal.SIGTERM)
+                valid=valid and row['expected_stop_outcome']
+    return valid
+
+
 def qualify_alpha(engine,output,*,duration_seconds=3660):
     need(type(duration_seconds) is int and 3600<duration_seconds<=7200,'qualification requires more than one real hour, at most two')
     sys.path.insert(0,str(ROOT/'tools/release'))
     import check_release as evidence
     source=evidence.source_identity(ROOT);binary=verify_engine(engine)
     output=Path(output).absolute();need(not output.is_relative_to(ROOT),'evidence must be outside source')
+    from p4_read_store import private_path
+    private_path(output)  # Refuse non-private/aliased parent before any new workspace or keys.
     output.mkdir(mode=0o700,exist_ok=False);private_new(output/'source.json',encode(source))
     workspace=Path.home()/('1sa-'+uuid.uuid4().hex[:12])
     secret=os.urandom(32).hex().encode();backup_secret=os.urandom(32).hex().encode()
@@ -73,14 +91,8 @@ def qualify_alpha(engine,output,*,duration_seconds=3660):
             report['owned_processes'].extend({'kind':kind,'pid':p.pid,'birth':_birth(p.pid),'generation':1 if restart_done else 0} for p in items)
         save()
     def stop_owned(network):
-        result=network.stop();need(not result['warnings'],'owned process needed forced stop; original fixture retained')
-        for row in report['owned_processes']:
-            if 'returncode' not in row:
-                matches=[p for p in network.apps+network.engines if p.pid==row['pid']]
-                if matches:
-                    row.update(returncode=matches[0].returncode,reaped=matches[0].poll() is not None,
-                               same_birth_still_present=_birth(row['pid'])==row['birth'])
-        save()
+        valid=stop_with_facts(network,report['owned_processes']);save()
+        need(valid,'owned process exited unexpectedly or required forced stop; original fixture retained')
     def phase(svc,label):
         state=svc.state();cp=svc.store.current()['checkpoint']
         heights=[net.height(i) for i in range(4)]
@@ -221,7 +233,7 @@ def qualify_alpha(engine,output,*,duration_seconds=3660):
             check('all_four_final_heights_consistent',min(heights)>=height and max(heights)-min(heights)<=2,node_heights=heights)
         check('source_engine_unchanged',evidence.source_identity(ROOT)==source and verify_engine(binary)==binary)
         stop_owned(net)
-        check('all_owned_processes_reaped',all(p.get('reaped') is True and p.get('same_birth_still_present') is False for p in report['owned_processes']))
+        check('all_owned_processes_reaped',all(p.get('reaped') is True and p.get('same_birth_still_present') is False and p.get('expected_stop_outcome') is True for p in report['owned_processes']))
         check('original_workspace_preserved',_files(workspace)==file_ids and read_private(workspace/'engine-genesis.json')==genesis and read_private(workspace/'policy.json')==policy_bytes)
         need({c['name'] for c in report['checks']}==set(EXPECTED_CHECKS) and all(c['passed'] for c in report['checks']),'incomplete alpha gate')
         report.update(status='passed',elapsed_seconds=time.monotonic()-started,completed_ns=time.time_ns(),same_genesis_home_db=True)

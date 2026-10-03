@@ -53,7 +53,11 @@ maximum ceilings is not established by a short qualification.
 The alpha policy pins the original first header and genesis, permits sequential
 checkpoint advancement, and fixes an absolute horizon at **24 hours after the
 original anchor**. Each new admission must occur before the prior authenticated
-checkpoint's one-hour deadline; each signing operation also needs the exact latest
+checkpoint's one-hour deadline, and its new checkpoint must be no more than five
+minutes old. RPC catch-up is bounded to 64 new blocks per batch: a retained
+one-hour trust window does not promise a full hour of allowable offline time.
+An old first catch-up batch can refuse before that deadline. Each signing
+operation also needs the exact latest
 retained tip and the existing five-minute freshness bound. Clock regression,
 expired admission gaps, changed tips and horizon expiry refuse authority.
 
@@ -123,7 +127,9 @@ python tools/local-platform/scripts/1soft.py check \
 ```
 
 Then, with a clean Git checkout and the cached pinned engine, run the actual alpha
-gate into a different new external evidence directory:
+gate into a different new external **private POSIX/Linux evidence directory**
+with an existing owned 0700 parent. Use `$HOME`, not a Windows DrvFS Downloads
+or `/mnt/c` directory whose permissions do not meet the private-path contract:
 
 ```sh
 python tools/local-platform/scripts/1soft.py qualify \

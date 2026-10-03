@@ -190,6 +190,9 @@ def load_configuration(workspace):
 
 
 class LocalNetwork:
+    # Existing subclasses with their own constructor retain the legacy profile.
+    alpha=False
+    _alpha_store=None
     def __init__(self,workspace,engine,*,clock=time.time_ns):
         self.root=Path(workspace).absolute();self.config=load_configuration(self.root)
         self.binary=verify_engine(engine);self.clock=clock
