@@ -495,6 +495,18 @@ class Protocol4ControlledExitSemanticTests(unittest.TestCase):
                     other.update(causal_exit=row.pop('causal_exit'),stop_requested=False,termination_signal=None)
                     row.update(stop_requested=True,termination_signal=15)
                 with self.assertRaises(ValueError):self.validate()
+    def test_coherent_missing_empty_or_malformed_run_ids_are_refused(self):
+        # Alter every identity together, retaining all equality relationships.
+        # Shape validation must independently reject these complete substitutions.
+        for replacement in ('missing',None,'',False,123,'f'*31,'f'*33,'A'*32,'g'*32):
+            with self.subTest(replacement=replacement):
+                self.setUp();row=self.controlled();v=self.value;c=v['crash']
+                objects=(v,row['causal_exit'],c['killed'],c['initial_install'],
+                         c['ready'],c['recovered'],v['install'])
+                for item in objects:
+                    if replacement=='missing':item.pop('run_id',None)
+                    else:item['run_id']=replacement
+                with self.assertRaises(ValueError):self.validate()
     def test_missing_substituted_or_unbounded_cause_is_refused(self):
         for mutation in ('missing','child','birth','run','window','before','signal','diagnostic','hash','extra'):
             with self.subTest(mutation=mutation):
