@@ -98,9 +98,9 @@ KatV1 is a profile-level fixture, not a live TransactionV1. It contains magic 1S
 
 The public live genesis field is:
 
-H2F("genesis", canonical_json(genesis with only the genesis_field member removed))
+H2F("genesis", canonical_json(genesis with both genesis_field and initial_commitments removed))
 
-ProfileDescriptorV1, DeploymentBindingV1, limits, validators, commitments, and all other genesis fields remain in that projection. After the derived field is inserted and validated, SHA-256 is computed over the final canonical genesis bytes. That digest is not stored inside the genesis document. It is bound in every transaction header, committed database checkpoint, and AppHash.
+ProfileDescriptorV1, DeploymentBindingV1, limits, validators, and every other genesis field except those two members remain in that projection. The controller derives genesis_field first, then the Rust development client uses it to construct the spendable initial note commitments. After both members are inserted and validated, SHA-256 is computed over the final canonical genesis bytes. The final digest therefore binds the initial commitments even though genesis_field does not. That digest is not stored inside the genesis document. It is bound in every transaction header, committed database checkpoint, and AppHash. This order prevents a cycle between genesis_field and note commitments, whose Poseidon preimages include genesis_field.
 
 At startup, the parent opens the worker with no symlink following, verifies safe ownership and mode, hashes that open file, records its device/inode, and launches that same open inode through a passed /proc/self/fd handle. It refuses path replacement, broad write permission, or identity drift. The worker returns its exact ProfileDescriptorV1 bytes. The parent requires its domain-separated hash and bytes to match genesis, constructs DeploymentBindingV1 from measured artifacts and requires exact agreement with genesis, checks the external KatV1 file hash, verifies the KatV1 proof through VerifyProofV1, verifies that mutation of the frozen proof-byte offset returns InvalidProof, and refuses to start if any identity or observation differs.
 

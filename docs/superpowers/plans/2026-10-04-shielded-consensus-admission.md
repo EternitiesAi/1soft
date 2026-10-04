@@ -119,7 +119,7 @@
 
 **Files:** Create `src/protocol5_{encoding,worker}.py`, fixtures, and `tests/test_protocol5_{encoding,worker}.py`.
 
-- [ ] Test Rust vectors, identity DAGs, canonical JSON, public-key-sorted four-validator genesis, cross-limit arithmetic, and separate CometBFT validator ordering.
+- [ ] Test Rust vectors, identity DAGs, canonical JSON, public-key-sorted four-validator genesis, cross-limit arithmetic, and separate CometBFT validator ordering. Derive genesis_field from the canonical genesis projection with both genesis_field and initial_commitments absent; only then let the Rust client derive spendable initial commitments, and finally bind both in the canonical genesis SHA-256.
 - [ ] Test no-symlink worker opening, ownership/mode/hash/device/inode, `/proc/self/fd` launch, 120s startup/30s request watchdogs, increasing IDs, startup bindings, and permanent quarantine.
 - [ ] Require one non-skipped test against the actual release worker and KAT.
 - [ ] RED:
