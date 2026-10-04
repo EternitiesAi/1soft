@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import copy
 import hashlib
 import json
 import os
@@ -29,6 +32,75 @@ from state_sync import (
     APPLY_ABORT, APPLY_ACCEPT, APPLY_REJECT_SNAPSHOT, APPLY_RETRY,
     OFFER_ACCEPT, OFFER_REJECT,
 )
+from protocol5_state_sync import HASH_DOMAIN
+
+
+def _repack_snapshot(snapshot: dict, payload: dict) -> tuple[dict, list[bytes]]:
+    if type(snapshot) is not dict or type(payload) is not dict:
+        raise ValueError("invalid Protocol 5 snapshot repack input")
+    metadata = decode_canonical_json(snapshot["metadata"])
+    chunk_bytes = metadata.get("chunk_bytes")
+    if type(chunk_bytes) is not int or chunk_bytes <= 0:
+        raise ValueError("invalid Protocol 5 snapshot chunk geometry")
+    raw = canonical_json(payload)
+    chunks = [raw[offset:offset + chunk_bytes]
+              for offset in range(0, len(raw), chunk_bytes)]
+    if not chunks:
+        raise ValueError("empty Protocol 5 snapshot payload")
+    digest = hashlib.sha256(HASH_DOMAIN + raw).digest()
+    metadata.update(
+        payload_bytes=len(raw), chunks=len(chunks),
+        payload_sha256=digest.hex())
+    result = dict(snapshot)
+    result.update(
+        chunks=len(chunks), hash=digest, metadata=canonical_json(metadata))
+    return result, chunks
+
+
+def _semantic_payload_variants(payload: dict) -> dict[str, dict]:
+    if type(payload) is not dict or type(payload.get("state")) is not dict:
+        raise ValueError("invalid Protocol 5 semantic payload")
+    proof = copy.deepcopy(payload)
+    transaction = None
+    for block in proof["state"].get("execution_blocks", []):
+        transactions = block.get("transactions") if type(block) is dict else None
+        if type(transactions) is list and transactions:
+            transaction = transactions
+            break
+    if transaction is None or type(transaction[0]) is not str:
+        raise ValueError("Protocol 5 snapshot lacks replay transaction")
+    try:
+        wire = bytearray(base64.b64decode(transaction[0], validate=True))
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("invalid Protocol 5 replay transaction") from exc
+    if not wire:
+        raise ValueError("empty Protocol 5 replay transaction")
+    wire[-1] ^= 1
+    transaction[0] = base64.b64encode(wire).decode("ascii")
+
+    nullifier = copy.deepcopy(payload)
+    nullifiers = nullifier["state"].get("spent_nullifiers")
+    if type(nullifiers) is not list or not nullifiers:
+        raise ValueError("Protocol 5 snapshot lacks spent nullifier")
+    nullifiers.pop(0)
+
+    history = copy.deepcopy(payload)
+    roots = history["state"].get("root_history")
+    if type(roots) is not list or not roots or type(roots[0]) is not dict:
+        raise ValueError("Protocol 5 snapshot lacks root history")
+    try:
+        changed = bytearray(bytes.fromhex(roots[0]["root"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid Protocol 5 root history") from exc
+    if len(changed) != 32:
+        raise ValueError("invalid Protocol 5 root history")
+    changed[0] ^= 1
+    roots[0]["root"] = bytes(changed).hex()
+    return {
+        "altered_proof": proof,
+        "removed_nullifier": nullifier,
+        "changed_root_history": history,
+    }
 
 
 def _snapshot(network: Protocol5Network, index: int = 0) -> dict:
@@ -53,6 +125,37 @@ def _load(network: Protocol5Network, snapshot: dict,
     return bytes(network.abci(source, request).load_snapshot_chunk.chunk)
 
 
+def _snapshot_payload(
+        network: Protocol5Network, snapshot: dict, source: int = 0) -> dict:
+    raw = b"".join(
+        _load(network, snapshot, index, source)
+        for index in range(snapshot["chunks"]))
+    metadata = decode_canonical_json(snapshot["metadata"])
+    if (len(raw) != metadata["payload_bytes"]
+            or hashlib.sha256(HASH_DOMAIN + raw).digest() != snapshot["hash"]):
+        raise AssertionError("Protocol 5 source snapshot payload differs")
+    return decode_canonical_json(raw, max_bytes=metadata["payload_bytes"])
+
+
+def _different_digest(value: str) -> str:
+    if (type(value) is not str or len(value) != 64
+            or any(ch not in "0123456789abcdef" for ch in value)):
+        raise ValueError("invalid Protocol 5 digest mutation input")
+    changed = bytearray.fromhex(value)
+    changed[0] ^= 1
+    return changed.hex()
+
+
+def _metadata_mutation(snapshot: dict, name: str, value) -> dict:
+    metadata = decode_canonical_json(snapshot["metadata"])
+    if name not in metadata:
+        raise ValueError("unknown Protocol 5 snapshot metadata field")
+    metadata[name] = value
+    changed = dict(snapshot)
+    changed["metadata"] = canonical_json(metadata)
+    return changed
+
+
 def _offer(network: Protocol5Network, target: int, snapshot: dict,
            app_hash: bytes | None = None) -> int:
     request = Request()
@@ -68,13 +171,36 @@ def _offer(network: Protocol5Network, target: int, snapshot: dict,
     return network.abci(target, request).offer_snapshot.result
 
 
-def _apply(network: Protocol5Network, target: int, chunk: int,
-           payload: bytes, sender: str = "protocol5-runner") -> int:
+def _apply_response(network: Protocol5Network, target: int, chunk: int,
+                    payload: bytes, sender: str = "protocol5-runner") -> dict:
     request = Request()
     request.apply_snapshot_chunk.index = chunk
     request.apply_snapshot_chunk.chunk = payload
     request.apply_snapshot_chunk.sender = sender
-    return network.abci(target, request).apply_snapshot_chunk.result
+    response = network.abci(target, request).apply_snapshot_chunk
+    return {
+        "result": response.result,
+        "refetch_chunks": list(response.refetch_chunks),
+        "reject_senders": list(response.reject_senders),
+    }
+
+
+def _apply(network: Protocol5Network, target: int, chunk: int,
+           payload: bytes, sender: str = "protocol5-runner") -> int:
+    return _apply_response(network, target, chunk, payload, sender)["result"]
+
+
+def _transfer_payload(
+        network: Protocol5Network, target: int,
+        snapshot: dict, chunks: list[bytes]) -> int:
+    if _offer(network, target, snapshot) != OFFER_ACCEPT:
+        raise AssertionError("Protocol 5 semantic snapshot offer was not accepted")
+    result = None
+    for index, chunk in enumerate(chunks):
+        result = _apply(network, target, index, chunk)
+    if result is None:
+        raise AssertionError("Protocol 5 semantic snapshot had no chunks")
+    return result
 
 
 def _install_direct(network: Protocol5Network, target: int, snapshot: dict) -> None:
@@ -83,6 +209,63 @@ def _install_direct(network: Protocol5Network, target: int, snapshot: dict) -> N
     for chunk in range(snapshot["chunks"]):
         if _apply(network, target, chunk, _load(network, snapshot, chunk)) != APPLY_ACCEPT:
             raise AssertionError("Protocol 5 direct snapshot chunk was not accepted")
+
+
+def _set_persistent_peers(
+        network: Protocol5Network, index: int, peers: tuple[int, ...]) -> None:
+    config = network.homes / f"node{index}/config/config.toml"
+    value = ",".join(
+        f"{network.node_ids[peer]}@127.0.0.1:{network.p2p[peer]}"
+        for peer in peers)
+    config.write_text(patch_toml(
+        config.read_text(), {"p2p.persistent_peers": value}), encoding="utf-8")
+
+
+def _remove_addrbooks(
+        network: Protocol5Network, indices: tuple[int, ...]) -> None:
+    for index in indices:
+        addrbook = network.homes / f"node{index}/config/addrbook.json"
+        if addrbook.exists() or addrbook.is_symlink():
+            if addrbook.is_symlink() or not addrbook.is_file():
+                raise RuntimeError(
+                    "unsafe Protocol 5 snapshot-provider address book")
+            addrbook.unlink()
+
+
+def _prepare_snapshot_provider(
+        network: Protocol5Network, snapshot_height: int) -> None:
+    if type(snapshot_height) is not int or snapshot_height <= 0:
+        raise ValueError("invalid Protocol 5 snapshot-provider height")
+    for index in range(4):
+        if index in network.engines:
+            network.stop_engine(index)
+    _set_persistent_peers(network, 0, (4,))
+    _set_persistent_peers(network, 4, (0,))
+    for index in (1, 2, 3):
+        _set_persistent_peers(
+            network, index,
+            tuple(peer for peer in (1, 2, 3) if peer != index))
+    _remove_addrbooks(network, tuple(range(5)))
+    for index in (1, 2, 3):
+        network.start_engine(index)
+    wait_until(lambda: all(
+        network.height(index) >= snapshot_height + 2 for index in (1, 2, 3)), 90)
+    network.start_engine(0)
+
+
+def _restore_source_peers(network: Protocol5Network) -> None:
+    running = tuple(sorted(network.engines))
+    catchup_height = min(network.height(index) for index in (1, 2, 3))
+    for index in running:
+        network.stop_engine(index)
+    for index in range(5):
+        _set_persistent_peers(
+            network, index, tuple(peer for peer in range(5) if peer != index))
+    _remove_addrbooks(network, tuple(range(5)))
+    for index in (1, 2, 3, 0, 4):
+        if index in running:
+            network.start_engine(index)
+    wait_until(lambda: network.height(0) >= catchup_height, 90)
 
 
 def _advance_sources(network: Protocol5Network, amount: int = 2) -> dict:
@@ -148,15 +331,20 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
         wait_until(lambda: min(network.height(index) for index in range(4)) >= 4, 60)
         frozen = network.hold_sources_without_quorum()
         snapshot_height = frozen["height"]
+        source_snapshot = _snapshot(network)
+        if source_snapshot["height"] != snapshot_height:
+            raise AssertionError("Protocol 5 frozen snapshot height differs")
+        source_checkpoint = network.direct_state(0)
+        _prepare_snapshot_provider(network, snapshot_height)
         trust_height = snapshot_height - 1
-        trust_hash = rpc(network.http[0], "block", {
+        trust_hash = rpc(network.http[1], "block", {
             "height": str(trust_height)})["block_id"]["hash"]
         config = network.homes / "node4/config/config.toml"
         config.write_text(patch_toml(config.read_text(), {
             "statesync.enable": True,
             "statesync.rpc_servers": (
-                f"http://127.0.0.1:{network.http[0]},"
-                f"http://127.0.0.1:{network.http[1]}"),
+                f"http://127.0.0.1:{network.http[1]},"
+                f"http://127.0.0.1:{network.http[2]}"),
             "statesync.trust_height": trust_height,
             "statesync.trust_hash": trust_hash,
             "statesync.trust_period": "168h0m0s",
@@ -189,10 +377,10 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
         if network.height(4) != snapshot_height:
             raise AssertionError("state-sync target exceeded frozen snapshot")
         network.stop_engine(4)
-        source = network.direct_state(0)
         target = network.direct_state(4)
         _check(report, "trusted-apphash-replay",
-               source == target and target["state"]["current_root"] == current_root,
+               source_checkpoint == target
+               and target["state"]["current_root"] == current_root,
                {"height": target["height"], "app_hash": target["app_hash"],
                 "root": current_root})
         report["state_sync_observed"] = True
@@ -209,31 +397,72 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
                {"height": target["height"], "blocks": block_count,
                 "history": history_count, "markers": marker_count})
 
-        exact = _snapshot(network)
+        exact = source_snapshot
+        exact_payload = _snapshot_payload(network, exact)
         _install_direct(network, 4, exact)
         last_index = exact["chunks"] - 1
         last_chunk = _load(network, exact, last_index)
         duplicate_result = _apply(network, 4, last_index, last_chunk)
         _check(report, "duplicate-final-reoffer",
                duplicate_result == APPLY_ACCEPT and len(offers) >= 2,
-               {"accepted_offers": len(offers),
+               {"snapshot_height": snapshot_height,
+                "accepted_offers": len(offers),
                 "duplicate_final_result": duplicate_result,
                 "crash_exit_code": 96})
 
         metadata = decode_canonical_json(exact["metadata"])
-        changed = dict(exact)
-        changed_meta = dict(metadata)
-        changed_meta["app_hash"] = "00" * 32
-        changed["metadata"] = canonical_json(changed_meta)
-        same_height_fork = _offer(network, 4, changed, b"\0" * 32)
+        subcases = {}
+        for field, name in (
+                ("genesis_sha256", "wrong_genesis"),
+                ("profile_id", "wrong_profile"),
+                ("deployment_id", "wrong_deployment")):
+            changed = _metadata_mutation(
+                exact, field, _different_digest(metadata[field]))
+            subcases[name] = {
+                "operation": "offer",
+                "result": _offer(network, 4, changed),
+            }
+
+        wrong_trusted = bytes.fromhex(_different_digest(metadata["app_hash"]))
+        subcases["wrong_trusted_apphash"] = {
+            "operation": "offer",
+            "result": _offer(network, 4, exact, wrong_trusted),
+        }
+        changed_app_hash = _different_digest(metadata["app_hash"])
+        changed = _metadata_mutation(exact, "app_hash", changed_app_hash)
+        subcases["same_height_different_apphash"] = {
+            "operation": "offer",
+            "result": _offer(network, 4, changed, bytes.fromhex(changed_app_hash)),
+        }
+        changed_payload = copy.deepcopy(exact_payload)
+        changed_payload["state"]["fee_total"] += 1
+        changed, _ = _repack_snapshot(exact, changed_payload)
+        subcases["same_height_same_apphash_different_payload"] = {
+            "operation": "offer",
+            "result": _offer(network, 4, changed),
+        }
+
         if _offer(network, 4, exact) != OFFER_ACCEPT:
-            raise AssertionError("exact hostile-matrix offer was not accepted")
-        future_chunk = _apply(network, 4, 1, _load(network, exact, 1))
+            raise AssertionError("exact future-chunk offer was not accepted")
+        future = _apply_response(network, 4, 1, _load(network, exact, 1))
+        subcases["future_chunk"] = {"operation": "apply", **future}
+
         if _offer(network, 4, exact) != OFFER_ACCEPT:
-            raise AssertionError("exact hostile-matrix reoffer was not accepted")
-        short_chunk = _apply(network, 4, 0, _load(network, exact, 0)[:-1])
+            raise AssertionError("exact short-chunk offer was not accepted")
+        subcases["short_chunk"] = {
+            "operation": "apply",
+            "result": _apply(network, 4, 0, _load(network, exact, 0)[:-1]),
+        }
+
         if _offer(network, 4, exact) != OFFER_ACCEPT:
-            raise AssertionError("exact corrupt-final reoffer was not accepted")
+            raise AssertionError("exact excess-chunk offer was not accepted")
+        subcases["excess_chunk"] = {
+            "operation": "apply",
+            "result": _apply(network, 4, 0, _load(network, exact, 0) + b"\0"),
+        }
+
+        if _offer(network, 4, exact) != OFFER_ACCEPT:
+            raise AssertionError("exact corrupt-final offer was not accepted")
         corrupt_final = bytearray(last_chunk)
         corrupt_final[-1] ^= 1
         corrupt_result = None
@@ -241,21 +470,54 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
             payload = (bytes(corrupt_final) if index == last_index
                        else _load(network, exact, index))
             corrupt_result = _apply(network, 4, index, payload)
+        subcases["corrupt_final"] = {
+            "operation": "apply", "result": corrupt_result,
+        }
+
+        if _offer(network, 4, exact) != OFFER_ACCEPT:
+            raise AssertionError("exact duplicate-chunk offer was not accepted")
+        first_chunk = _load(network, exact, 0)
+        if _apply(network, 4, 0, first_chunk) != APPLY_ACCEPT:
+            raise AssertionError("initial duplicate-chunk transfer was not accepted")
+        conflicting_chunk = bytearray(first_chunk)
+        conflicting_chunk[-1] ^= 1
+        subcases["conflicting_duplicate"] = {
+            "operation": "apply",
+            "result": _apply(network, 4, 0, bytes(conflicting_chunk)),
+        }
+
         if _offer(network, 4, exact) != OFFER_ACCEPT:
             raise AssertionError("exact partial-transfer offer was not accepted")
-        if _apply(network, 4, 0, _load(network, exact, 0)) != APPLY_ACCEPT:
+        if _apply(network, 4, 0, first_chunk) != APPLY_ACCEPT:
             raise AssertionError("partial transfer first chunk was not accepted")
         network.stop_app(4)
         network.start_app(4, crash={
             "run_token": token, "run_token_sha256": token_sha,
             "crash_phase": "observe", "event_log": events,
         })
-        partial_restart = _apply(network, 4, 1, _load(network, exact, 1))
+        subcases["partial_restart"] = {
+            "operation": "apply",
+            "result": _apply(network, 4, 1, _load(network, exact, 1)),
+        }
 
+        _restore_source_peers(network)
         _advance_sources(network)
         newer = _snapshot(network)
+        newer_payload = _snapshot_payload(network, newer)
+        before_semantic_faults = network.direct_state(4)
+        for name, payload in _semantic_payload_variants(newer_payload).items():
+            changed, chunks = _repack_snapshot(newer, payload)
+            subcases[name] = {
+                "operation": "apply",
+                "result": _transfer_payload(network, 4, changed, chunks),
+            }
+        semantic_state_preserved = (
+            network.direct_state(4) == before_semantic_faults)
         _install_direct(network, 4, newer)
         rollback = _offer(network, 4, exact)
+        subcases["rollback"] = {
+            "operation": "offer", "result": rollback,
+        }
         _check(report, "rollback-refusal", rollback == OFFER_REJECT,
                {"older_height": exact["height"],
                 "newer_height": newer["height"], "result": rollback})
@@ -276,6 +538,7 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
         except (OSError, RuntimeError):
             disk_fault_seen = True
         wait_until(lambda: network.apps[4].poll() is not None, 20)
+        application_failed = network.apps[4].returncode not in (None, 0)
         network.stop_app(4)
         with sqlite3.connect(database) as connection:
             connection.execute("DROP TRIGGER fail_p5_sync")
@@ -284,20 +547,55 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
             "crash_phase": "observe", "event_log": events,
         })
         after_failure = network.direct_state(4)
+        subcases["disk_failure"] = {
+            "operation": "apply",
+            "application_failed": application_failed,
+            "state_preserved": after_failure == before_failure,
+        }
+        expected_subcases = {
+            "wrong_genesis": {"operation": "offer", "result": OFFER_REJECT},
+            "wrong_profile": {"operation": "offer", "result": OFFER_REJECT},
+            "wrong_deployment": {"operation": "offer", "result": OFFER_REJECT},
+            "wrong_trusted_apphash": {
+                "operation": "offer", "result": OFFER_REJECT},
+            "altered_proof": {
+                "operation": "apply", "result": APPLY_REJECT_SNAPSHOT},
+            "removed_nullifier": {
+                "operation": "apply", "result": APPLY_REJECT_SNAPSHOT},
+            "changed_root_history": {
+                "operation": "apply", "result": APPLY_REJECT_SNAPSHOT},
+            "future_chunk": {
+                "operation": "apply", "result": APPLY_RETRY,
+                "refetch_chunks": [0], "reject_senders": []},
+            "short_chunk": {
+                "operation": "apply", "result": APPLY_REJECT_SNAPSHOT},
+            "excess_chunk": {
+                "operation": "apply", "result": APPLY_REJECT_SNAPSHOT},
+            "corrupt_final": {
+                "operation": "apply", "result": APPLY_REJECT_SNAPSHOT},
+            "conflicting_duplicate": {
+                "operation": "apply", "result": APPLY_REJECT_SNAPSHOT},
+            "same_height_different_apphash": {
+                "operation": "offer", "result": OFFER_REJECT},
+            "same_height_same_apphash_different_payload": {
+                "operation": "offer", "result": OFFER_REJECT},
+            "partial_restart": {
+                "operation": "apply", "result": APPLY_ABORT},
+            "rollback": {"operation": "offer", "result": OFFER_REJECT},
+            "disk_failure": {
+                "operation": "apply", "application_failed": True,
+                "state_preserved": True},
+        }
         _check(report, "hostile-offer-chunk-matrix",
-               same_height_fork == OFFER_REJECT
-               and future_chunk == APPLY_RETRY
-               and short_chunk == APPLY_REJECT_SNAPSHOT
-               and corrupt_result == APPLY_REJECT_SNAPSHOT
-               and partial_restart == APPLY_ABORT
-               and disk_fault_seen and after_failure == before_failure,
-               {"same_height_fork": same_height_fork,
-                "future_chunk": future_chunk, "short_chunk": short_chunk,
-                "corrupt_final": corrupt_result,
-                "partial_restart": partial_restart,
-                "disk_fault_seen": disk_fault_seen})
+               subcases == expected_subcases
+               and semantic_state_preserved and disk_fault_seen,
+               {"subcases": subcases})
 
         _install_direct(network, 4, newest)
+        # A CometBFT state provider authenticates snapshot H with headers H+1
+        # and H+2. Keep node0 isolated at H as the snapshot peer while the
+        # independent light providers advance beyond it.
+        _prepare_snapshot_provider(network, newest["height"])
         # The direct newer-marker exercises deliberately moved the application
         # ahead of the stopped nonvalidator engine. Reset only this owned,
         # disposable target home so CometBFT performs a same-height marker
@@ -307,14 +605,14 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
             str(network.homes / "node4"), "--keep-addr-book"],
             check=True, capture_output=True, text=True, timeout=30)
         trust_height = newest["height"] - 1
-        trust_hash = rpc(network.http[0], "block", {
+        trust_hash = rpc(network.http[1], "block", {
             "height": str(trust_height)})["block_id"]["hash"]
         config = network.homes / "node4/config/config.toml"
         config.write_text(patch_toml(config.read_text(), {
             "statesync.enable": True,
             "statesync.rpc_servers": (
-                f"http://127.0.0.1:{network.http[0]},"
-                f"http://127.0.0.1:{network.http[1]}"),
+                f"http://127.0.0.1:{network.http[1]},"
+                f"http://127.0.0.1:{network.http[2]}"),
             "statesync.trust_height": trust_height,
             "statesync.trust_hash": trust_hash,
         }), encoding="utf-8")
@@ -322,6 +620,7 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
         wait_until(lambda: network.height(4) >= newest["height"], 180)
         if network.height(4) != newest["height"]:
             raise AssertionError("same-height marker recovery advanced unexpectedly")
+        _restore_source_peers(network)
         post_outputs = _make_outputs(notes[1], genesis.value["fee"])
         post = controller.prove(raw_genesis, controller.spend_request(
             raw_genesis, commitments, 1, notes[1], post_outputs,

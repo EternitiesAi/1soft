@@ -672,7 +672,13 @@ class Protocol5Network:
             raise FileExistsError("Protocol 5 artifact directory already exists")
         artifacts.mkdir(mode=0o700)
         manifest = []
-        for path in sorted(self.runtime.glob("*.log")):
+        bounded_logs = list(self.runtime.glob("*.log"))
+        state_sync_events = self.runtime / "state-sync-events.jsonl"
+        if state_sync_events.exists() or state_sync_events.is_symlink():
+            if state_sync_events.is_symlink() or not state_sync_events.is_file():
+                raise RuntimeError("unsafe Protocol 5 state-sync event log")
+            bounded_logs.append(state_sync_events)
+        for path in sorted(bounded_logs):
             raw = path.read_bytes()
             truncated = len(raw) > MAX_LOG_BYTES
             raw = raw[:MAX_LOG_BYTES]

@@ -269,6 +269,41 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
             self.assertEqual(
                 checkpoint, {"height": 9, "app_hash": "41" * 32})
 
+    def test_state_sync_event_log_is_retained_as_bounded_artifact(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            events = runtime / "state-sync-events.jsonl"
+            raw = b'{"height":9,"kind":"after_snapshot_commit"}\n'
+            events.write_bytes(raw)
+            network = object.__new__(Protocol5Network)
+            network.runtime = runtime
+            network.output = root / "state-sync.json"
+            network.report = {}
+            network.engines = {}
+            network.apps = {}
+            network.handles = []
+            network.receipts = []
+
+            class RetainRuntime:
+                def cleanup(self):
+                    pass
+
+            network.temp = RetainRuntime()
+            network.close()
+
+            artifacts = root / "state-sync.json.artifacts"
+            self.assertEqual(
+                (artifacts / "state-sync-events.jsonl").read_bytes(), raw)
+            receipt = next(row for row in network.report["artifacts"]
+                           if row["name"] == "state-sync-events.jsonl")
+            self.assertEqual(receipt["bytes"], len(raw))
+            self.assertFalse(receipt["truncated"])
+            self.assertEqual(
+                json.loads((artifacts / "manifest.json").read_text()),
+                network.report["artifacts"])
+
     def test_missing_exact_inputs_are_unassessed_and_output_is_preserved(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

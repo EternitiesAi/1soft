@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -81,6 +82,39 @@ class Protocol5ServerTests(unittest.TestCase):
                 ":memory:", FixtureWorker(), expected_genesis=self.raw,
                 crash_phase="before_commit", run_token="secret",
                 run_token_sha256="0" * 64)
+
+    def test_snapshot_commit_event_uses_durable_checkpoint_height(self):
+        from serve_abci_p5_test import CrashProtocol5Application
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = root / "state.sqlite"
+            events = root / "events.jsonl"
+            self._seed(path)
+            token = "private-crash-token"
+            app = CrashProtocol5Application(
+                path, FixtureWorker(), expected_genesis=self.raw,
+                crash_phase="observe", run_token=token,
+                run_token_sha256=hashlib.sha256(token.encode()).hexdigest(),
+                event_log=events)
+            app.db.execute("UPDATE committed SET height=? WHERE id=1", (9,))
+            app.db.commit()
+            self.assertEqual(app.height, 0)
+            app._state_sync_test_hook("after_snapshot_commit")
+            event = json.loads(events.read_text())
+            identity = {
+                "pid": os.getpid(),
+                "start_ticks": int(
+                    Path("/proc/self/stat").read_text().split()[21]),
+            }
+            self.assertEqual(event, {
+                "kind": "after_snapshot_commit", "height": 9, **identity})
+            app.apply_snapshot_chunk(0, b"bad", "sender")
+            apply_event = json.loads(events.read_text().splitlines()[-1])
+            self.assertEqual(apply_event, {
+                "kind": "apply_snapshot_chunk", "height": 0,
+                "index": 0, "result": 2, **identity})
+            app.close()
 
     def test_normal_server_parser_has_no_crash_controls(self):
         from serve_abci_p5 import build_parser

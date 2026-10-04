@@ -31,6 +31,34 @@ STATE_SYNC_CHECKS = (
     "same-store-restart", "duplicate-final-reoffer",
     "rollback-refusal", "hostile-offer-chunk-matrix",
 )
+STATE_SYNC_EVENT_NAME = "state-sync-events.jsonl"
+STATE_SYNC_HOSTILE_EVIDENCE = {
+    "wrong_genesis": {"operation": "offer", "result": 3},
+    "wrong_profile": {"operation": "offer", "result": 3},
+    "wrong_deployment": {"operation": "offer", "result": 3},
+    "wrong_trusted_apphash": {"operation": "offer", "result": 3},
+    "altered_proof": {"operation": "apply", "result": 5},
+    "removed_nullifier": {"operation": "apply", "result": 5},
+    "changed_root_history": {"operation": "apply", "result": 5},
+    "future_chunk": {
+        "operation": "apply", "result": 3,
+        "refetch_chunks": [0], "reject_senders": [],
+    },
+    "short_chunk": {"operation": "apply", "result": 5},
+    "excess_chunk": {"operation": "apply", "result": 5},
+    "corrupt_final": {"operation": "apply", "result": 5},
+    "conflicting_duplicate": {"operation": "apply", "result": 5},
+    "same_height_different_apphash": {"operation": "offer", "result": 3},
+    "same_height_same_apphash_different_payload": {
+        "operation": "offer", "result": 3,
+    },
+    "partial_restart": {"operation": "apply", "result": 2},
+    "rollback": {"operation": "offer", "result": 3},
+    "disk_failure": {
+        "operation": "apply", "application_failed": True,
+        "state_preserved": True,
+    },
+}
 FORBIDDEN_KEYS = {
     "witness", "witness_bytes", "spend_secret", "note_secret",
     "input_blinding", "output_blinding", "private_key", "unredacted",
@@ -190,6 +218,159 @@ def _artifact_receipts(
           "unexpected Protocol 5 artifact file")
 
 
+def _state_sync_evidence(
+        value: dict, checks: list[dict], artifact_directory: Path) -> None:
+    by_id = {row["id"]: row for row in checks}
+    hostile = by_id["hostile-offer-chunk-matrix"].get("evidence")
+    _need(type(hostile) is dict
+          and hostile.get("subcases") == STATE_SYNC_HOSTILE_EVIDENCE,
+          "Protocol 5 hostile state-sync subcases differ")
+    duplicate = by_id["duplicate-final-reoffer"].get("evidence")
+    _need(type(duplicate) is dict and set(duplicate) == {
+        "snapshot_height", "accepted_offers", "duplicate_final_result",
+        "crash_exit_code",
+    }, "Protocol 5 final-Apply evidence fields differ")
+    height = duplicate["snapshot_height"]
+    _need(type(height) is int and height > 0
+          and type(duplicate["accepted_offers"]) is int
+          and duplicate["accepted_offers"] >= 2
+          and duplicate["duplicate_final_result"] == 1
+          and duplicate["crash_exit_code"] == 96,
+          "Protocol 5 final-Apply evidence differs")
+    replay = by_id["trusted-apphash-replay"].get("evidence")
+    _need(type(replay) is dict and replay.get("height") == height,
+          "Protocol 5 recovered snapshot height differs")
+    crashed = [
+        row for row in value["processes"]
+        if row.get("role") == "application" and row.get("node") == 4
+        and row.get("exit_code") == 96
+    ]
+    _need(crashed, "missing Protocol 5 final-Apply exit receipt")
+    crashed_identities = {
+        (row["pid"], row["start_ticks"]) for row in crashed}
+    application_identities = {
+        (row["pid"], row["start_ticks"])
+        for row in value["processes"]
+        if row.get("role") == "application" and row.get("node") == 4
+    }
+
+    receipts = [row for row in value["artifacts"]
+                if row.get("name") == STATE_SYNC_EVENT_NAME]
+    _need(len(receipts) == 1 and receipts[0].get("truncated") is False,
+          "missing complete Protocol 5 state-sync event artifact")
+    raw = (Path(artifact_directory) / STATE_SYNC_EVENT_NAME).read_bytes()
+    _need(raw and len(raw) <= 1_048_576 and raw.endswith(b"\n"),
+          "invalid Protocol 5 state-sync event artifact")
+    try:
+        events = [json.loads(line) for line in raw.splitlines()]
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid Protocol 5 state-sync event JSONL") from exc
+    _need(0 < len(events) <= 4096,
+          "invalid Protocol 5 state-sync event count")
+    for event in events:
+        _need(type(event) is dict and type(event.get("kind")) is str
+              and type(event.get("pid")) is int and event["pid"] > 0
+              and type(event.get("start_ticks")) is int
+              and event["start_ticks"] > 0
+              and (event["pid"], event["start_ticks"])
+              in application_identities,
+              "invalid Protocol 5 state-sync event")
+        identity = {"kind", "pid", "start_ticks"}
+        if event["kind"] == "offer_snapshot":
+            _need(set(event) == identity | {
+                      "height", "format", "chunks", "snapshot_hash",
+                      "trusted_app_hash", "result"}
+                  and type(event["height"]) is int
+                  and event["format"] == 1
+                  and type(event["chunks"]) is int and event["chunks"] > 0
+                  and _hex(event["snapshot_hash"], 64, "snapshot hash")
+                      == event["snapshot_hash"]
+                  and _hex(event["trusted_app_hash"], 64, "trusted AppHash")
+                      == event["trusted_app_hash"]
+                  and type(event["result"]) is int,
+                  "invalid Protocol 5 offer event")
+        elif event["kind"] == "after_snapshot_commit":
+            _need(set(event) == identity | {"height"}
+                  and type(event["height"]) is int,
+                  "invalid Protocol 5 snapshot Commit event")
+        elif event["kind"] == "apply_snapshot_chunk":
+            _need(set(event) == identity | {"height", "index", "result"}
+                  and type(event["height"]) is int
+                  and type(event["index"]) is int
+                  and type(event["result"]) is int,
+                  "invalid Protocol 5 chunk event")
+        else:
+            raise ValueError("unknown Protocol 5 state-sync event")
+
+    accepted = [
+        index for index, event in enumerate(events)
+        if event["kind"] == "offer_snapshot"
+        and event["height"] == height and event["result"] == 1
+    ]
+    _need(len(accepted) >= 2,
+          "Protocol 5 initial offer/reoffer evidence differs")
+    first_index, second_index = accepted[:2]
+    first, second = events[first_index], events[second_index]
+    offer_fields = (
+        "height", "format", "chunks", "snapshot_hash", "trusted_app_hash")
+    first_identity = (first["pid"], first["start_ticks"])
+    second_identity = (second["pid"], second["start_ticks"])
+    _need(first_identity in crashed_identities
+          and second_identity in application_identities
+          and second_identity not in crashed_identities
+          and all(first[name] == second[name] for name in offer_fields),
+          "Protocol 5 offer/reoffer process or descriptor differs")
+
+    first_commits = [
+        index for index in range(first_index + 1, second_index)
+        if events[index]["kind"] == "after_snapshot_commit"
+        and events[index]["height"] == height
+        and (events[index]["pid"], events[index]["start_ticks"])
+            == first_identity
+    ]
+    _need(len(first_commits) == 1,
+          "Protocol 5 crashed snapshot Commit evidence differs")
+    first_commit = first_commits[0]
+    first_applies = events[first_index + 1:first_commit]
+    _need(len(first_applies) == first["chunks"] - 1
+          and all(
+              event["kind"] == "apply_snapshot_chunk"
+              and (event["pid"], event["start_ticks"]) == first_identity
+              and event["index"] == index and event["result"] == 1
+              for index, event in enumerate(first_applies))
+          and events[first_commit + 1:second_index] == [],
+          "Protocol 5 crashed final-Apply response evidence differs")
+
+    second_commits = [
+        index for index in range(second_index + 1, len(events))
+        if events[index]["kind"] == "after_snapshot_commit"
+        and events[index]["height"] == height
+        and (events[index]["pid"], events[index]["start_ticks"])
+            == second_identity
+    ]
+    _need(second_commits,
+          "Protocol 5 reoffer snapshot Commit evidence differs")
+    second_commit = second_commits[0]
+    second_applies = events[second_index + 1:second_commit]
+    _need(len(second_applies) == second["chunks"] - 1
+          and all(
+              event["kind"] == "apply_snapshot_chunk"
+              and (event["pid"], event["start_ticks"]) == second_identity
+              and event["height"] == height
+              and event["index"] == index and event["result"] == 1
+              for index, event in enumerate(second_applies)),
+          "Protocol 5 reoffer chunk sequence differs")
+    _need(second_commit + 1 < len(events),
+          "missing Protocol 5 exact-height completion evidence")
+    completed = events[second_commit + 1]
+    _need(completed["kind"] == "apply_snapshot_chunk"
+          and (completed["pid"], completed["start_ticks"]) == second_identity
+          and completed["height"] == height
+          and completed["index"] == second["chunks"] - 1
+          and completed["result"] == 1,
+          "Protocol 5 exact-height completion evidence differs")
+
+
 def validate_report(
         value: dict, *, artifact_directory: Path | None = None) -> dict:
     _need(type(value) is dict, "Protocol 5 report must be an object")
@@ -247,6 +428,8 @@ def validate_report(
                   and item["passed"] is True and "skipped" not in item
                   for item in checks),
           "completed Protocol 5 checks are missing, skipped, or changed")
+    if profile == "state-sync":
+        _state_sync_evidence(value, checks, Path(artifact_directory))
     return {"status": status, "profile": profile, "qualified": True,
             "check_ids": list(expected)}
 
