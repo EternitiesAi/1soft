@@ -439,12 +439,27 @@ post-validity absence resolves the obligation.
 
 ### Exact one-attempt submission
 
-Submission from `ready` inserts the sole attempt and commits
-`attempt_claimed` before RPC. It sends the exact stored transaction once.
+Preparation is mutation-free and returns a confirmation over the wallet ID,
+wallet revision, delivery-journal ID and revision, decision, protocol txid,
+plain Comet wire hash and exact loopback endpoint. Submission from `ready`
+revalidates that closed review, inserts the sole attempt and commits
+`attempt_claimed` before RPC. After the claim it rechecks the exact wallet
+decision; any drift consumes the attempt as unresolved before network I/O. It
+sends the exact stored transaction once through a key-free literal-IPv4
+loopback client with one elapsed deadline and a 64 KiB complete-response bound.
 No later path sends it again. Timeout, disconnect, HTTP error, malformed response,
 or nonzero CheckTx changes only the attempt observation; obligation remains
 `attempt_claimed`. There is no automatic retry, alternate endpoint, reproving,
 replacement or refresh-and-resend.
+
+Collection authenticates and stores the exact H+1 state observation as the
+portable receipt without opening or mutating the wallet. Reconciliation first
+checks the revision-bound wallet ID, decision, protocol txid, wire hash and exact
+transaction against the durable attempt. It then syncs the selected observation
+and reads the resulting decision at exactly the revision returned by that sync.
+The delivery marker is written only from that bound record. Repeating a completed
+reconciliation still validates the supplied wallet and its current decision
+state before returning the stored result.
 
 ### Certified reconciliation and precedence
 
@@ -575,7 +590,7 @@ qualification.
 
 Passing establishes a source-bound finite trusted-host synthetic-note wallet for
 one explicit recipient workflow, durable one-attempt continuity, authenticated
-reconciliation and cold restore. It does not establish production privacy or
+reconciliation and restart recovery. It does not establish production privacy or
 custody, automatic scanning, safe capsule transport, multi-device authority,
 independent review, anonymity, scalable storage, demand, public deployment or
 real-funds readiness. All such claims remain false.

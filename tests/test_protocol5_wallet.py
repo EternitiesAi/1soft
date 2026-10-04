@@ -749,6 +749,40 @@ class Protocol5WalletTests(unittest.TestCase):
         self.assertEqual(self.controller.prove_calls, 1)
         self.assertEqual(self.wallet.status()["decisions"], [])
 
+    def test_delivery_record_is_structural_closed_and_revision_bound(self):
+        imported = self.bootstrap()
+        prepared = self.wallet.prepare(
+            note_id=imported["capsule_id"],
+            recipient_owner_key=field_text(10),
+            value=20, valid_until=20)
+        approved = self.wallet.approve(
+            prepared["review"], prepared["confirmation"])
+        revision = self.wallet.status()["revision"]
+        before_calls = self.controller.client_calls
+        record = self.wallet.delivery_record(
+            approved["decision_id"], expected_revision=revision)
+        self.assertEqual(self.controller.client_calls, before_calls)
+        self.assertEqual(record["wallet_id"],
+                         self.wallet.status()["wallet_id"])
+        self.assertEqual(record["wallet_revision"], revision)
+        self.assertEqual(record["decision_state"], "ready")
+        self.assertEqual(record["txid"], approved["txid"])
+        self.assertEqual(
+            record["transaction_sha256"],
+            hashlib.sha256(record["transaction_bytes"]).hexdigest())
+        self.assertEqual(
+            set(record),
+            {
+                "wallet_id", "wallet_revision", "decision_id",
+                "decision_state", "txid", "transaction_sha256",
+                "transaction_bytes", "nullifier",
+            })
+        self.assertNotIn("capsule", repr(record))
+        with self.assertRaisesRegex(
+                Protocol5WalletError, "revision changed"):
+            self.wallet.delivery_record(
+                approved["decision_id"], expected_revision="00" * 32)
+
 
 if __name__ == "__main__":
     unittest.main()

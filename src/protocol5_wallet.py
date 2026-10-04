@@ -1400,6 +1400,34 @@ class Protocol5Wallet:
     def _approval_committed(self, _decision_id: str) -> None:
         """Fault-injection seam after the durable commit and before return."""
 
+    def delivery_record(
+            self, decision_id: str,
+            *, expected_revision: str | None = None) -> dict:
+        """Return the closed, secret-free decision record used by delivery."""
+        _hash_text(decision_id, "decision identity")
+        _need(expected_revision is None or type(expected_revision) is str,
+              "invalid expected wallet revision")
+        with self.atomic(write=False):
+            snapshot = self._snapshot()
+            if expected_revision is not None:
+                self._require_revision(snapshot, expected_revision)
+            matches = [
+                row for row in snapshot["decisions"]
+                if row["decision_id"] == decision_id]
+            _need(len(matches) == 1, "unknown wallet decision")
+            row = matches[0]
+            raw = row["transaction_bytes"]
+            return {
+                "wallet_id": snapshot["config"]["wallet_id"],
+                "wallet_revision": snapshot["revision"],
+                "decision_id": row["decision_id"],
+                "decision_state": row["state"],
+                "txid": row["txid"],
+                "transaction_sha256": hashlib.sha256(raw).hexdigest(),
+                "transaction_bytes": raw,
+                "nullifier": row["nullifier"].hex(),
+            }
+
     def recover(self, decision_id: str) -> bytes:
         _hash_text(decision_id, "decision identity")
         with self.atomic(write=False):

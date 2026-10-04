@@ -271,21 +271,21 @@ class Protocol5Wallet:
 ```
 - Use a new SQLite application ID/version 1 with only `config`, `observations`, `notes`, and `decisions`. Bounds: 32 observations, 16 notes, 16 decisions, 8 MiB total observations, 4 KiB capsules, and genesis transaction limits. Derive status by audit; no cached balance/status column is authority.
 
-- [ ] Write storage RED tests for exclusive `0600` creation, parent fsync, WAL/FULL, exact schema, no implicit migration/repair, symlink/hardlink/sidecar aliases, reopen audit, no eviction, canonical rows, monotonic clocks, rollback, and corrupt/reordered/deleted rows.
-- [ ] Write workflow RED tests. Prepare must leave `iterdump()` unchanged and invoke neither client nor prover. Require one unresolved decision per input note, exact fee/change with two positive outputs, current authenticated observation, and valid recipient key/window.
-- [ ] Write approval/recovery RED tests. Approval rederives review/revision, creates two private openings, calls opcode 4 and prover once, decodes TransactionV1, checks all public identities, and scans it for known secret sequences. Inject process exit after SQLite commit; reopen and recover byte-identical TransactionV1 with zero client/prover calls.
-- [ ] Write reconciliation RED tests. Exact bytes are `executed_exact`; different bytes with all fourteen identical public fields are `executed_equivalent`; changed public fields are `conflicting_spend`. Winning execution precedes expiry. Missing evidence retains the hold until certified `height + 1 >= valid_until`, then releases it. Exact/equivalent execution admits change atomically and permits only payment output export.
-- [ ] RED:
+- [x] Write storage RED tests for exclusive `0600` creation, parent fsync, WAL/FULL, exact schema, no implicit migration/repair, symlink/hardlink/sidecar aliases, reopen audit, no eviction, canonical rows, monotonic clocks, rollback, and corrupt/reordered/deleted rows.
+- [x] Write workflow RED tests. Prepare must leave `iterdump()` unchanged and invoke neither client nor prover. Require one unresolved decision per input note, exact fee/change with two positive outputs, current authenticated observation, and valid recipient key/window.
+- [x] Write approval/recovery RED tests. Approval rederives review/revision, creates two private openings, calls opcode 4 and prover once, decodes TransactionV1, checks all public identities, and scans it for known secret sequences. Inject process exit after SQLite commit; reopen and recover byte-identical TransactionV1 with zero client/prover calls.
+- [x] Write reconciliation RED tests. Exact bytes are `executed_exact`; different bytes with all fourteen identical public fields are `executed_equivalent`; changed public fields are `conflicting_spend`. Winning execution precedes expiry. Missing evidence retains the hold until certified `height + 1 >= valid_until`, then releases it. Exact/equivalent execution admits change atomically and permits only payment output export.
+- [x] RED:
   ```bash
   PYTHONPATH=src:tests:scripts "$P8_PYTHON" -B -m unittest     test_protocol5_wallet.Protocol5WalletTests.test_lost_approval_return_recovers_exact_transaction_without_reproving
   ```
-- [ ] Implement audit-derived storage. Reverify all observations, capsules, reviews, transactions, openings, and lineage on open/status. Never include secret material in `status()`.
-- [ ] Client/prover work precedes SQLite. Expose no transaction until one `BEGIN IMMEDIATE` stores review, exact transaction, hold, and output openings. Persistence failure returns no bytes; post-commit loss is exact recovery.
-- [ ] GREEN:
+- [x] Implement audit-derived storage. Reverify all observations, capsules, reviews, transactions, openings, and lineage on open/status. Never include secret material in `status()`.
+- [x] Client/prover work precedes SQLite. Expose no transaction until one `BEGIN IMMEDIATE` stores review, exact transaction, hold, and output openings. Persistence failure returns no bytes; post-commit loss is exact recovery.
+- [x] GREEN:
   ```bash
   ONE_P5_CLIENT="$P8_DEV_TARGET/debug/shielded-development-client"   ONE_P5_PROVER="$P8_DEV_TARGET/debug/shielded-development-prover"   PYTHONPATH=src:tests:scripts "$P8_PYTHON" -B -m unittest test_protocol5_wallet
   ```
-- [ ] Run preservation and commit `feat(protocol5-wallet): add durable private wallet journal`.
+- [x] Run preservation and commit `feat(protocol5-wallet): add durable private wallet journal`.
 
 ### Task 6: Add one-attempt delivery, collection, and reconciliation
 
@@ -298,15 +298,15 @@ class Protocol5Wallet:
 - `submit_once(endpoint, transaction, request_id) -> dict` permits one loopback `broadcast_tx_sync`, verifies Comet's plain SHA-256 wire hash, and returns only `endpoint_admitted`, `endpoint_declined`, or sanitized `unresolved`.
 - `Protocol5Delivery` exposes `prepare`, `send`, `inspect`, `collect`, `import_receipt`, `export_receipt`, and `reconcile`, bound to one wallet ID/genesis/endpoint and a separate SQLite journal.
 
-- [ ] Write transport RED tests for one connection, request ID/hash, framing/length/content type, duplicate headers, non-200, timeout, malformed JSON, DNS/nonloopback/redirect/proxy refusal, and no retry.
-- [ ] Write delivery RED tests for disjoint wallet/delivery sidecars; mutation-free prepare; durable attempt before `_dispatch_guard`; crash after claim; refusal to resend; and no release on CheckTx decline.
-- [ ] Test separate collection/reconciliation. Collect authenticates and stores H+1 evidence without wallet mutation. Reconcile checks expected revision, imports it idempotently, and accepts only the exact original txid.
-- [ ] RED:
+- [x] Write transport RED tests for one connection, request ID/hash, complete-response framing/length/content type, duplicate headers, non-200, an overall elapsed deadline including drip-feed peers, malformed JSON, DNS/nonloopback/redirect/proxy refusal, and no retry.
+- [x] Write delivery RED tests for disjoint wallet/delivery sidecars; mutation-free prepare bound to the wallet and delivery revisions; durable attempt before `_dispatch_guard`; crash after claim; refusal to resend; and no release on CheckTx decline.
+- [x] Test separate collection/reconciliation. Collection stores the exact authenticated H+1 observation without wallet mutation. Reconciliation validates the supplied wallet and original transaction before sync, binds the classification to the revision returned by sync, and preserves exact/equivalent/conflict/expiry precedence.
+- [x] RED:
   ```bash
   PYTHONPATH=src:tests:scripts "$P8_PYTHON" -B -m unittest     test_protocol5_delivery.Protocol5DeliveryTests.test_attempt_is_durable_before_io_and_never_retried
   ```
-- [ ] Implement the P4 ordering invariant—claim, release locks, key-free I/O, store observation—using only Protocol 5 transaction/receipt/certificate rules. Do not import P4 monetary authority.
-- [ ] GREEN: run the module, preservation, and commit `feat(protocol5-wallet): add one-attempt shielded delivery`.
+- [x] Implement the P4 ordering invariant—claim, release locks, key-free I/O, store observation—using only Protocol 5 transaction/receipt/certificate rules. Do not import P4 monetary authority.
+- [x] GREEN: run the focused modules and the direct repository regression. The manifest-checked wrapper remains intentionally unqualified until Task 10 binds the finished Protocol 5 source set. Commit `feat(protocol5-wallet): add one-attempt shielded delivery`.
 
 ### Task 7: Expose a secret-safe local CLI
 
