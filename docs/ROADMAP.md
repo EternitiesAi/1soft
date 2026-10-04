@@ -1,20 +1,22 @@
 # Native-coin roadmap — current development gate
 
-Updated 2 October 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
+Updated 4 October 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
 
 | Milestone | Current state | Required evidence / next action |
 |---|---|---|
-| Private economic authority product direction | Selected for evaluation; [scope and falsification gates](PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md) | Run the two-grant adversarial transition model and separate demand test. Direction selection does not implement privacy or establish product-market fit. |
+| Private economic authority product direction | Selected for evaluation; transparent two-grant adversarial transition model implemented | Run the separate demand test and select one coherent cryptographic stack. The [shielded foundation](SHIELDED_PRIVACY_FOUNDATION.md) is a design gate, not implemented privacy or product-market fit. |
 | Native monetary rules and atomic block commit | Implemented development model | Continue invariants, crash/fault tests and independent review. |
 | Native accounts, key rotation and scoped grants | Implemented | Production custody/recovery design and independent review remain. |
 | Protocol-3 shared agent budgets | Implemented and exercised on local validators | Preserve one canonical signing/reservation path; cross-device coordination remains open. |
-| Certified wallet, decision delivery and receipt reconciliation | Implemented development flow | Consolidate one source lineage; hardware/hostile-host custody and cross-device operation remain open. |
+| Certified wallet, decision delivery and receipt reconciliation | Implemented development flow; root full-state wallet uses shared exact inclusion/post-expiry classification | Compact audit evidence is separate from wallet mutation. Persisted compact-only wallet synchronization and hostile-host custody remain open. |
 | P4 encrypted journal backup and historical recovery | Implemented development component; [scope and verifier](../tools/protocol4-custody/README.md) | Recovery-only original wires, holds, attempts and saved receipts; private-key recovery, latestness and old-device fencing remain open. |
+| Opt-in cloned-journal device fence | Implemented local trusted-POSIX-host seam for explicit `FencedApproval` callers | Chain-enforced or authenticated cross-host coordination, rollback protection, reservation recovery and default-path integration remain open. Direct approval bypass is explicit. |
 | Guarded browser historical export | Explicit compressed attachment from the shared journal; [scope](BROWSER_HISTORY_BACKUP.md) | Qualify actual downloads/decryption and untouched financial actions on each revision. Private-key recovery, cross-device coordination and hostile-host custody remain separate gates. |
-| Actual multi-validator chain | **Passed on one-host development networks** | Repeat on independently operated hosts and retain operator/network fault evidence. |
+| Actual multi-validator chain | **Passed on one-host development networks**; exact 4 October P4 state-sync profiles independently semantically validated | Repeat on independently operated hosts and retain operator/network fault evidence. |
 | Authenticated compact state/proofs | Implemented development path | Continue scale, pruning and adversarial proof testing. |
-| Bounded ABCI state sync | Implemented development path; qualify each revision with its own engine receipt | Run `run_state_sync.py` against pinned CometBFT for each candidate, then repeat across independent machines. |
+| Bounded ABCI state sync | Both registered P4 profiles passed for [one exact source tree](PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md) with pinned CometBFT | Re-run after relevant source changes, then repeat across independent machines. |
 | Crash/recovery and application checkpoints | Implemented development tooling | Coordinate validator consensus DB/signing-state recovery; power-loss and operator drills remain. |
+| Shielded transaction laboratory | Architecture boundary specified; no proving implementation selected | Choose one complete stack, implement the isolated note transition, pass malformed-proof and copied-wallet tests, then obtain independent cryptographic review before consensus integration. |
 | Real network fault/security tests | Partial one-host evidence | Multi-host partitions, restarts, hostile peers, resource exhaustion and incident drills. |
 | Final engine/protocol decision | CometBFT 0.38.25 pinned for current development | Upgrade/licensing/security lifecycle and validator-set evolution policy. |
 | Snapshot pruning/history policy | Not complete; sequential read replay and complete bounded backup/read-store formats implemented | Bound long-term receipt growth and define retained history/snapshot availability. Faster historical reads and smaller physical proof/backup files do not extend logical history or constitute pruning. See [read-proof storage](READ_PROOF_STORAGE.md). |

@@ -5,6 +5,14 @@ nonvalidator with the exact pinned CometBFT 0.38.25 binary. The ordinary P4
 application, wire dispatcher, protocol versions 1/2/3 and historical manifests are
 unchanged. Unit coverage does not qualify either engine profile.
 
+On 4 October 2026, both registered profiles passed an external process controller
+and the standalone semantic validator for source commit
+`27a909f2bdceaaae7623394a6791413aff0a7657`, tree
+`5254048de0933dd3b379257783f81380bb45d48c`. The exact engine, controller,
+public projection and semantic-result hashes are recorded in the
+[phase-two real-engine report](PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md). That
+evidence remains bound to those source bytes and one loopback host.
+
 The registered profiles are `basic` and `final-apply-crash`. Each profile requires
 a new private Linux/WSL output directory outside the checkout and a separate new
 public output directory. Never reuse a completed or failed output. Preserve raw
@@ -158,9 +166,10 @@ artifact. The private result remains unchanged during external validation.
 Focused tests include synthetic quorum evidence over actual P4 execution and
 real private P4 socket/process SIGKILL/reoffer tests. Synthetic signed fixtures
 and application process tests establish local behavior, not live consensus. Both
-actual engine profiles remain unassessed until independently revalidated receipts
-exist for the exact combined source. `check_current.py` registers their test files
-and records the actual engine scenarios separately as unassessed.
+actual engine profiles are qualified only for the exact source identified above;
+other combined source remains unassessed until new independently revalidated
+receipts exist. `check_current.py` registers their test files and records actual
+engine scenarios separately from local source tests.
 
 Queued/emitted/activated snapshot phases, malformed/truncated/reordered real
 engine transfers, maximum-bound resources, independent hosts/operators, public
