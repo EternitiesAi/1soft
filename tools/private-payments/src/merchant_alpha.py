@@ -38,6 +38,7 @@ SCHEMA={
 
 def parse_packet(raw):
     need(type(raw) is bytes and 0<len(raw)<=MAX_RECEIPT_BYTES,'bounded original alpha packet required')
+    _depth(raw)
     v=load_json(raw,max_bytes=MAX_RECEIPT_BYTES)
     exact(v,{'schema','format','reference','capsule_id','wire_hex','history'},'alpha packet')
     integer(v['schema'],1,1)

@@ -16,7 +16,8 @@ class AlphaMerchantTests(unittest.TestCase):
     def merchant(self):
         return AlphaMerchantBook(self.root/'merchant-alpha.sqlite',self.c.genesis,self.c.policy,clock=self.c.clock)
     def invoice(self,units='7',path='/premium'):
-        e=NativePaymentExpectation('https://merchant.example','https://merchant.example'+path,
+        origin=getattr(self,'origin','https://merchant.example')
+        e=NativePaymentExpectation(origin,origin+path,
             '1soft:local-dev','1soft:DEV',self.c.policy['genesis_sha256'],self.c.merchant,units)
         resource=('public '+path).encode()
         h=make_payment_required(e,created_ns=self.c.now-1,expires_ns=self.c.now+600*10**9,
@@ -138,6 +139,9 @@ class AlphaMerchantTests(unittest.TestCase):
                 with self.assertRaises(ValueError):m.fulfill(q,header,raw)
             self.c.now+=1
             self.assertIsNone(m.selected(q)['fulfillment'])
+    def test_packet_depth_is_bounded_before_decode(self):
+        from merchant_alpha import parse_packet
+        with self.assertRaises(ValueError):parse_packet(b'['*17+b'0'+b']'*17)
     def test_quota_refusal_preserves_original_rows(self):
         rid,q,e,h,resource=self.invoice()
         with self.merchant() as m,patch('merchant_alpha.MAX_STORED_BYTES',1):
