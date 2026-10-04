@@ -26,7 +26,7 @@ all remain correct. A transparent executable model proves semantics, not privacy
 | P1/P2/P3/P4 native state, signatures, AppHash, budgets and execution | Existing compatibility surfaces | Transparent ledger. No bytes or monetary rules are changed by the invoice module |
 | Encrypted invoice content | `1soft/private-invoice/v1`, local module | Description/contact/content confidentiality under an explicit trusted caller key; public request context remains visible |
 | Isolated shielded-note transition lab | [Transparent-witness component](../tools/shielded-note-lab/README.md), source present and under qualification | Local synthetic note-spend semantics, with no live caller, privacy proof or consensus integration |
-| Isolated privacy-proof benchmark | [Benchmark component](../tools/privacy-proof-benchmark/README.md), source under qualification | Experimental first candidate: gnark v0.16.3/gnark-crypto v0.21.0, Groth16/BN254/Poseidon2, synthetic one-input/two-output relation, ephemeral setup, offline exact-source verification and listed rejection cases |
+| Isolated privacy-proof benchmark | [Benchmark component](../tools/privacy-proof-benchmark/README.md), source under qualification | Two experimental profiles: gnark v0.16.3/gnark-crypto v0.21.0 Groth16/BN254/Poseidon2 and Halo2 0.4.0/Pasta IPA, for one synthetic relation with offline exact-source verification and listed rejection cases |
 | This architecture | Design 0.1 | Proposed proof obligations and acceptance gates; one isolated experimental circuit benchmark exists, with no production circuit/parameter selection, production private state or on-chain disclosure proof implemented |
 | Future native private successor | Protocol number/genesis/circuit versions unassigned | Requires its own exact domains, fresh-genesis or expressly reviewed migration plan, source qualification and external review |
 
@@ -48,8 +48,7 @@ zero-knowledge privacy, production readiness, public deployment or real-funds
 support. No production proof system has been selected for the chain, and no live wallet, browser, RPC or
 validator integration is added.
 
-The privacy-proof benchmark is an experimental first benchmark candidate, not a
-production proof-system selection. Its offline exact-source receipt boundary and
+The privacy-proof benchmark contains two experimental profiles, not a production proof-system selection. Its offline exact-source receipt boundary and
 ephemeral setup do not establish production privacy, consensus integration,
 network anonymity, custody, independent review, public-network readiness or
 real-funds safety. Until a successful exact receipt exists, its status is source

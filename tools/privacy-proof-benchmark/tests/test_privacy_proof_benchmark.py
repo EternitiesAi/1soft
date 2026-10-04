@@ -14,9 +14,11 @@ from privacy_proof_benchmark import (  # noqa: E402
     EXPECTED_CLAIMS,
     EXPECTED_PUBLIC_INPUTS,
     EXPECTED_UNASSESSED,
+    EXPECTED_HALO2_UNASSESSED,
     QualificationError,
     load_unique_json_bytes,
     validate_backend_receipt,
+    validate_halo2_backend_receipt,
 )
 
 
@@ -213,6 +215,163 @@ class ReceiptContractTests(unittest.TestCase):
 
     def test_validator_does_not_mutate_caller_receipt(self):
         receipt = valid_receipt()
+        before = copy.deepcopy(receipt)
+        self.validate(receipt)
+        self.assertEqual(receipt, before)
+
+
+
+def valid_halo2_receipt():
+    return {
+        "format": 1,
+        "status": "passed",
+        "actual_backend_run": True,
+        "backend": {
+            "id": "zcash-halo2-pasta-ipa",
+            "halo2_proofs": "0.4.0",
+            "halo2_gadgets": "0.6.0",
+            "halo2_poseidon": "0.2.0",
+            "pasta_curves": "0.6.0",
+            "field": "Pallas base field",
+            "commitment_curve": "Vesta",
+            "proof_system": "Halo2 PLONKish IPA",
+            "hash": "Poseidon P128Pow5T3",
+            "transcript": "Blake2b",
+            "license": "MIT OR Apache-2.0",
+        },
+        "circuit": {
+            "id": "1soft/privacy-proof-benchmark/halo2-pasta/v1",
+            "source_digest": CIRCUIT_DIGEST,
+            "k": 13,
+            "domain_rows": 8192,
+            "estimated_proof_bytes": 4096,
+            "depth": 4,
+            "inputs": 1,
+            "outputs": 2,
+            "value_bits": 64,
+            "public_inputs": list(EXPECTED_PUBLIC_INPUTS),
+            "private_inputs_retained": False,
+        },
+        "source": {"commit": COMMIT, "tree": TREE},
+        "parameters": {
+            "kind": "deterministic-public-halo2-ipa-parameters",
+            "ceremony": False,
+            "reusable": True,
+            "production": False,
+            "parameters_sha256": "2" * 64,
+            "parameters_bytes": 524420,
+            "verifying_key_binding": "halo2-proofs-0.4.0-pinned-debug-nonportable",
+            "verifying_key_sha256": "3" * 64,
+            "verifying_key_bytes": 16384,
+            "proving_key_serialization_assessed": False,
+            "proving_key_serialization_reason": (
+                "halo2_proofs 0.4.0 public API exposes no proving-key serialization"
+            ),
+        },
+        "artifacts": {
+            "proof_sha256": "4" * 64,
+            "proof_bytes": 4096,
+            "public_instances_sha256": "5" * 64,
+            "public_instances_bytes": 448,
+        },
+        "metrics": {
+            "parameters_ns": 10,
+            "keygen_vk_ns": 20,
+            "keygen_pk_ns": 30,
+            "iterations": 2,
+            "prove_ns": [40, 41],
+            "verify_ns": [5, 6],
+        },
+        "cases": [
+            {"id": case_id, "expected": expected, "observed": expected}
+            for case_id, expected in EXPECTED_CASES.items()
+        ],
+        "claims": dict(EXPECTED_CLAIMS),
+        "unassessed": list(EXPECTED_HALO2_UNASSESSED),
+    }
+
+
+class Halo2ReceiptContractTests(unittest.TestCase):
+    def validate(self, receipt=None):
+        return validate_halo2_backend_receipt(
+            valid_halo2_receipt() if receipt is None else receipt,
+            expected_commit=COMMIT,
+            expected_tree=TREE,
+            expected_circuit_digest=CIRCUIT_DIGEST,
+        )
+
+    def test_exact_actual_halo2_receipt_passes(self):
+        result = self.validate()
+        self.assertEqual(result["backend"]["id"], "zcash-halo2-pasta-ipa")
+        self.assertEqual(result["circuit"]["domain_rows"], 1 << result["circuit"]["k"])
+        self.assertEqual([case["id"] for case in result["cases"]], list(EXPECTED_CASES))
+
+    def test_halo2_stack_source_and_domain_are_pinned(self):
+        mutations = (
+            ("backend", "pasta_curves", "0.5.2"),
+            ("backend", "hash", "Poseidon2"),
+            ("backend", "transcript", "other"),
+            ("circuit", "id", "other"),
+            ("circuit", "source_digest", "0" * 64),
+            ("circuit", "domain_rows", 4096),
+            ("source", "commit", "0" * 40),
+        )
+        for section, field, value in mutations:
+            with self.subTest(section=section, field=field):
+                receipt = valid_halo2_receipt()
+                receipt[section][field] = value
+                with self.assertRaises(QualificationError):
+                    self.validate(receipt)
+
+    def test_halo2_measurements_artifacts_and_key_limits_are_closed(self):
+        mutations = (
+            ("metrics", "parameters_ns", 0),
+            ("metrics", "keygen_vk_ns", -1),
+            ("metrics", "iterations", True),
+            ("metrics", "prove_ns", [40]),
+            ("metrics", "verify_ns", [5, 0]),
+            ("artifacts", "proof_bytes", 0),
+            ("parameters", "parameters_bytes", 0),
+            ("parameters", "verifying_key_sha256", "not-a-digest"),
+            ("parameters", "proving_key_serialization_assessed", True),
+        )
+        for section, field, value in mutations:
+            with self.subTest(section=section, field=field):
+                receipt = valid_halo2_receipt()
+                receipt[section][field] = value
+                with self.assertRaises(QualificationError):
+                    self.validate(receipt)
+
+    def test_halo2_cases_nonclaims_and_parameter_semantics_cannot_be_promoted(self):
+        receipt = valid_halo2_receipt()
+        receipt["cases"][1]["observed"] = "accept"
+        with self.assertRaises(QualificationError):
+            self.validate(receipt)
+        for field in EXPECTED_CLAIMS:
+            with self.subTest(claim=field):
+                receipt = valid_halo2_receipt()
+                receipt["claims"][field] = True
+                with self.assertRaises(QualificationError):
+                    self.validate(receipt)
+        for field, value in (("ceremony", True), ("reusable", False), ("production", True)):
+            with self.subTest(parameter=field):
+                receipt = valid_halo2_receipt()
+                receipt["parameters"][field] = value
+                with self.assertRaises(QualificationError):
+                    self.validate(receipt)
+
+    def test_halo2_unassessed_and_private_retention_are_exact(self):
+        receipt = valid_halo2_receipt()
+        receipt["unassessed"].pop()
+        with self.assertRaises(QualificationError):
+            self.validate(receipt)
+        receipt = valid_halo2_receipt()
+        receipt["circuit"]["private_inputs_retained"] = True
+        with self.assertRaises(QualificationError):
+            self.validate(receipt)
+
+    def test_halo2_validator_does_not_mutate_caller_receipt(self):
+        receipt = valid_halo2_receipt()
         before = copy.deepcopy(receipt)
         self.validate(receipt)
         self.assertEqual(receipt, before)

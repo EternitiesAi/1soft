@@ -33,11 +33,17 @@ Groth16 needs a circuit-specific setup. This component creates an ephemeral loca
 setup to measure mechanics. A production circuit would require a separately
 designed multi-party ceremony, parameter distribution and verification process.
 
+## Second implemented benchmark profile
+
+The component now also contains an independent **Zcash Halo2 0.4.0 / halo2-gadgets 0.6.0 / halo2-poseidon 0.2.0 / pasta_curves 0.6.0** profile using the Pallas base field, Vesta IPA commitments, the official Poseidon gadget and deterministic public parameters. It is a semantic parallel of the frozen relation, not a byte-compatible port of Groth16/BN254/Poseidon2. The development receipt records 10 exact acceptance/rejection cases, with 3,136-byte proofs and 524,356-byte parameters, using synthetic identities; these remain provisional until clean-tree verification and the release gate pass.
+
+Halo2 has no Groth16-style toxic-waste ceremony in this profile, but parameter distribution, verifying-key governance, circuit review, wallet scanning, anonymity and consensus enforcement remain open.
+
 ## Ranked alternatives
 
 | Candidate | Decision for this phase | Primary reason |
 | --- | --- | --- |
-| [Zcash Halo2 0.4.0 / gadgets 0.6.0](https://github.com/zcash/halo2) and [Orchard 0.16.0](https://github.com/zcash/orchard/tree/0.16.0) | Principal second backend; first if no trusted setup is mandatory | Strong maintained note-system lineage and no toxic-waste ceremony, with higher circuit/integration burden. Never reuse the circuit/verifying key affected by the [Orchard underconstraint advisory](https://github.com/zcash/zcash/security/advisories/GHSA-ghc3-g8w4-whf9) or removed unstable SHA-256 gadget |
+| [Zcash Halo2 0.4.0 / gadgets 0.6.0](https://github.com/zcash/halo2) and [Orchard 0.16.0](https://github.com/zcash/orchard/tree/0.16.0) | Implemented as the principal second benchmark; production selection deferred | Strong maintained note-system lineage and no toxic-waste ceremony, with higher circuit/integration burden. Never reuse the circuit/verifying key affected by the [Orchard underconstraint advisory](https://github.com/zcash/zcash/security/advisories/GHSA-ghc3-g8w4-whf9) or removed unstable SHA-256 gadget |
 | [Penumbra 2.1.1](https://github.com/penumbra-zone/penumbra/releases) | Architecture and circuit reference | Complete spend/output/balance/viewing model, but modified 1soft Groth16 statements need new parameters and exact dependency review |
 | [Noir 1.0.0-rc.2](https://github.com/noir-lang/noir/releases/tag/v1.0.0-rc.2) / Barretenberg 5.2.0 | Defer | Official pinned materials call Noir not fully audited/not recommended for production and Barretenberg highly experimental |
 | [SP1 6.8.1](https://github.com/succinctlabs/sp1/releases/tag/v6.8.1) | Defer | Individual STARK proofs do not provide the required zero knowledge; wrapped proofs add setup and material hardware cost |

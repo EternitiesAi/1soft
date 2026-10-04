@@ -321,7 +321,8 @@ def privacy_proof_verification(root, output, source, timeout):
                            'python_tests', 'go_tests', 'logs', 'backend_receipt',
                            'network_policy', 'network_used', 'claims', 'unassessed'}
         expected_manifest_fields = {'format', 'package', 'files', 'python_tests',
-                                    'go_tests', 'circuit_files'}
+                                    'go_tests', 'rust_tests', 'circuit_files',
+                                    'halo2_circuit_files'}
         base.require(set(manifest) == expected_manifest_fields,
                      'invalid privacy proof manifest fields')
         circuit_hash = hashlib.sha256()
@@ -414,6 +415,101 @@ def privacy_proof_verification(root, output, source, timeout):
     return record
 
 
+
+def privacy_proof_halo2_verification(root, output, source, timeout):
+    """Run and independently bind the strict Rust/Halo2 evidence receipt."""
+    report_path = output / 'privacy-proof-benchmark-halo2-verifier.json'
+    log_path = output / 'privacy-proof-benchmark-halo2-verifier.log'
+    process = base.run_process([sys.executable, str(root / 'tools/privacy-proof-benchmark/tools/verify_halo2.py'),
+                                '--report', str(report_path), '--timeout', str(timeout)],
+                               root, log_path, timeout + 30)
+    record = {'name': 'privacy_proof_halo2_verifier', 'passed': False,
+              'report': report_path.name, 'log': log_path.name, **process}
+    try:
+        component = root / 'tools/privacy-proof-benchmark'
+        manifest_bytes = (component / 'SOURCE_MANIFEST.json').read_bytes()
+        dependency_bytes = (component / 'DEPENDENCIES_HALO2.json').read_bytes()
+        manifest = load_unique_json_bytes(manifest_bytes)
+        receipt_bytes = report_path.read_bytes()
+        receipt = load_unique_json_bytes(receipt_bytes)
+        expected_manifest = {'format', 'package', 'files', 'python_tests', 'go_tests',
+                             'rust_tests', 'circuit_files', 'halo2_circuit_files'}
+        base.require(set(manifest) == expected_manifest
+                     and type(manifest.get('format')) is int and manifest['format'] == 2
+                     and manifest.get('package') == 'privacy-proof-benchmark',
+                     'invalid Halo2 proof manifest')
+        digest = hashlib.sha256()
+        for relative in manifest['halo2_circuit_files']:
+            data = (component / relative).read_bytes()
+            digest.update(relative.encode('utf-8')); digest.update(b'\0')
+            digest.update(str(len(data)).encode('ascii')); digest.update(b'\0'); digest.update(data)
+        spec = importlib.util.spec_from_file_location('_one_soft_privacy_proof_benchmark_halo2',
+                                                       component / 'src/privacy_proof_benchmark.py')
+        base.require(spec is not None and spec.loader is not None, 'Halo2 contract loader unavailable')
+        contract = importlib.util.module_from_spec(spec); spec.loader.exec_module(contract)
+        expected_fields = {'format', 'status', 'commit', 'tree', 'manifest_sha256', 'source_id',
+                           'circuit_source_digest', 'python', 'rustc', 'cargo', 'python_tests',
+                           'rust_tests', 'logs', 'backend_receipt', 'network_policy',
+                           'network_used', 'claims', 'unassessed'}
+        logs = receipt.get('logs')
+        base.require(type(logs) is dict and set(logs) == {'python', 'rust_test', 'rust_build', 'benchmark'},
+                     'invalid Halo2 proof logs')
+        py = logs['python']
+        py_path = output / py.get('path', '') if type(py) is dict else output / ''
+        evidence_ok = (type(py) is dict and set(py) == {'path', 'sha256', 'bytes'}
+                       and py.get('path') == 'privacy-proof-benchmark-halo2-verifier.python.log'
+                       and py_path.is_file() and py_path.stat().st_size == py.get('bytes')
+                       and base.digest(py_path.read_bytes()) == py.get('sha256'))
+        for name, suffix in (('rust_test', 'rust-test'), ('rust_build', 'rust-build'), ('benchmark', 'benchmark')):
+            value = logs[name]; expected = f'privacy-proof-benchmark-halo2-verifier.{suffix}.log'
+            path = output / expected
+            evidence_ok = evidence_ok and type(value) is dict and set(value) == {
+                'returncode', 'seconds_ns', 'log', 'log_sha256', 'log_bytes'}
+            evidence_ok = evidence_ok and value.get('log') == expected and value.get('returncode') == 0
+            evidence_ok = evidence_ok and type(value.get('seconds_ns')) is int and value['seconds_ns'] > 0
+            evidence_ok = evidence_ok and path.is_file() and path.stat().st_size == value.get('log_bytes')
+            evidence_ok = evidence_ok and base.digest(path.read_bytes()) == value.get('log_sha256')
+        backend_record = receipt.get('backend_receipt')
+        base.require(type(backend_record) is dict and set(backend_record) == {'path', 'sha256', 'bytes', 'value'},
+                     'invalid Halo2 backend receipt binding')
+        backend_path = output / backend_record['path']
+        base.require(backend_record['path'] == 'privacy-proof-benchmark-halo2-verifier.backend.json'
+                     and backend_path.is_file() and not backend_path.is_symlink(),
+                     'invalid Halo2 backend receipt path')
+        backend_value = contract.validate_halo2_backend_receipt(
+            backend_record['value'], expected_commit=source['commit'], expected_tree=source['tree'],
+            expected_circuit_digest=digest.hexdigest())
+        evidence_ok = evidence_ok and backend_path.stat().st_size == backend_record['bytes']
+        evidence_ok = evidence_ok and base.digest(backend_path.read_bytes()) == backend_record['sha256']
+        evidence_ok = evidence_ok and load_unique_json_bytes(backend_path.read_bytes()) == backend_value
+        claims = receipt.get('claims')
+        record['report_sha256'] = base.digest(receipt_bytes)
+        record['receipt'] = {key: receipt.get(key) for key in expected_fields}
+        record['passed'] = (set(receipt) == expected_fields and process['returncode'] == 0
+            and not process['timed_out'] and not process['log_truncated']
+            and type(receipt.get('format')) is int and receipt.get('format') == 1
+            and receipt.get('status') == 'passed' and receipt.get('commit') == source['commit']
+            and receipt.get('tree') == source['tree']
+            and receipt.get('manifest_sha256') == hashlib.sha256(manifest_bytes).hexdigest()
+            and receipt.get('source_id') == hashlib.sha256(manifest_bytes + dependency_bytes).hexdigest()
+            and receipt.get('circuit_source_digest') == digest.hexdigest()
+            and receipt.get('python') == sys.version
+            and re.fullmatch(r'rustc 1[.]97[.]1 [(][0-9a-f]+ [0-9]{4}-[0-9]{2}-[0-9]{2}[)]',
+                             receipt.get('rustc', '')) is not None
+            and re.fullmatch(r'cargo 1[.]97[.]1 [(][0-9a-f]+ [0-9]{4}-[0-9]{2}-[0-9]{2}[)]',
+                             receipt.get('cargo', '')) is not None
+            and receipt.get('python_tests') == manifest['python_tests']
+            and receipt.get('rust_tests') == manifest['rust_tests'] and evidence_ok
+            and receipt.get('network_policy') == 'linux-user-and-network-namespace'
+            and receipt.get('network_used') is False
+            and claims == contract.EXPECTED_CLAIMS
+            and all(type(value) is bool and value is False for value in claims.values())
+            and receipt.get('unassessed') == list(contract.EXPECTED_HALO2_UNASSESSED))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError, KeyError) as exc:
+        record['error_type'] = type(exc).__name__
+    base.store_json(output / 'privacy-proof-benchmark-halo2-verifier-result.json', record)
+    return record
+
 def run(output, timeout=600):
     base.require(os.name == 'posix', 'current checker requires POSIX process isolation')
     base.require(type(timeout) is int and 30 <= timeout <= 1800, 'invalid per-group timeout')
@@ -467,12 +563,14 @@ def run(output, timeout=600):
             root, output, source, timeout)
         report['privacy_proof_benchmark_verifier'] = privacy_proof_verification(
             root, output, source, timeout)
+        report['privacy_proof_halo2_verifier'] = privacy_proof_halo2_verification(root, output, source, timeout)
         base.require(base.source_identity(root) == source, 'source changed during local checks')
         report['source_unchanged'] = True
         passed = (all(group['passed'] for group in report['groups'])
                   and report['javascript']['passed']
                   and report['shielded_note_lab_verifier']['passed']
-                  and report['privacy_proof_benchmark_verifier']['passed'])
+                  and report['privacy_proof_benchmark_verifier']['passed']
+                  and report['privacy_proof_halo2_verifier']['passed'])
         report.update(base.release_status(passed))
     except BaseException as exc:
         report['error_type'] = type(exc).__name__
