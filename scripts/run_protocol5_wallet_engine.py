@@ -135,6 +135,20 @@ def _changed_hex(value: str) -> str:
         raw[0] = 2
     return raw.hex()
 
+
+def qualification_valid_until(maximum_height: int, current_height: int) -> int:
+    """Keep ordinary qualification transfers live through the finite run.
+
+    Protocol 5 binds the current height into each app hash, so a local CometBFT
+    network can continue advancing even when ordinary empty-block production is
+    disabled.  Only the dedicated expiry scenario intentionally uses a short
+    validity window.
+    """
+    if (type(maximum_height) is not int or type(current_height) is not int
+            or current_height < 0 or maximum_height <= current_height):
+        raise ValueError("qualification validity window is unavailable")
+    return maximum_height
+
 def capsule_mutations(raw: bytes) -> dict[str, bytes]:
     original = decode_canonical_json(raw)
     variants = {}
@@ -1010,7 +1024,8 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
             "--note-id", capsule["capsule_id"],
             "--recipient-owner-key", init_b["owner_key"],
             "--value", 20,
-            "--valid-until", min(maximum_height, initial_height + 40))
+            "--valid-until", qualification_valid_until(
+                maximum_height, initial_height))
         if payment_review is None:
             raise RuntimeError("payment review unavailable")
         restart_boundary("prepared", owner_reopen("wallet-a"))
@@ -1305,7 +1320,8 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
             "--note-id", valid_import["capsule_id"],
             "--recipient-owner-key", init_a["owner_key"],
             "--value", 7,
-            "--valid-until", min(maximum_height, recipient_height + 40))
+            "--valid-until", qualification_valid_until(
+                maximum_height, recipient_height))
         if recipient_review is None:
             raise RuntimeError("recipient return review unavailable")
         recipient_approved = session.call(
@@ -1470,8 +1486,8 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
             "--note-id", equivalent_input["capsule_id"],
             "--recipient-owner-key", init_b["owner_key"],
             "--value", 10,
-            "--valid-until", min(
-                maximum_height, equivalent_height + 40))
+            "--valid-until", qualification_valid_until(
+                maximum_height, equivalent_height))
         if equivalent_review is None:
             raise RuntimeError("equivalent review unavailable")
         requests_before = set(session.request_dir.glob("*.bin"))
@@ -1542,7 +1558,8 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
             "--note-id", conflict_input["capsule_id"],
             "--recipient-owner-key", init_b["owner_key"],
             "--value", 9,
-            "--valid-until", min(maximum_height, conflict_height + 40))
+            "--valid-until", qualification_valid_until(
+                maximum_height, conflict_height))
         if conflict_review is None:
             raise RuntimeError("conflict review unavailable")
         conflict_approved = session.call(

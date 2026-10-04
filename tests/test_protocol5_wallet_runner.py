@@ -410,6 +410,15 @@ class Protocol5WalletRunnerTests(unittest.TestCase):
         self.assertGreaterEqual(network.restart_probes, 2)
         self.assertEqual(proxies[0].retained_query, response)
 
+    def test_ordinary_scenario_validity_survives_height_advancing_faults(self):
+        module = runner()
+        self.assertEqual(module.qualification_valid_until(511, 0), 511)
+        self.assertEqual(module.qualification_valid_until(511, 510), 511)
+        for maximum, current in ((511, 511), (511, -1), (True, 0), (511, False)):
+            with self.subTest(maximum=maximum, current=current), \
+                    self.assertRaises(ValueError):
+                module.qualification_valid_until(maximum, current)
+
 
 
     def test_artifact_manifest_refuses_omissions_and_unknown_names(self):
