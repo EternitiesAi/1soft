@@ -152,7 +152,8 @@ class Protocol5Application:
                 self.validator_set = comet_validator_set(genesis.value["validators"])
                 self.state, self.height, self.app_hash = state, height, app_hash
                 self._audit_database()
-            self.state_sync = None
+            from protocol5_state_sync import Protocol5StateSync
+            self.state_sync = Protocol5StateSync(self)
         except BaseException:
             if hasattr(self, "db"):
                 self.db.close()
