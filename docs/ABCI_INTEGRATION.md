@@ -1,12 +1,23 @@
 # Native application → consensus boundary
 
-24 September 2026 · v0.5 · development-only
+4 October 2026 · protocol-scoped development boundary
 
 ## Purpose
 
 Turn the prior standalone monetary ledger into a block-aware deterministic application without inventing a consensus algorithm. CometBFT v0.38.25 is the current adapter target, not an irrevocable decision about the final network architecture.
 
 The interface and field mappings were inspected in the upstream `abci/types/application.go`, `abci/types/messages.go`, `proto/tendermint/abci/types.proto`, `cmd/cometbft/commands/testnet.go`, `go.mod`, and `rpc/core/types/responses.go`. The full engine was not audited. Source inspection does not establish binary interoperability; the upstream-codec and real-engine gates must pass before claiming it.
+
+## Protocol scope
+
+Unless a paragraph names Protocol 4 or Protocol 5, the original lifecycle below
+describes the transparent Protocol 1 through Protocol 3 application. Protocol 4
+is a separate fresh-genesis transparent application with its own exact
+[development scope](PROTOCOL4_DEVELOPMENT.md) and
+[state-sync qualification](PROTOCOL4_STATE_SYNC_QUALIFICATION.md). Protocol 5 is
+another separate fresh-genesis application described below. It does not change,
+upgrade, migrate or reinterpret Protocol 1 through Protocol 4 state, AppHash,
+snapshots, clients or historical evidence.
 
 ## Genesis-version compatibility
 
@@ -56,6 +67,75 @@ ABCI snapshot serving/restoration is a bounded development path. A fresh applica
 
 Proof queries and unsupported historical queries explicitly fail rather than returning unproved data as if it were authenticated. Vote extensions are empty; this application does not add a new vote-extension protocol.
 
+## Protocol 5 fresh-genesis profile
+
+Protocol 5 has dedicated `protocol5_*` encodings, state, application, database,
+AppHash, certificate and state-sync code. It may reuse generic bounded protobuf
+transport, but it neither subclasses Protocol 4 nor accepts Protocol 4 genesis,
+transactions, snapshots or evidence. Its depth-four note tree has sixteen leaves,
+exactly two outputs per accepted spend and a finite configured transaction/history
+budget. This is a consensus and recovery qualifier, not a scalable payment pool.
+
+`InitChain` requires canonical Protocol 5 genesis bytes, the matching chain ID,
+initial height one and exactly four fresh equal-power validators. The validator
+set is immutable. `CheckTx` evaluates one public transaction and actual Halo2
+proof against committed state without reserving a nullifier or output.
+`PrepareProposal` executes candidates in order on an isolated state copy and an
+immutable block-start root set. `ProcessProposal` independently replays the
+complete proposal and rejects any nonzero result, exhausted retained-history
+budget or changed next-validator hash. `FinalizeBlock` checks the immutable
+next-validator hash at every height, including height one, validates the later
+commit quorum, binds the exact bounded request and block hash, and stages a
+deterministic result.
+
+`Commit` replays the staged history through the verifier worker, then stores state,
+AppHash, raw transaction history, exact finalization response and marker cleanup
+in one SQLite transaction. Memory advances only after durable commit. Repeating
+the exact FinalizeBlock after the durable write returns the retained response; a
+Commit with no pending finalization succeeds without changing state. Crash hooks exist only in the
+run-token-gated test server. The production application exposes no fault
+parameter. Validator workers implement verification and tree operations only;
+witness construction and proving remain external controller capabilities.
+
+Protocol 5 queries accept empty data, `prove=false`, and height zero or the current
+committed height. The closed paths are `/info`, `/state`, `/root-history`,
+`/tx/<lowercase-txid>`, `/nullifier/<canonical-little-endian-field-hex>` and
+`/block/<height>`.
+They return AppHash-committed projections, not Merkle query proofs or fabricated
+historical CometBFT responses. A signed header at the next height authenticates
+the preceding Commit's AppHash.
+
+Protocol 5 state sync uses snapshot format 1 under its own
+`1soft/shielded-development/state-sync/v1` domain. It remains incompatible with
+the legacy Protocol 1 through Protocol 3 format-1 schema, while Protocol 4 uses
+format 2 separately. Before installation, the recipient checks genesis, profile
+and deployment identities, replays every retained transaction through the real
+verifier worker, recomputes the complete state and requires the
+light-client-supplied AppHash. Installation atomically writes current state,
+derived transaction history and one marker, with no invented historical
+FinalizeBlock response rows.
+
+The real recovery topology freezes the snapshot provider at height H while the
+other three source validators advance to at least H+2. Two expose the target's
+light-client RPC endpoints and the third contributes to the advancing quorum.
+This gives CometBFT the H+1 and H+2 headers needed to authenticate the height-H
+snapshot instead of treating the snapshot peer as its own trust source. A restored target initially has
+application state at H and a marker but no height-H local block or response row.
+The runner therefore keeps that marker-only target process live while source
+validators reconnect. The first ordinary post-sync Commit writes a real current
+response row and deletes the marker; only after ordinary block progress is a
+same-store engine restart exercised.
+
+Same-height recovery accepts only the byte-identical genesis, profile, deployment,
+AppHash and payload hash. A different same-height payload or fork, an older
+snapshot, altered proof/nullifier/root history, malformed/conflicting chunks and a
+failed atomic install fail without replacing the old checkpoint. A lost
+final Apply reply is recovered by an observed CometBFT re-offer; the event evidence
+binds the application exit and exact accepted initial/re-offer sequence.
+
+See the [component boundary](../tools/shielded-consensus/README.md) and complete
+[Protocol 5 guide](PROTOCOL5_SHIELDED_CONSENSUS.md).
+
 ## Honest test taxonomy
 
 1. Unit tests establish selected local application and wire behaviors.
@@ -81,4 +161,28 @@ The original full-state proof/rebuild bottlenecks have since gained a persistent
 
 The new application-process exercise records 65 checks across four scripted application processes. It executes account funding, same-named grants for different owners, rotation, explicit new authority and stale-key/grant rejections, including process loss before/after commit. This supplements, not replaces, the legacy 39-check process exercise. Neither uses validator voting.
 
-Later source checkpoints executed the pinned engine on one-host four-validator protocol-1/2/3 networks and independently verified signed receipts. Those historical results do not automatically qualify modified ABCI code. The state-sync implementation has a separate real-engine acceptance runner; its result is valid only for the exact source and pinned binary recorded in that run.
+Later source checkpoints executed the pinned engine on one-host four-validator
+Protocol 1 through Protocol 3 networks and independently verified signed receipts.
+Protocol 4 has separately scoped real-engine and state-sync evidence. Those
+historical results do not automatically qualify modified ABCI code or Protocol 5.
+
+Protocol 5's source-bound consensus and state-sync checkers passed on one loopback
+host for implementation commit `6a8f33c9e5e6fa53ff2cb13ae66df9c81d7d79ff`,
+tree `f98000a92e780c8cc54338345db18696a55cd8d0`, pinned CometBFT
+SHA-256 `218628da07bed5d27e178d38d0bef9ecf46f21b214c8e9fea402fd215fccc024`,
+profile ID `272f8ea5ea7e04fa24b27c5125650150760b618229f2f3fbe0b7cc95bbca3eef`
+and deployment ID
+`76129871a4659caf919ccdb32c545b0330b4ba1018cf6b1ec85ac61582eb3cac`.
+The checked consensus report SHA-256 is
+`6ef26345af2654f3553b6a884eeef81b11ef1bb26c361c46bb82c0de05b8bd42`;
+the checked state-sync report SHA-256 is
+`5ba80ad83b17d57935edb8e9985b0df0e5deab6912693625204fbff1421713d4`.
+
+That evidence covers four equal-power validators, actual proof acceptance,
+proposal conflicts, global nullifier/output uniqueness, immutable-validator
+binding, quorum continuation, worker failure, atomic commit recovery, marker-only
+state sync, hostile offers/chunks and post-sync continuation. It remains one-host
+development evidence with synthetic notes. It establishes no public-network or
+real-funds readiness, anonymity or metadata resistance, production custody,
+exchange readiness, scaling, production proof-system selection or independent
+cryptographic review.

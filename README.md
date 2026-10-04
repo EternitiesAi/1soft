@@ -25,8 +25,11 @@ The [shielded privacy foundation](docs/SHIELDED_PRIVACY_FOUNDATION.md) describes
 the isolated transparent-witness note transition now present in source and the
 security gates that must precede any on-chain privacy claim.
 
-This direction does not describe present on-chain privacy. Today's ledger remains
-transparent, and the independent Layer 1 must still prove that it provides customer
+This direction does not describe production on-chain privacy. Protocols 1 through 4
+remain transparent. Protocol 5 is a separate finite development profile for
+Halo2-verified note spends; it does not make the earlier ledgers private or by
+itself establish anonymity, metadata resistance or a production private-money
+system. The independent Layer 1 must still prove that it provides customer
 guarantees that a confidential application on existing settlement rails cannot.
 
 The new [shielded-note lab](tools/shielded-note-lab/README.md) is an isolated
@@ -98,6 +101,7 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 | Shared-parent attack model | Two copied journals race one parent fragment; exactly one fee-inclusive successor commits, stale authority fails and the losing obligation remains pending. Transparent semantics only. | [Private authority model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md) |
 | Shielded-note transition lab | Isolated transparent-witness source under qualification for local note-spend, replay, recovery and disclosure semantics; no proof system or live integration. | [Component and boundaries](tools/shielded-note-lab/README.md) |
 | Privacy proof-stack benchmark | Two independent local profiles for one frozen synthetic note relation: Groth16/BN254/Poseidon2 and Halo2/Pasta IPA. Each has adversarial acceptance/rejection coverage; exact-source qualification remains separate from production integration. | [Benchmark and boundaries](tools/privacy-proof-benchmark/README.md) |
+| Protocol 5 shielded consensus profile | Separate fresh-genesis, finite note chain with actual Halo2 proof admission, global nullifier/output uniqueness, atomic persistence and marker-only state sync, qualified on one loopback host. | [Component](tools/shielded-consensus/README.md) and [protocol guide](docs/PROTOCOL5_SHIELDED_CONSENSUS.md) |
 | Authenticated obligation reconciliation | The supported root wallet shares exact receipt and post-expiry absence classification with a compact Protocol 3 audit seam. The compact audit does not mutate wallet holds. | [Authenticated reconciliation](docs/AUTHENTICATED_RECONCILIATION.md) |
 | Opt-in cloned-journal fencing | A shared owner-only POSIX registry gives explicit `FencedApproval` callers one active device epoch and one reservation per payer/role/nonce. Direct approval and separate registries bypass it. | [Device fence](docs/DEVICE_FENCE_RESERVATION.md) |
 | Real-engine state sync | Both registered P4 profiles passed the external controller and independent semantic validator for one exact source tree on one loopback host. | [Phase-two engine evidence](docs/PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md) |
@@ -113,10 +117,12 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 | Browser history download | Explicit encrypted export of all retained shared wallet/delivery history; no private keys or active restoration. | [Browser recovery](docs/BROWSER_HISTORY_BACKUP.md) |
 | Portable payment evidence | An offline checker verifies the original invoice, signed transaction, receipt and public content under external trust pins. | [Merchant proofs](docs/PORTABLE_MERCHANT_PROOF.md) |
 
-Private invoice content is encrypted locally. **Ledger transactions remain public.**
-This is not shielded on-chain privacy, a stablecoin, a bank account or an issued card.
+Private invoice content is encrypted locally. **Protocol 1 through Protocol 4 ledger
+transactions remain public.** Protocol 5 has a different public statement and state
+model, but its one-host qualification is not evidence of production privacy. None
+of these profiles is a stablecoin, bank account or issued card.
 
-## Two explicit development paths
+## Three explicit development paths
 
 The protocol-1/2/3 application supports the existing `CertifiedWallet`, legacy
 explorer and receipt archive. Protocol 3 adds shared spending budgets. Flat and
@@ -130,7 +136,44 @@ workspace also use the P4 signing and delivery journals. Legacy static clients
 refuse P4; copying files or changing a policy does not activate a protocol upgrade. See [P4 scope](docs/PROTOCOL4_DEVELOPMENT.md)
 and [recovery integration](docs/P4_RECOVERY_INTEGRATION.md).
 
-Use one supported shared signing journal for the same funds. Copied journals,
+Protocol 5 is another separate **fresh-genesis, opt-in development application**.
+It has its own canonical genesis, AppHash, SQLite schema, state-sync domain and
+circuit identity. Four immutable equal-power validators admit bounded public
+transaction statements only after an isolated verifier worker accepts the actual
+Halo2 proof; global nullifier and output uniqueness, ordered note-tree appends and
+finite history budgets remain application consensus rules. Validators contain no
+prover or witness operation. The development client and prover run only in the
+external qualification controller. There is no state migration or live upgrade
+from Protocols 1 through 4. See the
+[shielded-consensus component](tools/shielded-consensus/README.md) and
+[Protocol 5 guide](docs/PROTOCOL5_SHIELDED_CONSENSUS.md).
+
+### Protocol 5 qualified identity
+
+The source-bound consensus and state-sync checkers passed for one loopback host
+with synthetic notes and fresh validator keys. These hashes identify that exact
+development evidence; they do not extend it to later source or another binary.
+
+| Identity | Exact value |
+|---|---|
+| Qualified implementation source | commit `6a8f33c9e5e6fa53ff2cb13ae66df9c81d7d79ff`; tree `f98000a92e780c8cc54338345db18696a55cd8d0` |
+| CometBFT | v0.38.25; SHA-256 `218628da07bed5d27e178d38d0bef9ecf46f21b214c8e9fea402fd215fccc024` |
+| Verifier worker | SHA-256 `e3af1dc06bc109129dbf2e7429a72d5919f9118ed93c2b2c72ad71731bd96278` |
+| Development controller binaries | client SHA-256 `7fdb0f90c1414252732a134727aea9a66e0402c651f1dc6ed34ce2759a3a5b3f`; prover SHA-256 `f7a01f3269a225024f9f743a5b6e242f1bd9f3fc1e87970c50f20c3675d31806` |
+| Cryptographic profile | profile ID `272f8ea5ea7e04fa24b27c5125650150760b618229f2f3fbe0b7cc95bbca3eef`; descriptor SHA-256 `37f40b69aa64ae78e08ab50bb6efc962d272b7c8a62b16c77f0beeadb6c5c74a`; KAT SHA-256 `2a3d49921a6a9106637573849b503457314afbe180cf81f2235a0408b3746e22` |
+| Deployment binding | ID `76129871a4659caf919ccdb32c545b0330b4ba1018cf6b1ec85ac61582eb3cac`; toolchain SHA-256 `eb2972cd9713e39085ca241b802ed9d9fdb267aae7233912d01912d6ca75d6ca`; sandbox policy SHA-256 `1cd41bb9a0bd45702e8e0cc6ffbe63f3e10315121785775700b69ce44610c97b` |
+| Qualification template | genesis SHA-256 `298e09fb615e041b61e729d5ccf9d441a1fe417fbebb409b02c3349c6dc39f94` |
+| Fresh run genesis values | consensus SHA-256 `7c4d3206eac0ee5b6717f7acd6f748b56b9a64cc8a26a170e8d364c71f3e53bf`; state-sync SHA-256 `bdbb9d76c4256e99f68002b095d7f1d2e4726f99e1be4127ef49cd72830cdb89` |
+| Checked reports | consensus SHA-256 `6ef26345af2654f3553b6a884eeef81b11ef1bb26c361c46bb82c0de05b8bd42`, checker receipt `0a93d3f1680dc636d307f4ffd90fe0f129301a4ae583695b5e131146e8aa97df`; state-sync SHA-256 `5ba80ad83b17d57935edb8e9985b0df0e5deab6912693625204fbff1421713d4`, checker receipt `16ce3c15f65b26ed0cb4a205b6ec444f7372404e5fb7043b5095411f8c312010` |
+
+This qualification establishes bounded one-host development behavior for the
+listed source and artifacts. Public-network readiness, real-funds safety,
+anonymity or metadata resistance, production custody, exchange readiness,
+scaling, production proof-system selection and independent cryptographic review
+all remain false or unassessed.
+
+Use one supported shared signing journal for the same Protocol 1 through Protocol
+4 funds. Copied journals,
 independent devices and raw key paths do not automatically share its reservations.
 The optional local device-fence adapter coordinates only clones that explicitly
 use the same live registry; direct `P4Wallet.approve`, existing CLIs, raw signers,
