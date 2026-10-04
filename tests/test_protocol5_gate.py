@@ -71,10 +71,10 @@ def completed(root: Path):
         try:
             database.execute(
                 "CREATE TABLE committed("
-                "id INTEGER PRIMARY KEY, height INTEGER, app_hash BLOB)")
+                "id INTEGER PRIMARY KEY, height INTEGER, app_hash TEXT)")
             database.execute(
                 "INSERT INTO committed VALUES(1, ?, ?)",
-                (9, bytes.fromhex("b" * 64)))
+                (9, "b" * 64))
             database.commit()
         finally:
             database.close()

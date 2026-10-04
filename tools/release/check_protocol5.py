@@ -167,8 +167,8 @@ def _artifact_receipts(
             _need(set(row) >= {"height", "app_hash"}
                   and type(row["height"]) is int and row["height"] >= 0,
                   "invalid retained Protocol 5 checkpoint")
-            expected_hash = bytes.fromhex(
-                _hex(row["app_hash"], 64, "artifact AppHash"))
+            expected_hash = _hex(
+                row["app_hash"], 64, "artifact AppHash")
             with closing(sqlite3.connect(
                     f"file:{path}?mode=ro", uri=True)) as database:
                 _need(database.execute(

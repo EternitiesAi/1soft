@@ -327,11 +327,13 @@ def _backup_sqlite(source: Path, target: Path) -> dict:
             committed = retained.execute(
                 "SELECT height, app_hash FROM committed WHERE id=1").fetchone()
             if (committed is None or type(committed[0]) is not int
-                    or type(committed[1]) is not bytes
-                    or len(committed[1]) != 32):
+                    or type(committed[1]) is not str
+                    or len(committed[1]) != 64
+                    or any(ch not in "0123456789abcdef"
+                           for ch in committed[1])):
                 raise RuntimeError("retained Protocol 5 checkpoint differs")
     os.chmod(target, 0o600)
-    return {"height": committed[0], "app_hash": committed[1].hex()}
+    return {"height": committed[0], "app_hash": committed[1]}
 
 
 class Protocol5Network:
@@ -721,6 +723,33 @@ def _make_outputs(note: Note, fee: int) -> tuple[Note, Note]:
     )
 
 
+def _prepare_conflict_below_quorum(
+        network: Protocol5Network, first: bytes, second: bytes,
+        max_bytes: int) -> tuple[list[int], list[bytes], dict]:
+    checkpoint = network.hold_sources_without_quorum()
+    admissions = [
+        network.direct_check(0, first),
+        network.direct_check(1, second),
+    ]
+    prepared = network.direct_prepare(
+        0, [first, second], checkpoint["height"] + 1, max_bytes)
+    return admissions, prepared, checkpoint
+
+
+def _process_probe_at_held_height(
+        network: Protocol5Network, transactions: list[bytes],
+        validator_hash: bytes) -> tuple[int, dict]:
+    checkpoint = network.hold_sources_without_quorum()
+    try:
+        result = network.direct_process(
+            0, transactions, checkpoint["height"] + 1, validator_hash)
+    finally:
+        for index in (2, 3):
+            if index not in network.engines:
+                network.start_engine(index)
+    return result, checkpoint
+
+
 def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
                              report: dict) -> None:
     network = Protocol5Network(paths, output, report, include_target=False)
@@ -774,20 +803,17 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         first_b = controller.prove(raw_genesis, first_request)
         if first_a == first_b:
             raise AssertionError("development proofs were not randomized")
-        admissions = [
-            network.direct_check(0, first_a),
-            network.direct_check(1, first_b),
-        ]
-        prepared = network.direct_prepare(
-            0, [first_a, first_b], initial_states[0]["height"] + 1,
-            genesis.value["limits"]["max_block_bytes"])
+        admissions, prepared, conflict_checkpoint = (
+            _prepare_conflict_below_quorum(
+                network, first_a, first_b,
+                genesis.value["limits"]["max_block_bytes"]))
         _check(report, "randomized-proof-conflict",
                admissions == [0, 0] and prepared == [first_a],
                {"proof_a_sha256": hashlib.sha256(first_a).hexdigest(),
                 "proof_b_sha256": hashlib.sha256(first_b).hexdigest(),
-                "prepared_count": len(prepared)})
-        if int(network.broadcast(0, first_a)["code"]) != 0:
-            raise AssertionError("first randomized proof was not broadcast")
+                "prepared_count": len(prepared),
+                "proposal_height": conflict_checkpoint["height"] + 1})
+        network.stage_without_quorum([first_a])
         states = _wait_accepted(network, 1)
         winning = states[0]["state"]["receipts"][-1]
         _check(report, "actual-proof-commit",
@@ -824,9 +850,9 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         within_b = controller.prove(raw_genesis, controller.spend_request(
             raw_genesis, commitments, 2, notes[2], shared_outputs,
             valid_from=broad_from, valid_until=broad_until))
-        within_refused = network.direct_process(
-            0, [within_a, within_b], states[0]["height"] + 1,
-            validator_hash) == 2
+        within_status, _ = _process_probe_at_held_height(
+            network, [within_a, within_b], validator_hash)
+        within_refused = within_status == 2
         _check(report, "global-nullifier-output-uniqueness",
                existing_output_refused and within_refused,
                {"existing_output_result": 6, "within_block_status": 2})
@@ -887,9 +913,9 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
             raw_genesis, hypothetical_commitments, len(commitments),
             producer_outputs[0], chained_outputs,
             valid_from=broad_from, valid_until=broad_until))
-        frozen_refusal = network.direct_process(
-            0, [producer, chained], states[0]["height"] + 1,
-            validator_hash) == 2
+        frozen_status, _ = _process_probe_at_held_height(
+            network, [producer, chained], validator_hash)
+        frozen_refusal = frozen_status == 2
         if int(network.broadcast(0, producer)["code"]) != 0:
             raise AssertionError("producer transaction was not admitted")
         states = _wait_accepted(network, 4)
@@ -940,8 +966,8 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
             (genesis.value["fee"] + 1).to_bytes(32, "little"))
         bad_proof = bytearray(recovery_transaction)
         bad_proof[-1] ^= 1
-        wrong_hash_status = network.direct_process(
-            0, [], states[0]["height"] + 1, b"\0" * 32)
+        wrong_hash_status, _ = _process_probe_at_held_height(
+            network, [], b"\0" * 32)
         _check(report, "identity-proof-validator-hash-faults",
                network.direct_check(0, bytes(wrong_deployment)) == 2
                and network.direct_check(0, wrong_fee) == 8

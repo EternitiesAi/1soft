@@ -15,6 +15,7 @@ from protocol5_fixture import make_genesis
 from run_protocol5_engine import (
     CLIENT_MAGIC, CLIENT_GENESIS_MAGIC, PROVER_MAGIC, DevelopmentController,
     ENGINE_SHA256, Note, Protocol5Network, _app_start_timeout, _backup_sqlite,
+    _prepare_conflict_below_quorum, _process_probe_at_held_height,
     finalize_fresh_genesis, fresh_genesis_prefix, p5_app_command, preflight,
 )
 
@@ -99,6 +100,44 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
         self.assertNotIn("--run-token", command)
         self.assertNotIn("--crash-phase", command)
 
+    def test_direct_proposal_probes_use_held_next_height(self):
+        network = object.__new__(Protocol5Network)
+        events = []
+        network.engines = {index: object() for index in range(4)}
+
+        def hold():
+            network.engines.pop(2)
+            network.engines.pop(3)
+            return {"height": 19, "app_hash": "11" * 32}
+
+        network.hold_sources_without_quorum = hold
+        network.direct_check = (
+            lambda index, transaction:
+            events.append(("check", index, transaction)) or 0)
+        network.direct_prepare = (
+            lambda index, transactions, height, max_bytes:
+            events.append(("prepare", height, max_bytes)) or [transactions[0]])
+        network.start_engine = (
+            lambda index: network.engines.setdefault(index, object()))
+        admissions, prepared, checkpoint = _prepare_conflict_below_quorum(
+            network, b"a", b"b", 4096)
+        self.assertEqual(admissions, [0, 0])
+        self.assertEqual(prepared, [b"a"])
+        self.assertEqual(checkpoint["height"], 19)
+        self.assertIn(("prepare", 20, 4096), events)
+        self.assertEqual(set(network.engines), {0, 1})
+
+        network.engines.update({2: object(), 3: object()})
+        network.direct_process = (
+            lambda index, transactions, height, validator_hash:
+            events.append(("process", height, validator_hash)) or 2)
+        result, checkpoint = _process_probe_at_held_height(
+            network, [b"a", b"b"], b"V" * 32)
+        self.assertEqual(result, 2)
+        self.assertEqual(checkpoint["height"], 19)
+        self.assertIn(("process", 20, b"V" * 32), events)
+        self.assertEqual(set(network.engines), {0, 1, 2, 3})
+
     def test_no_quorum_staging_waits_for_both_live_mempools(self):
         network = object.__new__(Protocol5Network)
         events = []
@@ -159,9 +198,9 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute(
                     "CREATE TABLE committed("
-                    "id INTEGER PRIMARY KEY, height INTEGER, app_hash BLOB)")
+                    "id INTEGER PRIMARY KEY, height INTEGER, app_hash TEXT)")
                 connection.execute(
-                    "INSERT INTO committed VALUES(1, ?, ?)", (9, b"A" * 32))
+                    "INSERT INTO committed VALUES(1, ?, ?)", (9, "41" * 32))
                 connection.commit()
                 checkpoint = _backup_sqlite(source, target)
             finally:
@@ -169,9 +208,9 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
             with closing(sqlite3.connect(target)) as retained:
                 row = retained.execute(
                     "SELECT height, app_hash FROM committed WHERE id=1").fetchone()
-            self.assertEqual(row, (9, b"A" * 32))
+            self.assertEqual(row, (9, "41" * 32))
             self.assertEqual(
-                checkpoint, {"height": 9, "app_hash": (b"A" * 32).hex()})
+                checkpoint, {"height": 9, "app_hash": "41" * 32})
 
     def test_missing_exact_inputs_are_unassessed_and_output_is_preserved(self):
         with tempfile.TemporaryDirectory() as td:
