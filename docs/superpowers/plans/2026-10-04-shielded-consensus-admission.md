@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 1.97.1; `halo2_proofs` 0.4.0 with default features disabled; `pasta_curves` 0.6.0; `rand` 0.10.0; raw x86_64 Linux seccomp via `libc` 0.2.189; Python 3.12 standard library and SQLite; CometBFT 0.38.25; ABCI v0.38.25 protobuf.
 
-**Spec:** `docs/superpowers/specs/2026-10-04-shielded-consensus-admission-design.md` at commit `1880e97`.
+**Spec:** `docs/superpowers/specs/2026-10-04-shielded-consensus-admission-design.md` at compatibility-amendment commit `60b2457`.
 
 ## Global Constraints
 
@@ -17,6 +17,7 @@
   test "$(git rev-parse HEAD:tools/privacy-proof-benchmark)" = "$(git rev-parse 013385c:tools/privacy-proof-benchmark)"
   test -z "$(git status --porcelain -- tools/privacy-proof-benchmark)"
   ```
+- Freeze the chain ID ceiling at 50 printable ASCII bytes, matching CometBFT 0.38.25 genesis and header validation.
 - Use a fresh Protocol 5 genesis and dedicated `protocol5_*` modules. Do not modify Protocol 4 application, state sync, database, AppHash, dispatcher, snapshot, or proof identities.
 - Keep `1soft/privacy-proof-benchmark/halo2-pasta/v1` unchanged. The new circuit ID is `1soft/shielded-consensus/halo2-pasta/v1`.
 - Rust owns all field, Poseidon, tree, commitment, nullifier, authorization, proof, profile, and KAT operations. Python consumes frozen vectors and calls the Rust worker.
