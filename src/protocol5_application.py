@@ -449,7 +449,8 @@ class Protocol5Application:
                 if path == "/info":
                     value = self.info()
                 elif path == "/state":
-                    value = self.state
+                    value = {"genesis": self.genesis.value, "height": self.height,
+                             "app_hash": self.app_hash, "state": self.state}
                 elif path == "/root-history":
                     value = self.state["root_history"]
                 elif path.startswith("/tx/"):
