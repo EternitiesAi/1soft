@@ -350,6 +350,66 @@ class Protocol5WalletRunnerTests(unittest.TestCase):
             self.assertTrue(network.homes.is_dir())
             network.temp.cleanup()
 
+    def test_retained_observation_waits_for_restarted_rpc_listeners(self):
+        module = runner()
+        height = 7
+        app_hash = "11" * 32
+        witness = canonical_json({"height": height, "app_hash": app_hash})
+        response = canonical_json({"result": {"response": {
+            "value": base64.b64encode(witness).decode()}}})
+
+        class Network:
+            def __init__(self):
+                self.engines = {0: object(), 1: object()}
+                self.engine_genesis = {}
+                self.http = [1]
+                self.retained_app_hashes = []
+                self.phase = "held"
+                self.restart_probes = 0
+                self.ready = False
+
+            def hold_sources_without_quorum(self):
+                return {"height": height, "app_hash": app_hash}
+
+            def set_empty_blocks(self, enabled):
+                self.phase = "advancing" if enabled else "restarting"
+                if not enabled:
+                    self.ready = False
+
+            def start_engine(self, index):
+                self.engines[index] = object()
+
+            def height(self, _index):
+                if self.phase == "restarting":
+                    self.restart_probes += 1
+                    if self.restart_probes == 1:
+                        raise RuntimeError("RPC listener is restarting")
+                    self.ready = True
+                return height + 1
+
+        class Proxy:
+            endpoint = "http://127.0.0.1:1/"
+            retained_query = None
+
+        network = Network()
+        proxies = [Proxy(), Proxy()]
+
+        def read_when_ready(*_args):
+            self.assertTrue(network.ready)
+            return b"authenticated-observation"
+
+        with (patch.object(module, "_origin_response", return_value=response),
+              patch.object(module, "read_state_observation",
+                           side_effect=read_when_ready),
+              patch.object(module, "authenticate_observation",
+                           return_value=({}, {"state_height": height}))):
+            observed = module.collect_retained_observation(
+                network, proxies, b"genesis")
+
+        self.assertEqual(observed, b"authenticated-observation")
+        self.assertGreaterEqual(network.restart_probes, 2)
+        self.assertEqual(proxies[0].retained_query, response)
+
 
 
     def test_artifact_manifest_refuses_omissions_and_unknown_names(self):

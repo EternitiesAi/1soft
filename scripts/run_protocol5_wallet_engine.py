@@ -795,6 +795,10 @@ def collect_retained_observation(network: WalletNetwork, proxies: list[DeliveryP
             network.start_engine(index)
     wait_until(lambda: network.height(0) >= height+1, 90)
     network.set_empty_blocks(False)
+    # set_empty_blocks restarts every running engine.  Wait for each RPC
+    # listener to return before asking the proxy for the retained H/H+1 pair.
+    wait_until(lambda: all(
+        network.height(index) >= height+1 for index in range(4)), 90)
     raw = read_state_observation(proxies[0].endpoint, network.engine_genesis, app_raw)
     observation, certificate = authenticate_observation(raw, network.engine_genesis, app_raw)
     if certificate["state_height"] != height:
@@ -1687,6 +1691,10 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
                     for index in range(4)), 120)
         finally:
             network.set_empty_blocks(False)
+        wait_until(
+            lambda: all(
+                network.height(index) >= expiry_until - 1
+                for index in range(4)), 90)
         nonzero_posts_before = post_count(proxy_a)
         nonzero_forwarded_before = proxy_a.forwarded
         expiry_sent = session.call(
