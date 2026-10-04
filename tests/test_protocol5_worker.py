@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import struct
 import tempfile
+import threading
 import unittest
 
 from protocol5_encoding import (
@@ -19,12 +20,12 @@ from protocol5_worker import (
 from shielded_worker_fixture import KAT_DOMAIN, kat_bytes, profile_bytes, write_worker
 
 class Protocol5WorkerTests(unittest.TestCase):
-    def _artifacts(self, directory, mode="normal"):
+    def _artifacts(self, directory, mode="normal", proof_length=4):
         root = Path(directory)
         base = make_genesis()
         fields = tuple(bytes.fromhex(v) for v in make_public_fields(base))
-        kat = kat_bytes(fields)
-        profile = profile_bytes(kat)
+        kat = kat_bytes(fields, b"G" * proof_length)
+        profile = profile_bytes(kat, proof_length)
         worker = root / "worker"
         write_worker(worker, profile, mode)
         toolchain = root / "toolchain.json"
@@ -80,6 +81,46 @@ class Protocol5WorkerTests(unittest.TestCase):
                 worker, toolchain, policy, kat, genesis = self._artifacts(td, mode)
                 with self.assertRaises(VerifierUnavailable):
                     WorkerClient(worker, genesis, kat, toolchain, policy)
+
+    def test_request_watchdog_bounds_blocked_pipe_write_and_quarantines(self):
+        with tempfile.TemporaryDirectory() as td:
+            worker, toolchain, policy, kat, genesis = self._artifacts(
+                td, "stall_after_startup", 60 * 1024)
+            client = WorkerClient(worker, genesis, kat, toolchain, policy)
+            pipe_fd = client._process.stdin.fileno()
+            os.set_blocking(pipe_fd, False)
+            try:
+                while True:
+                    os.write(pipe_fd, b"x" * 4096)
+            except BlockingIOError:
+                pass
+            finally:
+                os.set_blocking(pipe_fd, True)
+            observed = []
+            thread = threading.Thread(
+                target=lambda: observed.append(self._capture_verify_failure(
+                    client, tuple(bytes.fromhex(v) for v in make_public_fields(genesis.value)),
+                    b"G" * (60 * 1024))),
+                daemon=True,
+            )
+            thread.start()
+            thread.join(2.0)
+            blocked_past_deadline = thread.is_alive()
+            if blocked_past_deadline:
+                client._quarantine()
+                thread.join(2.0)
+            self.assertFalse(blocked_past_deadline, "worker write bypassed request watchdog")
+            self.assertEqual(observed, [VerifierUnavailable])
+            self.assertTrue(client.quarantined)
+            client.close()
+
+    @staticmethod
+    def _capture_verify_failure(client, fields, proof):
+        try:
+            client.verify_proof(fields, proof, timeout=1)
+        except BaseException as exc:
+            return type(exc)
+        return None
 
     @unittest.skipUnless(
         os.environ.get("ONE_P5_WORKER") and os.environ.get("ONE_P5_PROFILE")

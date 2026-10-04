@@ -171,6 +171,8 @@ class WorkerClient:
                 cwd="/", env={"PATH": "/usr/bin:/bin", "LANG": "C"},
                 start_new_session=True,
             )
+            assert self._process.stdin is not None
+            os.set_blocking(self._process.stdin.fileno(), False)
         except VerifierUnavailable:
             raise
         except OSError as exc:
@@ -194,6 +196,26 @@ class WorkerClient:
             out.extend(piece)
         return bytes(out)
 
+    def _write_all(self, data: bytes, deadline: float) -> None:
+        if self._process is None or self._process.stdin is None:
+            raise VerifierUnavailable("worker is unavailable")
+        fd = self._process.stdin.fileno()
+        offset = 0
+        while offset < len(data):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise VerifierUnavailable("worker request timeout")
+            _, ready, _ = select.select([], [fd], [], remaining)
+            if not ready:
+                raise VerifierUnavailable("worker request timeout")
+            try:
+                written = os.write(fd, data[offset:])
+            except BlockingIOError:
+                continue
+            if written <= 0:
+                raise VerifierUnavailable("worker request write failed")
+            offset += written
+
     def _request(self, opcode: int, payload: bytes, timeout: int | None = None):
         with self._lock:
             if self.quarantined or self.closed or self._process is None:
@@ -209,10 +231,9 @@ class WorkerClient:
             if len(body) > self.max_frame:
                 raise VerifierUnavailable("worker request exceeds frame bound")
             try:
-                assert self._process.stdin is not None
-                self._process.stdin.write(struct.pack("<I", len(body)) + body)
-                self._process.stdin.flush()
-                deadline = time.monotonic() + (self.request_timeout if timeout is None else timeout)
+                deadline = time.monotonic() + (
+                    self.request_timeout if timeout is None else timeout)
+                self._write_all(struct.pack("<I", len(body)) + body, deadline)
                 size = struct.unpack("<I", self._read_exact(4, deadline))[0]
                 if size > self.max_frame or size < 58:
                     raise VerifierUnavailable("worker response frame size differs")
@@ -232,6 +253,11 @@ class WorkerClient:
                     raise VerifierUnavailable("worker returned fatal status")
                 if status != OK and response_payload:
                     raise VerifierUnavailable("worker rejection carried payload")
+                assert self._process.stdout is not None
+                extra, _, _ = select.select(
+                    [self._process.stdout.fileno()], [], [], 0)
+                if extra:
+                    raise VerifierUnavailable("worker emitted unsolicited bytes or exited")
                 self.next_request_id += 1
                 return status, response_payload
             except BaseException as exc:
