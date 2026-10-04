@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,8 @@ from protocol4_application import Protocol4Application
 from protocol4_fixture import fixture
 from registry_rules_core import RegistryRules
 from validator_sets_core import ValidatorSet
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class Protocol4ApplicationTests(unittest.TestCase):
@@ -150,9 +153,14 @@ old = ValidatorSet.parse(genesis['validator_registry']['validators']).hash
 app.finalize_block(txs, 1, bytes([1])*32, bytes.fromhex(old), [], b'crash-replay-fixture')
 app.commit(fault=sys.argv[2])
 '''
+        child_env = dict(os.environ)
+        child_paths = [str(ROOT / 'src'), str(ROOT / 'tests')]
+        existing = child_env.get('PYTHONPATH')
+        child_env['PYTHONPATH'] = os.pathsep.join(child_paths + ([existing] if existing else []))
         completed = subprocess.run([sys.executable, '-c', program,
                                     str(self.path), fault, json.dumps(txs)],
-                                   capture_output=True, text=True, timeout=15)
+                                   capture_output=True, text=True, timeout=15,
+                                   env=child_env)
         self.assertEqual(completed.returncode, expected_exit, completed.stderr)
         self.app = Protocol4Application(self.path, expected_genesis=self.genesis)
         return payment, action

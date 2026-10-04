@@ -19,7 +19,8 @@ authority for people and persistent agents**. The first wedge is a private missi
 treasury in which several agents share one aggregate allowance, retain unresolved
 obligations through failure, obey current revocation, and disclose only the evidence
 needed for a selected purchase. Read the [direction, decisive proof and explicit
-reconsideration gates](docs/PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md).
+reconsideration gates](docs/PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md), then the
+[executable shared-parent attack model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md).
 
 This direction does not describe present on-chain privacy. Today's ledger remains
 transparent, and the independent Layer 1 must still prove that it provides customer
@@ -70,6 +71,7 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 | Capability | Delivered behavior | Start here |
 |---|---|---|
 | Agent spending | Recipient, lifetime and account limits; grants share a parent budget and one financial journal. | [Wallet and budget model](docs/STATE_WALLET.md) |
+| Shared-parent attack model | Two copied journals race one parent fragment; exactly one fee-inclusive successor commits, stale authority fails and the losing obligation remains pending. Transparent semantics only. | [Private authority model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md) |
 | Native invoice checkout | A signed payment commits to the quote, merchant, amount and resource digest; the merchant verifies execution before fulfillment. | [Merchant browser](docs/MERCHANT_INVOICE_BROWSER.md) |
 | Recoverable payment delivery | Original bytes, consumed dispatch claims and unresolved holds survive interrupted replies. Receipt collection and reconciliation are separate actions. | [P4 delivery](docs/P4_DELIVERY_ENGINE.md) |
 | Changing validator committees | The opt-in P4 client verifies the complete signed roster history and replays payments from independently pinned genesis. | [P4 client](tools/protocol4-client/README.md) |
@@ -77,6 +79,7 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 | Encrypted historical recovery | Original journal rows, signed wires, holds and receipts survive complete backups, including larger admitted journals. Restored archives cannot sign or send. | [Custody and recovery](tools/protocol4-custody/README.md) |
 | Durable merchant delivery | Committed alpha receipts unlock exact resource bytes; durable consumption, cold retries and separate offline proof. | [Durable merchant](docs/DURABLE_MERCHANT.md) |
 | Browser purchase retrieval | Separate public-receipt consent, verified resource download and original proof through a fixed local merchant bridge; operator enrollment stays separate. | [Browser delivery](docs/BROWSER_MERCHANT_DELIVERY.md) |
+| Reduced delivery disclosure | A strict local-alpha receipt projects only resource digest, loopback route, quote commitment, fulfillment fact and verifier anchor; it is not payment proof or shielded privacy. | [Minimal delivery receipt](docs/MINIMAL_DELIVERY_RECEIPT.md) |
 | Durable private alpha | Incremental authenticated history, preserved original journal and an actual-hour qualification command; fresh genesis and explicit finite trust policy. | [Durable alpha](docs/DURABLE_ALPHA.md) |
 | Browser history download | Explicit encrypted export of all retained shared wallet/delivery history; no private keys or active restoration. | [Browser recovery](docs/BROWSER_HISTORY_BACKUP.md) |
 | Portable payment evidence | An offline checker verifies the original invoice, signed transaction, receipt and public content under external trust pins. | [Merchant proofs](docs/PORTABLE_MERCHANT_PROOF.md) |
