@@ -21,7 +21,7 @@ installed prerequisites without executing the engine or qualifying the source.
 See the [first-run guide](LOCAL_DEMO_GUIDE.md).
 
 The command binds every tracked byte and mode to the current commit/tree before
-and after execution. Native tests and all 17 component directories run in separate
+and after execution. Native tests and all 18 component directories run in separate
 interpreters, preserving component-specific imports. Empty, missing, duplicated or
 uncovered Python groups refuse qualification. The optional unpublished account
 catch-up test is explicitly excluded; it is not counted as passing.
