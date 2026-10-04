@@ -104,9 +104,11 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
     def test_direct_proposal_probes_use_held_next_height(self):
         network = object.__new__(Protocol5Network)
         events = []
+        holds = []
         network.engines = {index: object() for index in range(4)}
 
         def hold():
+            holds.append(tuple(sorted(network.engines)))
             network.engines.pop(2)
             network.engines.pop(3)
             return {"height": 19, "app_hash": "11" * 32}
@@ -118,17 +120,35 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
         network.direct_prepare = (
             lambda index, transactions, height, max_bytes:
             events.append(("prepare", height, max_bytes)) or [transactions[0]])
+        network.direct_process = (
+            lambda index, transactions, height, validator_hash:
+            events.append(("conflict-process", index, transactions, height,
+                           validator_hash)) or 2)
         network.start_engine = (
             lambda index: network.engines.setdefault(index, object()))
-        admissions, prepared, checkpoint = _prepare_conflict_below_quorum(
-            network, b"a", b"b", 4096)
+        admissions, prepared, process_status, checkpoint = (
+            _prepare_conflict_below_quorum(
+                network, b"a", b"b", 4096, b"V" * 32))
         self.assertEqual(admissions, [0, 0])
         self.assertEqual(prepared, [b"a"])
+        self.assertEqual(process_status, 2)
         self.assertEqual(checkpoint["height"], 19)
         self.assertIn(("prepare", 20, 4096), events)
+        self.assertIn(
+            ("conflict-process", 0, [b"a", b"b"], 20, b"V" * 32),
+            events)
         self.assertEqual(set(network.engines), {0, 1})
 
-        network.engines.update({2: object(), 3: object()})
+        network.direct_state = (
+            lambda index: {"height": 19, "app_hash": "11" * 32})
+        network.broadcast = lambda index, transaction: {"code": "0"}
+        network.mempool_transactions = lambda index: [b"a"]
+        staged_admissions, staged_checkpoint = network.stage_without_quorum([b"a"])
+        self.assertEqual([row["code"] for row in staged_admissions], ["0"])
+        self.assertEqual(staged_checkpoint["height"], 19)
+        self.assertEqual(holds, [(0, 1, 2, 3)])
+        self.assertEqual(set(network.engines), {0, 1, 2, 3})
+
         network.direct_process = (
             lambda index, transactions, height, validator_hash:
             events.append(("process", height, validator_hash)) or 2)

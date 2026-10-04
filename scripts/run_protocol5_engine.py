@@ -725,7 +725,8 @@ def _make_outputs(note: Note, fee: int) -> tuple[Note, Note]:
 
 def _prepare_conflict_below_quorum(
         network: Protocol5Network, first: bytes, second: bytes,
-        max_bytes: int) -> tuple[list[int], list[bytes], dict]:
+        max_bytes: int,
+        validator_hash: bytes) -> tuple[list[int], list[bytes], int, dict]:
     checkpoint = network.hold_sources_without_quorum()
     admissions = [
         network.direct_check(0, first),
@@ -733,7 +734,9 @@ def _prepare_conflict_below_quorum(
     ]
     prepared = network.direct_prepare(
         0, [first, second], checkpoint["height"] + 1, max_bytes)
-    return admissions, prepared, checkpoint
+    process_status = network.direct_process(
+        0, [first, second], checkpoint["height"] + 1, validator_hash)
+    return admissions, prepared, process_status, checkpoint
 
 
 def _process_probe_at_held_height(
@@ -823,15 +826,17 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         first_b = controller.prove(raw_genesis, first_request)
         if first_a == first_b:
             raise AssertionError("development proofs were not randomized")
-        admissions, prepared, conflict_checkpoint = (
+        admissions, prepared, conflict_status, conflict_checkpoint = (
             _prepare_conflict_below_quorum(
                 network, first_a, first_b,
-                genesis.value["limits"]["max_block_bytes"]))
+                genesis.value["limits"]["max_block_bytes"], validator_hash))
         _check(report, "randomized-proof-conflict",
-               admissions == [0, 0] and prepared == [first_a],
+               admissions == [0, 0] and prepared == [first_a]
+               and conflict_status == 2,
                {"proof_a_sha256": hashlib.sha256(first_a).hexdigest(),
                 "proof_b_sha256": hashlib.sha256(first_b).hexdigest(),
                 "prepared_count": len(prepared),
+                "conflict_process_status": conflict_status,
                 "proposal_height": conflict_checkpoint["height"] + 1})
         network.stage_without_quorum([first_a])
         states = _wait_accepted(network, 1)
