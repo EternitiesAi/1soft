@@ -15,9 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from protocol5_encoding import (
-    DEPLOYMENT_MAGIC, DEPLOYMENT_DOMAIN, DeploymentBinding, ProfileDescriptor,
-    canonical_json, decode_canonical_json, derive_genesis_field, field_hex,
-    genesis_document,
+    DEPLOYMENT_MAGIC, DeploymentBinding, ProfileDescriptor, canonical_json,
+    decode_canonical_json, derive_genesis_field, field_hex, genesis_document,
 )
 
 SETTINGS_KEYS = {
@@ -59,6 +58,15 @@ def _read_regular(path: str | Path, maximum: int) -> bytes:
         os.close(descriptor)
 
 
+def _manifest_object(raw: bytes, name: str) -> dict:
+    if not raw or not raw.endswith(b"\n"):
+        raise ValueError(f"Protocol 5 {name} must be canonical JSON plus newline")
+    value = decode_canonical_json(raw[:-1], max_bytes=MAX_METADATA_BYTES)
+    if type(value) is not dict or not value:
+        raise ValueError(f"Protocol 5 {name} must be a nonempty JSON object")
+    return value
+
+
 def _write_new(path: str | Path, raw: bytes) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,6 +74,7 @@ def _write_new(path: str | Path, raw: bytes) -> None:
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     descriptor = os.open(path, flags, 0o600)
+    failed = True
     try:
         view = memoryview(raw)
         while view:
@@ -74,8 +83,14 @@ def _write_new(path: str | Path, raw: bytes) -> None:
                 raise OSError("Protocol 5 builder output write stalled")
             view = view[written:]
         os.fsync(descriptor)
+        failed = False
     finally:
         os.close(descriptor)
+        if failed:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def build_protocol5_inputs(
@@ -97,6 +112,8 @@ def build_protocol5_inputs(
     worker_raw = _read_regular(worker, MAX_INPUT_BYTES)
     toolchain_raw = _read_regular(toolchain, MAX_METADATA_BYTES)
     policy_raw = _read_regular(policy, MAX_METADATA_BYTES)
+    _manifest_object(toolchain_raw, "toolchain manifest")
+    _manifest_object(policy_raw, "sandbox policy")
     settings_value = decode_canonical_json(
         _read_regular(settings, MAX_METADATA_BYTES), max_bytes=MAX_METADATA_BYTES)
     if type(settings_value) is not dict or set(settings_value) != SETTINGS_KEYS:

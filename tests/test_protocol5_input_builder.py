@@ -5,10 +5,13 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from protocol5_encoding import canonical_json, derive_genesis_field, genesis_document
 from protocol5_fixture import PROFILE_BYTES, make_genesis
-from build_protocol5_inputs import SETTINGS_KEYS, build_protocol5_inputs
+from build_protocol5_inputs import (
+    SETTINGS_KEYS, _write_new, build_protocol5_inputs,
+)
 
 
 class Protocol5InputBuilderTests(unittest.TestCase):
@@ -33,13 +36,13 @@ class Protocol5InputBuilderTests(unittest.TestCase):
 
     def test_tracked_qualification_settings_are_canonical_and_closed(self):
         path = (Path(__file__).parents[1]
-                / 'reference/protocol5-qualification-settings-v1.json')
+                / "reference/protocol5-qualification-settings-v1.json")
         raw = path.read_bytes()
         from protocol5_encoding import decode_canonical_json
         value = decode_canonical_json(raw)
         self.assertEqual(set(value), SETTINGS_KEYS)
-        self.assertEqual(value['chain_id'], 'p5-qualification-template')
-        self.assertEqual(len(value['validators']), 4)
+        self.assertEqual(value["chain_id"], "p5-qualification-template")
+        self.assertEqual(len(value["validators"]), 4)
 
     def test_builds_exact_deployment_and_empty_commitment_template(self):
         with tempfile.TemporaryDirectory() as td:
@@ -96,6 +99,26 @@ class Protocol5InputBuilderTests(unittest.TestCase):
                 binding_output=changed_binding, genesis_output=changed_genesis)
             self.assertNotEqual(outputs[0][0], changed_binding.read_bytes())
             self.assertNotEqual(outputs[0][1], changed_genesis.read_bytes())
+
+    def test_rejects_invalid_manifests_and_unlinks_partial_output(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            worker, profile, toolchain, policy, settings = self._inputs(root)
+            toolchain.write_bytes(b"")
+            with self.assertRaises(ValueError):
+                build_protocol5_inputs(
+                    worker=worker, profile=profile, toolchain=toolchain,
+                    policy=policy, settings=settings,
+                    binding_output=root / "binding.bin",
+                    genesis_output=root / "genesis.json")
+            self.assertFalse((root / "binding.bin").exists())
+
+            partial = root / "partial.bin"
+            with mock.patch("build_protocol5_inputs.os.fsync",
+                            side_effect=OSError("disk fault")):
+                with self.assertRaises(OSError):
+                    _write_new(partial, b"partial")
+            self.assertFalse(partial.exists())
 
     def test_rejects_noncanonical_settings_and_preserves_outputs(self):
         with tempfile.TemporaryDirectory() as td:
