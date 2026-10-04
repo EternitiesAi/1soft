@@ -84,7 +84,19 @@ def _integer(value, low=0, high=2**63 - 1):
     return value
 
 
-def _scan(value):
+def _engine_validator_key(value, path):
+    """Recognize only the canonical 32-byte public-key field in engine genesis."""
+    if not (len(path) == 4 and path[0] == "validators"
+            and type(path[1]) is int and path[2:] == ("pub_key", "value")):
+        return False
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (ValueError, TypeError):
+        return False
+    return len(raw) == 32 and base64.b64encode(raw).decode() == value
+
+
+def _scan(value, path=()):
     if type(value) is dict:
         for key, item in value.items():
             _need(type(key) is str, "non-string key")
@@ -94,13 +106,14 @@ def _scan(value):
                 _need(type(item) is dict and set(item) == {"refused", "state_unchanged"}
                       and item["refused"] is True and item["state_unchanged"] is True,
                       "private material field")
-            _scan(item)
+            _scan(item, path + (key,))
     elif type(value) is list:
-        for item in value:
-            _scan(item)
+        for index, item in enumerate(value):
+            _scan(item, path + (index,))
     elif type(value) is str:
         slash = chr(92)
-        _need(not (value.startswith(("/", "~/", "file:", slash + slash))
+        leading_path = value.startswith("/") and not _engine_validator_key(value, path)
+        _need(not (leading_path or value.startswith(("~/", "file:", slash + slash))
                    or (len(value) >= 3 and value[0].isalpha() and value[1] == ":" and value[2] in ("/", slash))
                    or "/home/" in value or "/tmp/" in value or slash + "Users" + slash in value),
               "absolute private path")

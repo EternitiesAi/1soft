@@ -443,6 +443,16 @@ class Protocol5WalletGateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(fixture, changed)
 
+    def test_engine_validator_public_key_base64_may_begin_with_slash(self):
+        encoded = base64.b64encode(bytes([252]) + bytes(31)).decode()
+        self.assertTrue(encoded.startswith("/"))
+        value = {"validators": [{"pub_key": {"value": encoded}}]}
+        self.assertEqual(self.gate.decode_report(canonical_json(value)), value)
+        for rejected in ({"value": encoded},
+                         {"validators": [{"pub_key": {"value": "/home/operator/private"}}]}):
+            with self.subTest(rejected=rejected), self.assertRaises(ValueError):
+                self.gate.decode_report(canonical_json(rejected))
+
     def test_private_paths_private_fields_and_noncanonical_json_are_rejected(self):
         fixture = self.fixture()
         for path in ("/home/operator/private/client", r"C:\Users\Operator\client", "../client", "file:///tmp/client", "https://host/client"):
