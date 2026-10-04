@@ -26,7 +26,8 @@ all remain correct. A transparent executable model proves semantics, not privacy
 | P1/P2/P3/P4 native state, signatures, AppHash, budgets and execution | Existing compatibility surfaces | Transparent ledger. No bytes or monetary rules are changed by the invoice module |
 | Encrypted invoice content | `1soft/private-invoice/v1`, local module | Description/contact/content confidentiality under an explicit trusted caller key; public request context remains visible |
 | Isolated shielded-note transition lab | [Transparent-witness component](../tools/shielded-note-lab/README.md), source present and under qualification | Local synthetic note-spend semantics, with no live caller, privacy proof or consensus integration |
-| This architecture | Design 0.1 | Proposed proof obligations and acceptance gates; no circuits, proving system, production private state or on-chain disclosure proof implemented |
+| Isolated privacy-proof benchmark | [Benchmark component](../tools/privacy-proof-benchmark/README.md), source under qualification | Experimental first candidate: gnark v0.16.3/gnark-crypto v0.21.0, Groth16/BN254/Poseidon2, synthetic one-input/two-output relation, ephemeral setup, offline exact-source verification and listed rejection cases |
+| This architecture | Design 0.1 | Proposed proof obligations and acceptance gates; one isolated experimental circuit benchmark exists, with no production circuit/parameter selection, production private state or on-chain disclosure proof implemented |
 | Future native private successor | Protocol number/genesis/circuit versions unassigned | Requires its own exact domains, fresh-genesis or expressly reviewed migration plan, source qualification and external review |
 
 The lab is the next executable step specified in the
@@ -44,8 +45,15 @@ committing them to a circuit or a consensus version. It remains separate from th
 shared-parent attack model: note conservation does not qualify private overlapping
 budgets, current revocation or unresolved wallet obligations. The lab provides no
 zero-knowledge privacy, production readiness, public deployment or real-funds
-support. No proof system has been selected, and no live wallet, browser, RPC or
+support. No production proof system has been selected for the chain, and no live wallet, browser, RPC or
 validator integration is added.
+
+The privacy-proof benchmark is an experimental first benchmark candidate, not a
+production proof-system selection. Its offline exact-source receipt boundary and
+ephemeral setup do not establish production privacy, consensus integration,
+network anonymity, custody, independent review, public-network readiness or
+real-funds safety. Until a successful exact receipt exists, its status is source
+under qualification.
 
 The authoritative present behavior is described by
 [the local release](LOCAL_DEVELOPER_RELEASE.md),

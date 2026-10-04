@@ -134,10 +134,13 @@ class CurrentCoverageTests(unittest.TestCase):
         self.assertTrue(all(x['status']=='unassessed' for x in scenarios))
 
 
-    def test_shielded_note_lab_is_covered_and_privacy_remains_unassessed(self):
+    def test_privacy_components_are_covered_and_boundaries_remain_unassessed(self):
         result = coverage(self.root)
         self.assertIn('shielded_note_lab', result['groups'])
         self.assertEqual(result['groups']['shielded_note_lab'], ['tools/shielded-note-lab/tests/test_example.py'])
+        self.assertIn('privacy_proof_benchmark', result['groups'])
+        self.assertEqual(result['groups']['privacy_proof_benchmark'],
+                         ['tools/privacy-proof-benchmark/tests/test_example.py'])
         boundaries = result['privacy_boundaries']
         self.assertTrue(boundaries)
         self.assertTrue(all(x['status'] == 'unassessed' for x in boundaries))
@@ -357,12 +360,15 @@ class CurrentJavascriptTests(unittest.TestCase):
                      patch.object(current, 'coverage', return_value=profile), \
                      patch.object(current.base, 'source_identity', return_value=source), \
                      patch.object(current.base, 'run_process', side_effect=process), \
+                     patch.object(current, 'privacy_proof_verification',
+                                  return_value={'passed': True}), \
                      patch('builtins.print'):
                     code = current.run(output, 30)
                 result = json.loads((output / 'result.json').read_bytes())
                 if mode is None:
                     self.assertTrue(result['shielded_note_lab_verifier']['passed'],
                                     result['shielded_note_lab_verifier'])
+                    self.assertTrue(result['privacy_proof_benchmark_verifier']['passed'])
                 self.assertEqual(code, 0 if mode is None else 1)
                 self.assertEqual(result['local_checks'], 'passed' if mode is None else 'failed')
                 self.assertEqual(result['release_status'], 'blocked')
@@ -377,3 +383,151 @@ class CurrentJavascriptTests(unittest.TestCase):
                 for record in result['javascript']['groups']:
                     self.assertEqual(record['run_id'], result['run_id'])
                     self.assertEqual(record['source_id'], result['source_id'])
+
+
+class CurrentPrivacyProofVerifierTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'source'
+        self.component = self.root / 'tools/privacy-proof-benchmark'
+        (self.component / 'src').mkdir(parents=True)
+        (self.component / 'go').mkdir()
+        self.circuit = self.component / 'go/benchmark.go'
+        self.circuit.write_text('package benchmark\n')
+        self.python_tests = ['test_contract.Example.test_exact']
+        self.go_tests = ['TestExactReceipt']
+        self.manifest = {
+            'format': 2,
+            'package': 'privacy-proof-benchmark',
+            'files': [],
+            'python_tests': self.python_tests,
+            'go_tests': self.go_tests,
+            'circuit_files': ['go/benchmark.go'],
+        }
+        self.manifest_path = self.component / 'SOURCE_MANIFEST.json'
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        self.dependencies = self.component / 'DEPENDENCIES.json'
+        self.dependencies.write_text('{}')
+        (self.component / 'src/privacy_proof_benchmark.py').write_text(
+            'import json\n'
+            'EXPECTED_CLAIMS={"production_privacy":False,"consensus_integrated":False,'
+            '"network_anonymity":False,"production_custody":False,'
+            '"real_funds":False,"independent_review":False}\n'
+            'EXPECTED_UNASSESSED=("one","two")\n'
+            'def load_unique_json_bytes(data): return json.loads(data)\n'
+            'def validate_backend_receipt(value, *, expected_commit, expected_tree, '
+            'expected_circuit_digest):\n'
+            ' assert value["commit"] == expected_commit\n'
+            ' assert value["tree"] == expected_tree\n'
+            ' assert value["digest"] == expected_circuit_digest\n'
+            ' return value\n')
+        self.source = {'commit': 'a' * 40, 'tree': 'b' * 40, 'source_id': 'c' * 64}
+
+    @staticmethod
+    def sha(data):
+        return hashlib.sha256(data).hexdigest()
+
+    def circuit_digest(self):
+        data = self.circuit.read_bytes()
+        value = hashlib.sha256()
+        value.update(b'go/benchmark.go\0')
+        value.update(str(len(data)).encode())
+        value.update(b'\0')
+        value.update(data)
+        return value.hexdigest()
+
+    def receipt(self, output, mode):
+        stem = 'privacy-proof-benchmark-verifier'
+        contents = {
+            'python': b'python tests passed\n',
+            'go_test': b'go tests passed\n',
+            'go_build': b'',
+            'benchmark': b'benchmark passed\n',
+        }
+        logs = {}
+        suffix = {'python': 'python', 'go_test': 'go-test',
+                  'go_build': 'go-build', 'benchmark': 'benchmark'}
+        for name, raw in contents.items():
+            path = output / f'{stem}.{suffix[name]}.log'
+            path.write_bytes(raw)
+            if name == 'python':
+                logs[name] = {'path': path.name, 'sha256': self.sha(raw), 'bytes': len(raw)}
+            else:
+                logs[name] = {'returncode': 0, 'seconds_ns': 1, 'log': path.name,
+                              'log_sha256': self.sha(raw), 'log_bytes': len(raw)}
+        digest = self.circuit_digest()
+        backend_value = {'commit': self.source['commit'], 'tree': self.source['tree'],
+                         'digest': digest}
+        backend_path = output / f'{stem}.backend.json'
+        backend_path.write_text(json.dumps(
+            {'different': True} if mode == 'backend_value' else backend_value))
+        backend_bytes = backend_path.read_bytes()
+        receipt = {
+            'format': 1,
+            'status': 'passed',
+            'commit': self.source['commit'],
+            'tree': self.source['tree'],
+            'manifest_sha256': self.sha(self.manifest_path.read_bytes()),
+            'source_id': self.sha(self.manifest_path.read_bytes()
+                                  + self.dependencies.read_bytes()),
+            'circuit_source_digest': digest,
+            'python': __import__('sys').version,
+            'go': 'go version go1.26.0 linux/amd64',
+            'python_tests': self.python_tests,
+            'go_tests': self.go_tests,
+            'logs': logs,
+            'backend_receipt': {'path': backend_path.name,
+                                'sha256': self.sha(backend_bytes),
+                                'bytes': len(backend_bytes), 'value': backend_value},
+            'network_policy': 'linux-user-and-network-namespace',
+            'network_used': False,
+            'claims': {'production_privacy': False, 'consensus_integrated': False,
+                       'network_anonymity': False, 'production_custody': False,
+                       'real_funds': False, 'independent_review': False},
+            'unassessed': ['one', 'two'],
+        }
+        if mode == 'commit': receipt['commit'] = 'd' * 40
+        elif mode == 'manifest': receipt['manifest_sha256'] = '0' * 64
+        elif mode == 'source_id': receipt['source_id'] = '0' * 64
+        elif mode == 'circuit': receipt['circuit_source_digest'] = '0' * 64
+        elif mode == 'log': receipt['logs']['go_test']['log_sha256'] = '0' * 64
+        elif mode == 'path': receipt['logs']['python']['path'] = '../python.log'
+        elif mode == 'claim': receipt['claims']['real_funds'] = True
+        elif mode == 'integer_claim': receipt['claims']['real_funds'] = 0
+        elif mode == 'network': receipt['network_used'] = True
+        elif mode == 'tests': receipt['go_tests'] = []
+        elif mode == 'go_returncode': receipt['logs']['go_test']['returncode'] = 1
+        elif mode == 'extra': receipt['extra'] = True
+        elif mode == 'missing': del receipt['backend_receipt']
+        return receipt
+
+    def check(self, mode):
+        output = Path(self.temp.name) / ('out-' + str(mode))
+        output.mkdir()
+
+        def process(command, root, log, timeout):
+            receipt = self.receipt(output, mode)
+            body = json.dumps(receipt)
+            if mode == 'duplicate':
+                body = body[:-1] + ',"status":"failed"}'
+            Path(command[command.index('--report') + 1]).write_text(body)
+            log.write_bytes(b'outer verifier log\n')
+            return {'returncode': int(mode == 'process'), 'timed_out': False,
+                    'log_truncated': False}
+
+        with patch.object(current.base, 'run_process', side_effect=process):
+            return current.privacy_proof_verification(
+                self.root, output, self.source, 30)
+
+    def test_exact_source_bound_receipt_passes(self):
+        result = self.check(None)
+        self.assertTrue(result['passed'], result)
+
+    def test_forged_incomplete_or_unbound_receipts_fail_closed(self):
+        modes = ('process', 'commit', 'manifest', 'source_id', 'circuit', 'log',
+                 'path', 'backend_value', 'claim', 'integer_claim', 'network',
+                 'tests', 'go_returncode', 'extra', 'missing', 'duplicate')
+        for mode in modes:
+            with self.subTest(mode=mode):
+                self.assertFalse(self.check(mode)['passed'])

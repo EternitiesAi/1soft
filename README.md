@@ -36,9 +36,18 @@ It uses synthetic keys and values to examine note commitments, nullifiers,
 authenticated membership, spending authorization, integer conservation, exact
 replay, failure recovery and selected-output disclosure. Making those rules
 executable exposes semantic mistakes before a future circuit has to encode them.
-No proof system has been selected. The lab provides no zero-knowledge privacy,
+No production proof system has been selected for the chain. The lab provides no zero-knowledge privacy,
 production readiness, public deployment or real-funds support; the live ledger
 remains public and no wallet, browser or consensus caller uses the lab.
+
+The separate [privacy-proof benchmark](tools/privacy-proof-benchmark/README.md)
+is an experimental first benchmark candidate: gnark v0.16.3 with
+gnark-crypto v0.21.0, Groth16 over BN254 and Poseidon2, proving a synthetic
+one-input/two-output relation with ephemeral setup. Its verifier runs offline
+against exact source and records the listed rejection cases. This is not a
+production proof-system selection, production privacy, consensus integration,
+network anonymity, custody, independent review, public-network readiness or
+real-funds safety.
 
 ## Durable invoice payer
 
@@ -87,6 +96,7 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 | Agent spending | Recipient, lifetime and account limits; grants share a parent budget and one financial journal. | [Wallet and budget model](docs/STATE_WALLET.md) |
 | Shared-parent attack model | Two copied journals race one parent fragment; exactly one fee-inclusive successor commits, stale authority fails and the losing obligation remains pending. Transparent semantics only. | [Private authority model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md) |
 | Shielded-note transition lab | Isolated transparent-witness source under qualification for local note-spend, replay, recovery and disclosure semantics; no proof system or live integration. | [Component and boundaries](tools/shielded-note-lab/README.md) |
+| Privacy proof-stack benchmark | Actual local Groth16/BN254/Poseidon2 proofs for one frozen synthetic note relation, with ephemeral setup, ten acceptance/rejection cases and exact-source offline evidence; no production or live integration claim. | [Benchmark and boundaries](tools/privacy-proof-benchmark/README.md) |
 | Authenticated obligation reconciliation | The supported root wallet shares exact receipt and post-expiry absence classification with a compact Protocol 3 audit seam. The compact audit does not mutate wallet holds. | [Authenticated reconciliation](docs/AUTHENTICATED_RECONCILIATION.md) |
 | Opt-in cloned-journal fencing | A shared owner-only POSIX registry gives explicit `FencedApproval` callers one active device epoch and one reservation per payer/role/nonce. Direct approval and separate registries bypass it. | [Device fence](docs/DEVICE_FENCE_RESERVATION.md) |
 | Real-engine state sync | Both registered P4 profiles passed the external controller and independent semantic validator for one exact source tree on one loopback host. | [Phase-two engine evidence](docs/PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md) |
@@ -130,8 +140,9 @@ device.
 
 ## Qualify a clean checkout
 
-On Linux or WSL, with Git, Node and the versions in `requirements.txt` already
-installed, run from the repository root:
+On Linux or WSL, with Git, Node, local Go >=1.25.7, the Go modules already
+cached, and the versions in `requirements.txt` already installed, run from the
+repository root:
 
 ```sh
 python tools/local-platform/scripts/1soft.py check --output "$HOME/1soft-current-check"

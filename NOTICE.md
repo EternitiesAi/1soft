@@ -29,3 +29,20 @@ not proprietary cryptographic inventions. No ICS23/IBC compatibility is claimed.
 The upstream CometBFT/ICS23 materials cited in COMPACT_STATE.md are architectural
 references; their code was not copied wholesale into these new modules. Synthetic
 committee evidence is labelled as such and is not a live-network attestation.
+
+## Privacy proof-stack benchmark
+
+The 1soft circuit, synthetic fixture, adversarial cases, evidence contract and
+offline benchmark harness are project-authored research code. They use the
+third-party Go modules `github.com/consensys/gnark` v0.16.3 and
+`github.com/consensys/gnark-crypto` v0.21.0 under Apache-2.0, plus their locked
+transitive dependencies under their respective licenses. Third-party source is
+resolved by Go modules and is not vendored in this repository. Exact module sums,
+source pins and inspected license hashes are recorded under
+`tools/privacy-proof-benchmark`.
+
+Groth16, BN254, Poseidon2, Merkle membership proofs, nullifiers and range checks
+are established cryptographic techniques and are not represented as proprietary
+inventions. The local ephemeral setup and passing synthetic proof do not inherit
+upstream audits, establish a production ceremony, or certify privacy, consensus,
+custody, anonymity, public-network behavior or real-funds safety.
