@@ -118,7 +118,7 @@ Protocol hard ceilings are:
 | Resource | Ceiling |
 | --- | ---: |
 | chain ID | 50 printable ASCII bytes |
-| validators | exactly 4 fixed validators |
+| validators | exactly 4 fixed equal-power validators |
 | validator power | 1,000,000 each; 4,000,000 total |
 | height | 512 |
 | note-tree capacity | 16 commitments |
@@ -128,6 +128,7 @@ Protocol hard ceilings are:
 | proposal bytes inspected | 4 MiB |
 | transaction bytes | 64 KiB |
 | proof bytes | 60 KiB |
+| maximum cumulative accepted fees | `u64::MAX` |
 | protobuf transaction data per block | 512 KiB |
 | FinalizeBlock request | 2 MiB |
 | retained transaction entries | 64 |
@@ -150,9 +151,11 @@ CheckTx evaluates against committed state. PrepareProposal starts from committed
 state and stages candidates sequentially. It freezes the block-start root set,
 so a root produced earlier in the same candidate block cannot anchor a later
 transaction in that block. ProcessProposal independently replays the complete
-ordered proposal. FinalizeBlock repeats the same evaluator, validates the exact
-fixed next-validator hash and greater-than-two-thirds commit power, binds the
-bounded request bytes and block hash, and stages one deterministic response.
+ordered proposal. FinalizeBlock repeats the same evaluator and validates the
+exact fixed next-validator hash. At height 1 it requires an empty decided last
+commit; at later heights it requires the complete fixed roster and strict
+greater-than-two-thirds flag-2 commit power. It binds the bounded request bytes
+and block hash, then stages one deterministic response.
 
 Global history count and raw-wire byte budgets include rejected transactions
 that appear in a decided block. Accepted transactions append output 0 then
@@ -163,9 +166,10 @@ validator updates.
 Commit stores state, execution history, exact transaction results, response
 bytes, request digest, block hash, receipts, and AppHash in one SQLite
 `BEGIN IMMEDIATE` transaction. In-memory state advances only after SQLite
-commit. A crash before durable commit reexecutes; a crash after durable commit
-returns retained exact bytes; Commit with no pending finalization is a safe
-no-op. Startup replays every retained transaction through the real worker and
+commit. A crash before durable commit reexecutes. After durable commit, an exact
+repeat of the already-committed FinalizeBlock returns the retained response
+bytes. Commit with no pending finalization returns Info as a safe no-op. Startup
+replays every retained transaction through the real worker and
 refuses any changed genesis, profile, deployment, tree, nullifier, output, fee,
 receipt, history, response row, or AppHash.
 

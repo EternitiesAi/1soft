@@ -163,7 +163,7 @@ development evidence; they do not extend it to later source or another binary.
 | Cryptographic profile | profile ID `272f8ea5ea7e04fa24b27c5125650150760b618229f2f3fbe0b7cc95bbca3eef`; descriptor SHA-256 `37f40b69aa64ae78e08ab50bb6efc962d272b7c8a62b16c77f0beeadb6c5c74a`; KAT SHA-256 `2a3d49921a6a9106637573849b503457314afbe180cf81f2235a0408b3746e22` |
 | Deployment binding | ID `76129871a4659caf919ccdb32c545b0330b4ba1018cf6b1ec85ac61582eb3cac`; toolchain SHA-256 `eb2972cd9713e39085ca241b802ed9d9fdb267aae7233912d01912d6ca75d6ca`; sandbox policy SHA-256 `1cd41bb9a0bd45702e8e0cc6ffbe63f3e10315121785775700b69ce44610c97b` |
 | Qualification template | genesis SHA-256 `298e09fb615e041b61e729d5ccf9d441a1fe417fbebb409b02c3349c6dc39f94` |
-| Fresh run genesi | consensus SHA-256 `7c4d3206eac0ee5b6717f7acd6f748b56b9a64cc8a26a170e8d364c71f3e53bf`; state-sync SHA-256 `bdbb9d76c4256e99f68002b095d7f1d2e4726f99e1be4127ef49cd72830cdb89` |
+| Fresh run genesis values | consensus SHA-256 `7c4d3206eac0ee5b6717f7acd6f748b56b9a64cc8a26a170e8d364c71f3e53bf`; state-sync SHA-256 `bdbb9d76c4256e99f68002b095d7f1d2e4726f99e1be4127ef49cd72830cdb89` |
 | Checked reports | consensus SHA-256 `6ef26345af2654f3553b6a884eeef81b11ef1bb26c361c46bb82c0de05b8bd42`, checker receipt `0a93d3f1680dc636d307f4ffd90fe0f129301a4ae583695b5e131146e8aa97df`; state-sync SHA-256 `5ba80ad83b17d57935edb8e9985b0df0e5deab6912693625204fbff1421713d4`, checker receipt `16ce3c15f65b26ed0cb4a205b6ec444f7372404e5fb7043b5095411f8c312010` |
 
 This qualification establishes bounded one-host development behavior for the
