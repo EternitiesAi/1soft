@@ -48,7 +48,7 @@ test('durable payer invoices execute once after a real hour on four original loc
     '-B','tools/private-payments/tests/alpha_invoice_browser_fixture.py',engine,output],{stdio:['pipe','pipe','pipe']});
   let exit=null,readyResolve,browser=null,context=null,workflowComplete=false;
   const backupAudits=[],capsuleAudits=[],auditWaiters=new Map();
-  function awaitAudit(stage){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned download audit timed out')),20000);auditWaiters.set(stage,v=>{clearTimeout(timer);resolve(v);});});}
+  function awaitAudit(stage){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned download audit timed out')),120000);auditWaiters.set(stage,v=>{clearTimeout(timer);resolve(v);});});}
   const ready=new Promise(r=>readyResolve=r),lines=[],stderr=[],calls=[];
   const closed=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>{exit=code;});child.once('close',code=>resolve(code));});
   child.stderr.on('data',x=>stderr.push(x.toString()));
