@@ -149,6 +149,19 @@ def qualification_valid_until(maximum_height: int, current_height: int) -> int:
         raise ValueError("qualification validity window is unavailable")
     return maximum_height
 
+
+def same_nullifier_conflict(original: tuple[bytes, ...],
+                            winner: tuple[bytes, ...]) -> bool:
+    """Recognize a different authorized statement for one spent input."""
+    return (
+        len(original) == 14
+        and len(winner) == 14
+        and original[:10] == winner[:10]
+        and original[10:12] != winner[10:12]
+        and original[12] == winner[12]
+        and original[13] != winner[13]
+    )
+
 def capsule_mutations(raw: bytes) -> dict[str, bytes]:
     original = decode_canonical_json(raw)
     variants = {}
@@ -1617,14 +1630,9 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
         write_private("conflict-winner-transaction.bin", conflict_winner)
         conflict_original_tx = Transaction.decode(conflict_original, genesis)
         conflict_winner_tx = Transaction.decode(conflict_winner, genesis)
-        if (conflict_original_tx.public_fields[9]
-                != conflict_winner_tx.public_fields[9]
-                or conflict_original_tx.public_fields[10:12]
-                == conflict_winner_tx.public_fields[10:12]
-                or conflict_original_tx.public_fields[:10]
-                != conflict_winner_tx.public_fields[:10]
-                or conflict_original_tx.public_fields[12:]
-                != conflict_winner_tx.public_fields[12:]):
+        if not same_nullifier_conflict(
+                conflict_original_tx.public_fields,
+                conflict_winner_tx.public_fields):
             raise RuntimeError("same-nullifier conflicting proof differs")
         claim_without_io(conflict_approved["decision_id"])
         network.stage_without_quorum([conflict_winner])

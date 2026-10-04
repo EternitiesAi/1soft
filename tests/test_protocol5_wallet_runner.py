@@ -419,6 +419,26 @@ class Protocol5WalletRunnerTests(unittest.TestCase):
                     self.assertRaises(ValueError):
                 module.qualification_valid_until(maximum, current)
 
+    def test_conflicting_statement_changes_outputs_and_authorization_digest(self):
+        module = runner()
+        original = tuple(index.to_bytes(32, "little") for index in range(14))
+        winner = list(original)
+        winner[10] = (110).to_bytes(32, "little")
+        winner[11] = (111).to_bytes(32, "little")
+        winner[13] = (113).to_bytes(32, "little")
+        self.assertTrue(module.same_nullifier_conflict(original, tuple(winner)))
+
+        for index in (0, 9, 12):
+            changed = list(winner)
+            changed[index] = (200 + index).to_bytes(32, "little")
+            with self.subTest(index=index):
+                self.assertFalse(module.same_nullifier_conflict(
+                    original, tuple(changed)))
+        unchanged_digest = list(winner)
+        unchanged_digest[13] = original[13]
+        self.assertFalse(module.same_nullifier_conflict(
+            original, tuple(unchanged_digest)))
+
 
 
     def test_artifact_manifest_refuses_omissions_and_unknown_names(self):
