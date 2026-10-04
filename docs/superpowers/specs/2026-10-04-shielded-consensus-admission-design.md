@@ -44,7 +44,7 @@ The first chain freezes these independent versions:
 | hash gadget | Poseidon P128Pow5T3 |
 | validators | exactly 4 fixed genesis validators |
 
-Immutable protocol hard ceilings are: chain ID 64 ASCII bytes; four validators; power 1 through 1,000,000 per validator and 4,000,000 total; height 512; eight transactions per block; sixty-four proposal candidates; 4 MiB proposal inspection; 64 KiB transaction; 60 KiB proof; 512 KiB protobuf transaction data per block; 2 MiB FinalizeBlock request wire; sixty-four retained transaction entries and 2 MiB retained raw transaction-wire bytes across the chain; u64 maximum fee total; 8 MiB snapshot payload; 64 KiB snapshot chunks; 128 chunks; 1 MiB worker frame; 120-second worker startup; and 30-second worker request watchdog. Genesis may select only equal or smaller values and fixes the newly measured exact proof length. Every arithmetic total has an explicit unsigned bound. The finite note-tree capacity is a consensus rule, not a default that operators may raise.
+Immutable protocol hard ceilings are: chain ID 50 ASCII bytes; four validators; power 1 through 1,000,000 per validator and 4,000,000 total; height 512; eight transactions per block; sixty-four proposal candidates; 4 MiB proposal inspection; 64 KiB transaction; 60 KiB proof; 512 KiB protobuf transaction data per block; 2 MiB FinalizeBlock request wire; sixty-four retained transaction entries and 2 MiB retained raw transaction-wire bytes across the chain; u64 maximum fee total; 8 MiB snapshot payload; 64 KiB snapshot chunks; 128 chunks; 1 MiB worker frame; 120-second worker startup; and 30-second worker request watchdog. Genesis may select only equal or smaller values and fixes the newly measured exact proof length. Every arithmetic total has an explicit unsigned bound. The finite note-tree capacity is a consensus rule, not a default that operators may raise.
 
 If genesis contains g initial commitments, it must satisfy:
 
@@ -56,7 +56,7 @@ Genesis validation also proves that g is at most sixteen; every commitment is ca
 
 Genesis is strict canonical JSON with exactly these members:
 
-- chain_id: 1 through 64 printable ASCII bytes;
+- chain_id: 1 through 50 printable ASCII bytes;
 - protocol_version: integer 5;
 - profile_descriptor: canonical padded standard-base64 ProfileDescriptorV1 bytes;
 - profile_id: lowercase 64-hex domain-separated profile identity;
