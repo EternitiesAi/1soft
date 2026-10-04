@@ -123,8 +123,12 @@ test('durable payer invoices execute once after a real hour on four original loc
     assert.equal(collectedState.wallet_current,false);assert.equal(collectedState.signing_ready,false);
     assert.equal(await page.locator('#progress-title').textContent(),'Wallet needs current verification');
     assert.equal(await page.locator('#reconcile').isEnabled(),true);
-    assert.equal(await page.locator('#pending').textContent(),String(Number(invoice.amount)+2)+' DEV');
+    assert.equal(collectedState.wallet.pending_debit_units,String(BigInt(invoice.amount)+2n));
+    assert.equal(await page.locator('#pending').textContent(),collectedState.wallet.pending_debit_units+' DEV · saved obligations');
     await page.locator('#reconcile').click();await page.waitForFunction(()=>document.querySelector('#progress-title').textContent==='Execution reconciled');
+    const reconciled=await (await context.request.get(fixture.origin+'/api/state')).json();
+    assert.equal(reconciled.wallet_current,true);assert.equal(reconciled.signing_ready,true);
+    assert.equal(reconciled.wallet.pending_debit_units,'0');
     assert.equal(await page.locator('#pending').textContent(),'0 DEV');
     await page.locator('#retain').click();await page.waitForFunction(()=>document.querySelector('#feedback').textContent.startsWith('Verified capsule retained'));
     const capsule=await context.request.get(fixture.origin+await page.locator('#capsule-download').getAttribute('href'));
