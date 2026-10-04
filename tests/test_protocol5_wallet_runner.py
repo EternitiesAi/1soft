@@ -439,6 +439,14 @@ class Protocol5WalletRunnerTests(unittest.TestCase):
         self.assertFalse(module.same_nullifier_conflict(
             original, tuple(unchanged_digest)))
 
+    def test_expiry_scenario_reserves_real_proof_time_then_stays_finite(self):
+        module = runner()
+        self.assertEqual(module.qualification_expiry_until(512, 109), 173)
+        for maximum, current in ((172, 109), (512, -1), (True, 0), (512, False)):
+            with self.subTest(maximum=maximum, current=current), \
+                    self.assertRaises(ValueError):
+                module.qualification_expiry_until(maximum, current)
+
 
 
     def test_artifact_manifest_refuses_omissions_and_unknown_names(self):

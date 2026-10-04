@@ -162,6 +162,17 @@ def same_nullifier_conflict(original: tuple[bytes, ...],
         and original[13] != winner[13]
     )
 
+
+def qualification_expiry_until(maximum_height: int,
+                               current_height: int) -> int:
+    """Reserve enough blocks for a real proof before crossing expiry."""
+    margin = 64
+    if (type(maximum_height) is not int or type(current_height) is not int
+            or current_height < 0
+            or current_height + margin > maximum_height):
+        raise ValueError("qualification expiry window is unavailable")
+    return current_height + margin
+
 def capsule_mutations(raw: bytes) -> dict[str, bytes]:
     original = decode_canonical_json(raw)
     variants = {}
@@ -1663,7 +1674,8 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
         # is a measured nonzero CheckTx response from the actual endpoint.
         expiry_input = spendable("wallet-a", 7)
         expiry_height_before = status("wallet-a")["state_height"]
-        expiry_until = expiry_height_before + 3
+        expiry_until = qualification_expiry_until(
+            maximum_height, expiry_height_before)
         expiry_review = session.call(
             "wallet-a", "prepare",
             "--note-id", expiry_input["capsule_id"],
