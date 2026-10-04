@@ -170,7 +170,7 @@ def _artifact_receipts(
             expected_hash = _hex(
                 row["app_hash"], 64, "artifact AppHash")
             with closing(sqlite3.connect(
-                    f"file:{path}?mode=ro", uri=True)) as database:
+                    f"file:{path}?mode=ro&immutable=1", uri=True)) as database:
                 _need(database.execute(
                     "PRAGMA integrity_check").fetchone() == ("ok",),
                     "retained Protocol 5 database is corrupt")

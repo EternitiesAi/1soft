@@ -69,6 +69,7 @@ def completed(root: Path):
         path = artifacts / name
         database = sqlite3.connect(path)
         try:
+            database.execute("PRAGMA journal_mode=WAL")
             database.execute(
                 "CREATE TABLE committed("
                 "id INTEGER PRIMARY KEY, height INTEGER, app_hash TEXT)")
@@ -131,8 +132,13 @@ class Protocol5GateTests(unittest.TestCase):
     def test_completed_status_binds_source_processes_and_artifacts(self):
         with tempfile.TemporaryDirectory() as td:
             value, artifacts = completed(Path(td))
+            expected_files = {path.name for path in artifacts.iterdir()}
+            self.assertFalse(any(
+                name.endswith(("-wal", "-shm")) for name in expected_files))
             self.assertTrue(validate_report(
                 value, artifact_directory=artifacts)["qualified"])
+            self.assertEqual(
+                {path.name for path in artifacts.iterdir()}, expected_files)
             for mutation in ("dirty", "receipts", "source", "artifact"):
                 changed = copy.deepcopy(value)
                 if mutation == "dirty":
