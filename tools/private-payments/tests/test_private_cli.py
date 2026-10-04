@@ -228,6 +228,7 @@ class WalletCliTests(unittest.TestCase):
         class Network:
             config = {'genesis_sha256': fixture.service.policy['genesis_sha256']}
             clock = fixture.service.clock
+            def close_read_store(inner): pass  # Legacy fixture owns no alpha store.
             def ready(inner): return True
             def service(inner): return nullcontext(fixture.service)
             def start(inner): raise AssertionError('payer started engines')
@@ -243,7 +244,8 @@ class WalletCliTests(unittest.TestCase):
     def test_unready_dispatched_workspace_refuses_before_invoice_unlock_or_service(self):
         from types import SimpleNamespace
         args = self.args('recover', 'a'*64, output=self.root/'not-created')
-        network = SimpleNamespace(ready=lambda: False, service=lambda: (_ for _ in ()).throw(AssertionError('service reached')))
+        network = SimpleNamespace(ready=lambda: False, close_read_store=lambda: None,
+            service=lambda: (_ for _ in ()).throw(AssertionError('service reached')))
         with patch.object(CLI, 'network_for_workspace', return_value=network), \
              patch.object(CLI, 'open_invoice_storage', side_effect=AssertionError('invoice store reached')):
             with self.assertRaises(ValueError): CLI.execute(args)

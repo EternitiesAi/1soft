@@ -110,9 +110,15 @@ def immutable_names():
     return names
 
 
-def initialize(workspace,engine,expected_sha256=PIN_SHA,*,password,profile=None):
+ALPHA_INVOICE_FORMAT='1soft/local-alpha-invoice-workspace/v1'
+ALPHA_INVOICE_READY_FORMAT='1soft/local-alpha-invoice-ready/v1'
+
+
+def initialize(workspace,engine,expected_sha256=PIN_SHA,*,password,profile=None,invoice_commitments=False):
     need(profile is None or type(profile) is str and profile==DURABLE_PROFILE,
          'unknown explicit development profile')
+    need(type(invoice_commitments) is bool and (not invoice_commitments or profile==DURABLE_PROFILE),
+         'invoice capability requires explicit fresh durable alpha profile')
     binary=verify_engine(engine,expected_sha256);_password(password)
     root=Path(workspace).absolute()
     need(not root.is_relative_to(ROOT),'development workspace must be outside source')
@@ -141,6 +147,7 @@ def initialize(workspace,engine,expected_sha256=PIN_SHA,*,password,profile=None)
         'allocations':[{'public_key':keys['owner'],'units':1000},{'public_key':keys['merchant'],'units':0}],
         'validator_registry':registry}
     if profile is not None:genesis['development_profile']=profile
+    if invoice_commitments:genesis['invoice_commitment_version']=1
     private_new(root/'app-genesis.json',encode(genesis))
     engine_genesis.update(chain_id=chain,initial_height='1',app_state=genesis,validators=initial)
     engine_genesis['consensus_params']['block'].update(max_bytes='1048576',max_gas='-1')
@@ -157,7 +164,7 @@ def initialize(workspace,engine,expected_sha256=PIN_SHA,*,password,profile=None)
             'p2p.addr_book_strict':False,'p2p.allow_duplicate_ip':True,'p2p.pex':False,
             'consensus.timeout_commit':'4s','mempool.max_tx_bytes':65536}))
     roles={n:dict(payer=payer,grant_id='' if n=='owner' else n,vault=n+'.pem') for n in ('owner','raven','atlas')}
-    config={'schema':1,'format':FORMAT,'chain_id':chain,'genesis_sha256':hashlib.sha256(full).hexdigest(),
+    config={'schema':1,'format':ALPHA_INVOICE_FORMAT if invoice_commitments else FORMAT,'chain_id':chain,'genesis_sha256':hashlib.sha256(full).hexdigest(),
         'native_sha256':hashlib.sha256(encode(genesis)).hexdigest(),'engine_sha256':PIN_SHA,
         'ports':ports,'endpoint':f'http://127.0.0.1:{http[0]}/','roles':roles,'merchant':merchant,
         'files':{n:hashlib.sha256(read_private(root/n)).hexdigest() for n in sorted(immutable_names())}}
@@ -169,7 +176,7 @@ def load_configuration(workspace):
     root=Path(workspace).absolute();raw=read_private(root/'workspace.json');q=load_json(raw)
     need(type(q) is dict and set(q)=={'schema','format','chain_id','genesis_sha256','native_sha256',
         'engine_sha256','ports','endpoint','roles','merchant','files'} and q['schema']==1 and type(q['schema']) is int and
-        q['format']==FORMAT and encode(q)==raw,'workspace configuration differs')
+        q['format'] in (FORMAT,ALPHA_INVOICE_FORMAT) and encode(q)==raw,'workspace configuration differs')
     need(q['engine_sha256']==PIN_SHA and type(q['ports']) is list and len(q['ports'])==8 and
          len(set(q['ports']))==8,'workspace engine/ports differ')
     for port in q['ports']:integer(port,1,65535)
@@ -180,6 +187,10 @@ def load_configuration(workspace):
     g,_=p4_genesis(read_private(root/'engine-genesis.json'),q['genesis_sha256'])
     need(g['asset']=='DEV' and g['chain_id']==q['chain_id'] and g['fee']==2 and g['protocol_version']==4,
          'development genesis required')
+    need((q['format']==ALPHA_INVOICE_FORMAT and g.get('development_profile')==DURABLE_PROFILE
+          and type(g.get('invoice_commitment_version')) is int and g['invoice_commitment_version']==1)
+         or (q['format']==FORMAT and 'invoice_commitment_version' not in g),
+         'workspace/native invoice capability differs')
     need(read_private(root/'app-genesis.json')==encode(g) and
          hashlib.sha256(encode(g)).hexdigest()==q['native_sha256'],'native genesis differs')
     expected_payer=address(g['allocations'][0]['public_key'])
@@ -251,7 +262,7 @@ class LocalNetwork:
     def ready(self):
         p=self.root/'READY.json'
         if not p.exists():return False
-        q=load_json(read_private(p));need(q=={'schema':1,'format':'1soft/local-development-ready/v1',
+        q=load_json(read_private(p));need(q=={'schema':1,'format':ALPHA_INVOICE_READY_FORMAT if self.config['format']==ALPHA_INVOICE_FORMAT else '1soft/local-development-ready/v1',
             'workspace_sha256':hashlib.sha256(read_private(self.root/'workspace.json')).hexdigest(),
             'policy_sha256':hashlib.sha256(read_private(self.root/'policy.json')).hexdigest()},'workspace readiness pins differ')
         self.policy();return True
@@ -311,10 +322,15 @@ class LocalNetwork:
             proof=collect_evidence(self.config['endpoint'],read_private(self.root/'engine-genesis.json'),self.policy(),self.clock())['evidence']
             with self.service(create=True) as svc:
                 svc.import_checkpoint(proof,expected_tip=None);svc.sync(expected_revision=None)
-        private_new(self.root/'READY.json',encode({'schema':1,'format':'1soft/local-development-ready/v1',
+        private_new(self.root/'READY.json',encode({'schema':1,'format':ALPHA_INVOICE_READY_FORMAT if self.config['format']==ALPHA_INVOICE_FORMAT else '1soft/local-development-ready/v1',
             'workspace_sha256':hashlib.sha256(read_private(self.root/'workspace.json')).hexdigest(),
             'policy_sha256':hashlib.sha256(read_private(policy_path)).hexdigest()}))
         return {'status':'development_workspace_ready','validator_count':4,'trust_renewed':False}
+    def close_read_store(self):
+        """Close only this object's cached read connection; no node lifecycle."""
+        if self._alpha_store is not None:
+            self._alpha_store.close();self._alpha_store=None
+
     def stop(self):
         # Popen handles, never a process-name kill or an inferred external PID.
         errors=[]
@@ -326,7 +342,7 @@ class LocalNetwork:
                     p.kill();p.wait(timeout=10);errors.append('owned process required kill; inspect retained socket before restart')
         for h in self.handles:h.close()
         self.handles=[]
-        if self._alpha_store is not None:self._alpha_store.close();self._alpha_store=None
+        self.close_read_store()
         if self.lock is not None:self.lock.__exit__();self.lock=None
         self.stopped=True
         return {'status':'owned_processes_stopped','data_preserved':True,'warnings':errors}

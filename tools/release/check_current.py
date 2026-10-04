@@ -52,6 +52,7 @@ JAVASCRIPT_SCENARIOS = (
     'tools/local-platform/tests/browser_service.test.cjs',
     'tools/local-platform/tests/browser_workflow.test.cjs',
     'tools/private-payments/tests/browser_comet.test.cjs',
+    'tools/private-payments/tests/alpha_invoice_browser.test.cjs',
 )
 
 PYTHON_ENGINE_SCENARIOS = tuple(dict(

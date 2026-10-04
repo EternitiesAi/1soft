@@ -12,6 +12,16 @@ chosen public supply or audited production wallet. The application uses pinned
 CometBFT 0.38.25 for local validator consensus. Independent operators, external
 security review, production custody and economic design remain release gates.
 
+## Durable invoice payer
+
+A fresh invoice-capable durable alpha combines committed invoice review and the
+encrypted invoice store with the original shared wallet. Owner and delegated
+payments retain exact signatures, fee holds, at-most-one local dispatch, historical
+alpha receipts and inert A1 financial history as the chain advances. Both payment
+and invoice consent remain required. See [the setup and boundaries](docs/DURABLE_INVOICES.md).
+Alpha merchant fulfillment and legacy merchant proof/payment-header consumption
+remain separate unsupported lanes; transactions remain public.
+
 ## Try the local product
 
 The [first-run guide](docs/LOCAL_DEMO_GUIDE.md) walks through a native payment,

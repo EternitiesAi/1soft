@@ -14,7 +14,7 @@ sys.path[:0] = [str(ROOT / p) for p in (
     'src', 'scripts', 'tools/validator-transition/src', 'tools/protocol4-client/src',
     'tools/protocol4-wallet/src', 'tools/protocol4-delivery/src',
     'tools/protocol4-explorer/src', 'tools/protocol4-receipts/src',
-    'tools/local-platform/src', 'tools/private-payments/src')]
+    'tools/protocol4-custody/src', 'tools/local-platform/src', 'tools/private-payments/src')]
 
 from block_application import encode
 from commit_verifier import load_json
@@ -27,7 +27,7 @@ from p4_evidence import content_id, hash_text, integer, need
 from p4_read_store import private_path
 from p4_receipt_capsule import MAX_CAPSULE_BYTES
 from payment_x402 import MAX_REQUIRED_HEADER, NativePaymentExpectation, parse_payment_required
-from private_payment_desk import PrivatePaymentDesk
+from private_payment_desk import PrivatePaymentDesk, AlphaPrivatePaymentDesk, desk_for_platform
 
 MAX_REVIEW_BYTES = 65536
 MAX_EXPECTATION_BYTES = 4096
@@ -180,7 +180,7 @@ def wallet_operation(args, desk):
         try: return desk.import_invoice(header, expected, content, invoice_password=secret)
         finally: secret = None
     if command == 'prepare':
-        integer(args.valid_until, 1, 512)
+        integer(args.valid_until, 1, 4096 if type(desk) is AlphaPrivatePaymentDesk else 512)
         prepared = desk.prepare(args.request_id, args.role, valid_until=args.valid_until)
         wrapper = {'schema': 1, 'format': APPROVAL_FORMAT, 'request_id': args.request_id,
                    'role': args.role, 'prepared': prepared}
@@ -218,7 +218,9 @@ def wallet_operation(args, desk):
     if command == 'export-receipt':
         desk.recover(args.request_id)  # Check immutable invoice/request/original correlation.
         raw = desk.platform.capsule(args.request_id, args.capsule_id)
-        result = saved(args.output, raw, maximum=MAX_CAPSULE_BYTES, status='public_native_receipt_capsule_written')
+        from p4_alpha_custody import MAX_RECEIPT_BYTES
+        maximum=MAX_RECEIPT_BYTES if type(desk) is AlphaPrivatePaymentDesk else MAX_CAPSULE_BYTES
+        result = saved(args.output, raw, maximum=maximum, status='public_native_receipt_capsule_written')
         return {**result, 'request_id': args.request_id, 'capsule_id': args.capsule_id,
                 'full_public_ledger_disclosed': True, 'resource_delivery_authorized': False}
     raise ValueError('unsupported private operation')
@@ -258,10 +260,12 @@ def execute(args):
     # Connect to an already initialized ready workspace; no engine start,
     # bootstrap, trust renewal or stop is reachable from this entry point.
     network = network_for_workspace(args.workspace, args.engine)
-    need(network.ready(), 'existing ready native workspace required')
-    with network.service() as service:
-        with open_invoice_storage(args.invoices, network.config['genesis_sha256'], clock=network.clock) as invoices:
-            return wallet_operation(args, PrivatePaymentDesk(service, invoices))
+    try:
+        need(network.ready(), 'existing ready native workspace required')
+        with network.service() as service:
+            with open_invoice_storage(args.invoices, network.config['genesis_sha256'], clock=network.clock) as invoices:
+                return wallet_operation(args, desk_for_platform(service, invoices))
+    finally:network.close_read_store()
 
 
 def main(argv=None):

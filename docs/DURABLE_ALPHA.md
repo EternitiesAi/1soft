@@ -160,3 +160,12 @@ This profile makes local development last long enough to test durability. Public
 launch still needs independent operators, reviewed production custody and protocol,
 economic/genesis/governance decisions, and sustained operational qualification.
 Transactions remain public; there is no shielded ledger privacy in this profile.
+
+## Committed invoice payer mode
+
+Fresh alpha initialization can additionally select `--invoice-commitments`.
+The separate retained-invoice browser and CLI then use the same original alpha
+financial authority with dual consent. Existing workspaces remain unchanged.
+See [DURABLE_INVOICES.md](DURABLE_INVOICES.md) for the distinct workspace format,
+final quote-expiry guards, alpha receipt export, listener-only shutdown and
+explicit merchant-fulfillment/recovery exclusions.

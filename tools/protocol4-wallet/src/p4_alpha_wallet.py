@@ -22,7 +22,7 @@ from p4_evidence import content_id, hash_text, integer, need, p4_genesis
 from p4_incremental_evidence import policy_v2_checked, check_clock, CONTEXT_FORMAT
 from p4_read_store import private_path
 from p4_wallet import (P4Wallet, MAX_DECISIONS, MAX_AGE_SECONDS, matched_receipt,
-                       transfer_review, rotation_review, decision_review, ZERO)
+                       transfer_review, rotation_review, decision_review, invoice_review_context, ZERO)
 from validator_witness import nanos
 
 APPLICATION_ID = 0x31504157
@@ -67,12 +67,23 @@ class P4AlphaWallet(P4Wallet):
         try:
             with super().atomic(write=write):
                 started=self.clock() if write else None
+                before=(self.db.execute('SELECT coalesce(max(seq),0) FROM decisions').fetchone()[0]
+                        if write and self.db.execute("SELECT 1 FROM sqlite_master WHERE name='decisions' AND type='table'").fetchone() else 0)
                 yield
                 if write:
-                    _,obs,_,latest=self._catalog()
+                    _,obs,decisions,latest=self._catalog()
                     final=self.clock();previous=max(started,latest)
-                    if obs:self.store.check_current(obs[-1][1],now=final,previous_ns=previous)
+                    checkpoint=None
+                    if obs:checkpoint=self.store.check_current(obs[-1][1],now=final,previous_ns=previous)
                     else:check_clock(self.policy,final,previous)
+                    # New signatures alone require current invoice consent. Historical
+                    # originals remain valid to inspect after their quote expires.
+                    if len(decisions)>before:
+                        g,_=p4_genesis(self.genesis,self.policy['genesis_sha256'])
+                        consent_now=self.clock();check_clock(self.policy,consent_now,final,checkpoint=checkpoint)
+                        for d in decisions[before:]:
+                            if d['review'].get('format')=='1soft/p4-invoice-transfer-review/v1':
+                                invoice_review_context(d['review'],g,self.policy['genesis_sha256'],consent_now)
         except BaseException:
             self._active_checkpoint=None
             raise
