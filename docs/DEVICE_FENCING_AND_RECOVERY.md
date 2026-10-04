@@ -4,6 +4,13 @@ This document records a security qualification of the current development P4
 wallet. It does not add device fencing, replication, key revocation, or
 production custody.
 
+**4 October update:** an [opt-in local device-fence seam](DEVICE_FENCE_RESERVATION.md)
+now coordinates P4 journal clones that explicitly use `FencedApproval` and the
+same live owner-only POSIX registry. This document remains the baseline for direct
+`P4Wallet.approve`, existing CLIs, raw signers, independent registries and
+recovery copies. Those paths still have the forked-device behavior described
+below.
+
 ## What the local journal proves
 
 One P4 wallet serializes writers through its SQLite journal. Approval rechecks

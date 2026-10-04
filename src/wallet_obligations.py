@@ -11,8 +11,8 @@ import hashlib
 import json
 from collections import defaultdict
 
-from commit_verifier import encode, load_json, verify_native_signatures
-from native_core import (DOMAIN, canonical, require, verify_account_key_acceptance)
+from commit_verifier import encode, ensure, load_json, verify_native_signatures
+from native_core import (DOMAIN, canonical, pubkey, require, verify_account_key_acceptance)
 from offline_signer import review_intent
 
 REVIEW_DOMAIN = b'1soft/certified-review/v1\x00'
@@ -82,6 +82,52 @@ def checked_decision(row, genesis: dict, policy_id: str) -> dict:
             'lane': lane(body, mode, signer), 'debit': 0 if mode == 'accept' else base['proposed_account_debit_units']}
 
 
+def classify_authenticated_receipt(row: list | tuple | None, *,
+                                   local_envelope: dict, expected_signer: str,
+                                   state_height: int,
+                                   minimum_receipt_height: int = 1) -> str:
+    """Classify one receipt from state the caller has already authenticated.
+
+    This pure function performs no proof verification, signing or journal writes.
+    The caller must separately bind the state to its trusted genesis/checkpoint and
+    verify the local envelope's signatures. A wallet can use its signing checkpoint
+    plus one as minimum_receipt_height, within the transaction that owns its holds.
+    """
+    pubkey(expected_signer)
+    ensure(type(state_height) is int and state_height >= 0,
+           'invalid authenticated state height')
+    ensure(type(minimum_receipt_height) is int and minimum_receipt_height >= 1,
+           'invalid minimum receipt height')
+    ensure(type(local_envelope) is dict and set(local_envelope) == {'body', 'signature'} and
+           type(local_envelope['body']) is dict, 'invalid local native envelope')
+    body = local_envelope['body']
+    valid_until = body.get('valid_until')
+    ensure(type(valid_until) is int and valid_until >= 0, 'invalid signed validity height')
+    if row is None:
+        return 'absent_after_expiry' if state_height > valid_until else 'pending'
+
+    txid = sha(DOMAIN + canonical(body))
+    ensure(type(row) in (list, tuple) and len(row) == 5 and row[0] == txid and
+           type(row[1]) is int and row[1] >= 1 and
+           all(type(row[index]) is str for index in (2, 3, 4)),
+           'invalid authenticated receipt row')
+    record = load_json(row[3].encode(), max_bytes=32768)
+    ensure(type(record) is dict, 'invalid authenticated receipt record')
+    ensure(record.get('txid') == txid and
+           canonical(record.get('envelope')) == canonical(local_envelope) and
+           record.get('signer_public_key') == expected_signer,
+           'authenticated receipt differs from local wire')
+    ensure(type(record.get('sequence')) is int and record['sequence'] == row[1],
+           'authenticated receipt sequence differs from row')
+    ensure(record.get('previous') == row[2], 'authenticated receipt previous digest differs from row')
+    ensure(type(record.get('height')) is int and
+           minimum_receipt_height <= record['height'] <= valid_until and
+           record['height'] <= state_height,
+           'receipt height outside signed validity or checkpoint')
+    ensure(sha(encode(record)) == row[4], 'receipt record digest mismatch')
+    return 'included'
+
+
 def inventory(db, policy_id: str, ledger, state_height: int) -> dict:
     """Derive holds from signed decisions, not from manual or provider status.
 
@@ -103,20 +149,16 @@ def inventory(db, policy_id: str, ledger, state_height: int) -> dict:
             # Never charges the sponsor; only its separate native signature can.
             status = 'consent_only'
         else:
-            receipt = ledger.db.execute('SELECT record FROM receipts WHERE txid=?',
-                                        (item['native_txid'],)).fetchone()
-            if receipt is not None:
-                record = load_json(receipt[0].encode(), max_bytes=32768)
-                require(canonical(record['envelope']) == canonical(item['result']) and
-                        record['signer_public_key'] == item['signer'],
-                        'certified receipt conflicts with the exact local signature')
-                require(item['review']['state_height'] < record['height'] <= state_height and
-                        record['height'] <= body['valid_until'], 'receipt height inconsistent with signed intention')
-                status = 'recorded'
-            elif state_height > body['valid_until']:
-                status = 'expired_absent'
-            else:
-                status = 'pending'
+            receipt = ledger.db.execute(
+                'SELECT txid,sequence,previous,record,hash FROM receipts WHERE txid=?',
+                (item['native_txid'],)).fetchone()
+            classification = classify_authenticated_receipt(
+                None if receipt is None else tuple(receipt),
+                local_envelope=item['result'], expected_signer=item['signer'],
+                state_height=state_height,
+                minimum_receipt_height=item['review']['state_height'] + 1)
+            status = {'included': 'recorded', 'absent_after_expiry': 'expired_absent',
+                      'pending': 'pending'}[classification]
             if body['grant_id'] and ledger.protocol_version == 3:
                 grant_key = ledger.grant_storage_id(body['sender'], body['grant_id'])
                 link = ledger.db.execute('SELECT budget_id FROM grant_budgets WHERE grant_id=?',

@@ -21,6 +21,9 @@ obligations through failure, obey current revocation, and disclose only the evid
 needed for a selected purchase. Read the [direction, decisive proof and explicit
 reconsideration gates](docs/PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md), then the
 [executable shared-parent attack model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md).
+The [shielded privacy foundation](docs/SHIELDED_PRIVACY_FOUNDATION.md) defines
+the smallest coherent experimental note transition and the security gates that
+must precede any on-chain privacy claim.
 
 This direction does not describe present on-chain privacy. Today's ledger remains
 transparent, and the independent Layer 1 must still prove that it provides customer
@@ -72,6 +75,9 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 |---|---|---|
 | Agent spending | Recipient, lifetime and account limits; grants share a parent budget and one financial journal. | [Wallet and budget model](docs/STATE_WALLET.md) |
 | Shared-parent attack model | Two copied journals race one parent fragment; exactly one fee-inclusive successor commits, stale authority fails and the losing obligation remains pending. Transparent semantics only. | [Private authority model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md) |
+| Authenticated obligation reconciliation | The supported root wallet shares exact receipt and post-expiry absence classification with a compact Protocol 3 audit seam. The compact audit does not mutate wallet holds. | [Authenticated reconciliation](docs/AUTHENTICATED_RECONCILIATION.md) |
+| Opt-in cloned-journal fencing | A shared owner-only POSIX registry gives explicit `FencedApproval` callers one active device epoch and one reservation per payer/role/nonce. Direct approval and separate registries bypass it. | [Device fence](docs/DEVICE_FENCE_RESERVATION.md) |
+| Real-engine state sync | Both registered P4 profiles passed the external controller and independent semantic validator for one exact source tree on one loopback host. | [Phase-two engine evidence](docs/PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md) |
 | Native invoice checkout | A signed payment commits to the quote, merchant, amount and resource digest; the merchant verifies execution before fulfillment. | [Merchant browser](docs/MERCHANT_INVOICE_BROWSER.md) |
 | Recoverable payment delivery | Original bytes, consumed dispatch claims and unresolved holds survive interrupted replies. Receipt collection and reconciliation are separate actions. | [P4 delivery](docs/P4_DELIVERY_ENGINE.md) |
 | Changing validator committees | The opt-in P4 client verifies the complete signed roster history and replays payments from independently pinned genesis. | [P4 client](tools/protocol4-client/README.md) |
@@ -102,9 +108,13 @@ refuse P4; copying files or changing a policy does not activate a protocol upgra
 and [recovery integration](docs/P4_RECOVERY_INTEGRATION.md).
 
 Use one supported shared signing journal for the same funds. Copied journals,
-independent devices and raw key paths do not share its reservations. A collected
-receipt does not release a hold until explicit wallet reconciliation. A historical
-backup does not prove latestness, renew trust or fence the original device.
+independent devices and raw key paths do not automatically share its reservations.
+The optional local device-fence adapter coordinates only clones that explicitly
+use the same live registry; direct `P4Wallet.approve`, existing CLIs, raw signers,
+separate registries and restored registries remain outside that boundary. A
+collected receipt does not release a hold until explicit wallet reconciliation.
+A historical backup does not prove latestness, renew trust or fence the original
+device.
 
 ## Qualify a clean checkout
 
@@ -144,7 +154,10 @@ must never hold value. Owner replacement, fresh-node recovery, lost Commit repli
 browser merchant checkout and legacy protocol matrices have their own scenarios.
 Fresh format-2 bootstrap and final snapshot-reply interruption are registered in
 [the P4 state-sync gate](docs/PROTOCOL4_STATE_SYNC_QUALIFICATION.md); unit checks
-and an old legacy state-sync pass do not qualify those real-engine profiles.
+and an old legacy state-sync pass do not qualify those real-engine profiles. Both
+profiles passed for the exact source commit and tree recorded in the
+[4 October real-engine report](docs/PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md);
+later consensus or state-sync changes require new runs.
 
 ## Current engineering priorities
 
@@ -167,6 +180,19 @@ with bounded lossless compression. The existing read verifier, receipt lookup an
 explorer still consume the original bytes under the same external trust policy.
 Observation and original-byte limits remain unchanged; small compressed files do
 not admit more history. See [read-proof storage](docs/READ_PROOF_STORAGE.md).
+
+The root full-state wallet now uses one exact authenticated receipt classifier
+for positive inclusion and absence strictly after the signed expiry height. A
+Protocol 3 compact witness can produce separately persisted audit evidence under
+a pinned static-validator checkpoint, but it does not independently update wallet
+headroom or reservation state. See
+[authenticated reconciliation](docs/AUTHENTICATED_RECONCILIATION.md).
+
+An opt-in trusted-host registry can serialize actual cloned P4 wallet approvals
+and fence a retired device key for callers that use `FencedApproval`. It is a
+local development seam: the registry is not chain-enforced, does not cover legacy
+approval paths, and can strand a fail-closed reservation after interruption. See
+[device fencing](docs/DEVICE_FENCE_RESERVATION.md).
 
 P4 retains its height-512 and bounded-history development limits. Public throughput,
 long-term history/pruning, cross-device coordination, hardware key recovery and

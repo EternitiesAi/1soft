@@ -1,13 +1,31 @@
 # 1soft P4 wallet — reviewed payments and explicit owner replacement
 
+## Optional local cloned-journal fence
+
+The current tree includes a separate `FencedApproval` adapter and owner-only
+POSIX SQLite registry for cloned journals that explicitly share that registry.
+It binds a clone-stable wallet identity, active device key, monotonic device epoch
+and one reservation per payer/owner-or-grant/native-nonce lane. Reservation
+commits before vault access and device rotation is serialized through actual
+approval. See [the exact boundary and reproduction commands](../../docs/DEVICE_FENCE_RESERVATION.md).
+
+This opt-in adapter is not used by direct `P4Wallet.approve`, existing CLIs, raw
+signers, separate registries or restored/rolled-back registries. It is local
+trusted-host coordination, not chain-enforced or production cross-device custody.
+
 The current development wallet also has a separately reviewed
-[owner key replacement workflow](../../../docs/P4_KEY_ROTATION.md). It requires
+[owner key replacement workflow](../../docs/P4_KEY_ROTATION.md). It requires
 incoming-key consent and current-owner approval, reserves the fee in this same
 payment journal, and pauses payer payments while rotation is unresolved.
 Transfer and invoice review formats retain their original bytes. The new
 `p4_rotation_cli.py` interface is explicit; ordinary `approve` remains transfer-only.
 Custody archives remain recovery-only. The dated original transfer-wallet scope
-below and its source manifest describe that historical delivery.
+below describes that historical delivery. `SOURCE_MANIFEST.json` now inventories
+the current phase-two bytes; `DEPENDENCIES.json` retains the historical 29 September
+dependency seal. The historical `tools/verify.py` command below cannot qualify the
+evolved combined checkout. Use [current local qualification](../../docs/CURRENT_QUALIFICATION.md)
+for the combined source and the [focused device-fence checks](../../docs/DEVICE_FENCE_RESERVATION.md#reproduction)
+for the new adapter.
 
 29 September 2026. Development-only add-on to PR #28 at
 `b73a88ca53666972ae2c8ce35fd9edb7ac0cb41c` / tree
