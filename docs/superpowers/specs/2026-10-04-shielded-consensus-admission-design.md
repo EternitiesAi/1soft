@@ -194,6 +194,15 @@ The remaining relation is:
 - distinct output commitments;
 - public authorization binding.
 
+The normative Poseidon formulas use these exact ordered field vectors:
+
+- spend key: [106, spend_secret];
+- note commitment: [100, relation_version, genesis_field, asset_field, context_field, authority_epoch, policy_field, expiry, value, owner_key, note_secret, blinding];
+- nullifier: [103, relation_version, genesis_field, asset_field, context_field, authority_epoch, policy_field, spend_secret, note_secret, input_commitment, input_position];
+- authorization digest: [105, public inputs 1 through 13 in their published order].
+
+Input notes use spend_key as owner_key. Output notes use the hidden recipient-key field directly as owner_key. The native evaluator, circuit, development prover, test vectors, and public client documentation use the same formulas. The derived nullifier must equal its public slot and is globally unique, but the relation adds no separate nonzero-nullifier constraint.
+
 The nonzero constraints exist in the circuit as well as in genesis and consensus validation. An empty tree leaf can never be opened as a spendable note.
 
 The prior benchmark's height/expiry circuit, K, key, proof size, and receipts do not qualify this relation. Protocol 5 must newly qualify K = 13, exact proof length, parameters, verifying-key binding, KatV1, valid and invalid proofs, range boundaries, nonzero commitments, and performance before genesis is frozen.
