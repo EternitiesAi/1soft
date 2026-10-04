@@ -8,11 +8,46 @@ from unrelated fragments of several privacy protocols.
 
 ## First experimental slice
 
-The smallest meaningful implementation is a separate test-only shielded note
-transition package. It must use synthetic keys and a fresh development genesis and
-must not alter Protocol 4 or the current wire format.
+A first implementation now lives in the separate
+[shielded-note lab](../tools/shielded-note-lab/README.md). Its source is under
+qualification against the
+[4 October transition specification](superpowers/specs/2026-10-04-shielded-note-lab-design.md).
+It is a deterministic transparent-witness laboratory using synthetic keys and
+values under an exact development-genesis binding. No live caller imports it;
+Protocol 4, native transaction bytes, wallets, browsers and validators remain
+outside this component.
 
-The package needs one coherent cryptographic stack and these versioned concepts:
+The lab makes note commitment, authenticated membership, nullifier derivation,
+spending authorization and integer conservation executable before choosing a
+proof system. SHA-256 domain-separated hashes and Ed25519 authorization support
+that model; they do not provide zero knowledge or select a production privacy
+stack. A checker receives the complete witness rather than a zero-knowledge proof.
+
+Qualification must establish that one accepted input creates only the exact
+ordered outputs plus fee, a refused transition leaves serialized state unchanged,
+and an exact replay or lost reply recovers the original retained receipt without
+a second transition. Export/reopen must preserve the tree, consumed nullifiers,
+transactions and receipts. Selected-output disclosure must bind to retained
+execution evidence and label its linkability while excluding spending keys,
+note secrets, full viewing authority and unrelated openings.
+
+These rules are valuable because a future circuit, wallet and consensus adapter
+need one precise semantic target. One shared lab state can refuse competing
+spends; two independent cloned states can each accept a different spend because
+there is no shared consensus. The separate
+[private authority attack model](PRIVATE_AUTHORITY_ATTACK_MODEL.md) remains the
+oracle for shared-parent budgets, revocation and unresolved obligations; this
+note lab does not implement those private authority successors.
+
+The lab provides no zero-knowledge privacy, anonymity, production readiness,
+public deployment or real-funds support. No proof system has been selected.
+Source presence and local test success do not establish independent review,
+consensus integration or a private ledger.
+
+## Requirements for a privacy successor
+
+A later privacy implementation still needs one coherent cryptographic stack and
+these versioned concepts:
 
 1. A note commitment binding asset, value, recipient spending authority,
    recipient viewing material, authority epoch and fresh note blinding.
@@ -57,12 +92,18 @@ executable semantic oracle for these rules. It is not the privacy implementation
 
 ## Required adversarial tests
 
-Before consensus integration, the laboratory must reject duplicate nullifiers,
-wrong roots, altered recipients or fees, altered epochs, range overflow, malformed
-proofs, stale authority, parameter substitution and two competing spends of the
-same private budget fragment. It also needs crash/restart, copied-device, lost
-reply and authenticated reconciliation tests around proof generation and
-submission.
+The transparent-witness lab must qualify fixed vectors, bound-field mutations,
+malformed and noncanonical inputs, wrong roots/paths/secrets, spending-key binding,
+altered output order/fees, invalid authorization, range overflow, duplicate
+nullifiers, stale roots, replay and failed-apply invariance. Its exact-source
+verifier must retain test identities, source hashes and dependency pins; no skips
+or expected failures substitute for acceptance.
+
+Before consensus integration, a proving successor must additionally reject
+malformed proofs, stale private authority, parameter substitution and two
+competing spends of the same private budget fragment. It also needs crash/restart,
+copied-device, lost reply and authenticated reconciliation tests around proof
+generation and submission.
 
 Any proving implementation needs independent cryptographic review, reproducible
 parameters, bounded verification cost, explicit side-channel assumptions and

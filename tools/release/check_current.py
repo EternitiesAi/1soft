@@ -8,6 +8,7 @@ changed checkout matches those older manifests. No engine, download or deploymen
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -26,7 +27,7 @@ COMPONENTS = (
     'protocol4-custody', 'protocol4-delivery', 'protocol4-explorer',
     'protocol4-receipts', 'protocol4-recovery', 'protocol4-wallet',
     'receipt-archive', 'release', 'validator-registry', 'validator-transition',
-    'wallet-account', 'wallet-delivery',
+    'wallet-account', 'wallet-delivery', 'shielded-note-lab',
 )
 COMMON = (['tools/validator-transition/src', 'src', 'tests', 'scripts', 'tools/release']
           + [f'tools/{name}/src' for name in COMPONENTS]
@@ -42,6 +43,10 @@ GROUPS.update({name.replace('-', '_'): (
 # a distinct module with the same basename; preserve the journey's own imports.
 GROUPS['release'] = ('tools/release/tests', 'test_*.py',
                      list(dict.fromkeys([*base.GROUPS['release'][2], *COMMON])))
+GROUPS['shielded_note_lab'] = (
+    'tools/shielded-note-lab/tests', 'test_*.py',
+    ['tools/shielded-note-lab/src', 'tools/shielded-note-lab/tests'],
+)
 EXCLUDED = {'tools/wallet-account/tests/test_account_catchup.py':
             'optional unpublished wallet_catchup core is absent from this checkout'}
 JAVASCRIPT_GROUPS = {'reference': 'reference/kernel.test.mjs',
@@ -62,6 +67,36 @@ PYTHON_ENGINE_SCENARIOS = tuple(dict(
     path='scripts/run_protocol4_state_sync.py',profile=name,status='unassessed',
     reason='requires separate exact-source pinned-engine qualification')
     for name in ('basic','final-apply-crash'))
+PRIVACY_BOUNDARIES = (
+    'cryptographic proof soundness and formal security review',
+    'anonymity, unlinkability, and measured anonymity sets',
+    'network, timing, metadata, endpoint, and wallet UX leakage',
+    'trusted setup, proving-system implementation, and production key custody',
+    'validator enforcement, public-network behavior, and real-funds safety',
+)
+
+
+def load_unique_json_bytes(data):
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('duplicate JSON key: ' + key)
+            value[key] = item
+        return value
+
+    return json.loads(data, object_pairs_hook=unique_object)
+
+
+def refuse_python_bytecode(root):
+    for directory, names, files in os.walk(root, followlinks=False):
+        names[:] = [name for name in names
+                    if not Path(directory, name).is_symlink()]
+        base.require('__pycache__' not in Path(directory).parts,
+                     'stale Python bytecode directory: ' + directory)
+        for name in files:
+            base.require(not name.endswith('.pyc'),
+                         'stale Python bytecode file: ' + str(Path(directory, name)))
 
 
 def coverage(root):
@@ -93,6 +128,7 @@ def coverage(root):
             'excluded_test_files': excluded, 'exclusion_reasons': EXCLUDED,
             'javascript_groups': JAVASCRIPT_GROUPS,
             'python_engine_scenarios': list(PYTHON_ENGINE_SCENARIOS),
+            'privacy_boundaries': [{'area': area, 'status': 'unassessed'} for area in PRIVACY_BOUNDARIES],
             'javascript_scenarios': [
                 {'path': path, 'status': 'unassessed',
                  'reason': 'requires separate scenario qualification with an existing browser'}
@@ -180,6 +216,73 @@ def worker(group, output, source_id, run_id):
     return 0 if report['passed'] else 1
 
 
+def shielded_note_verification(root, output, source, timeout):
+    report_path = output / 'shielded-note-lab-verifier.json'
+    log_path = output / 'shielded-note-lab-verifier.log'
+    process = base.run_process(
+        [sys.executable, str(root / 'tools/shielded-note-lab/tools/verify.py'),
+         '--report', str(report_path)], root, log_path, timeout)
+    record = {'name': 'shielded_note_lab_verifier', 'passed': False,
+              'report': report_path.name, 'log': log_path.name, **process}
+    try:
+        receipt = load_unique_json_bytes(report_path.read_bytes())
+        claims = receipt.get('claims')
+        manifest_bytes = (root / 'tools/shielded-note-lab/SOURCE_MANIFEST.json').read_bytes()
+        dependency_bytes = (root / 'tools/shielded-note-lab/DEPENDENCIES.json').read_bytes()
+        manifest = load_unique_json_bytes(manifest_bytes)
+        expected_fields = {'format', 'status', 'tests', 'test_log', 'test_log_sha256',
+                           'manifest_sha256', 'source_id', 'commit', 'tree', 'python',
+                           'cryptography', 'network_policy', 'network_scope',
+                           'network_used', 'blocked_attempts', 'child_network_probe',
+                           'claims', 'unassessed'}
+        expected_unassessed = ['independent cryptographic review', 'consensus integration',
+                               'network anonymity', 'production custody', 'external audit']
+        expected_claims = {'production_privacy': False, 'zero_knowledge': False,
+                           'consensus_integrated': False, 'public_network': False,
+                           'real_funds': False}
+        expected_tests = sorted(manifest['tests'])
+        hashes = ('test_log_sha256', 'manifest_sha256', 'source_id')
+        git_ids = ('commit', 'tree')
+        record['report_sha256'] = base.digest(report_path.read_bytes())
+        record['receipt'] = {key: receipt.get(key) for key in expected_fields}
+        record['passed'] = (
+            set(receipt) == expected_fields
+            and process['returncode'] == 0 and not process['timed_out']
+            and not process['log_truncated']
+            and type(receipt.get('format')) is int and receipt['format'] == 1
+            and receipt.get('status') == 'passed'
+            and receipt.get('commit') == source['commit']
+            and receipt.get('tree') == source['tree']
+            and receipt.get('tests') == expected_tests
+            and type(receipt.get('test_log')) is str
+            and all(type(receipt.get(name)) is str and
+                    re.fullmatch(r'[0-9a-f]{64}', receipt[name]) for name in hashes)
+            and all(type(receipt.get(name)) is str and
+                    re.fullmatch(r'[0-9a-f]{40}', receipt[name]) for name in git_ids)
+            and receipt['manifest_sha256'] == hashlib.sha256(manifest_bytes).hexdigest()
+            and receipt['source_id'] == hashlib.sha256(manifest_bytes + dependency_bytes).hexdigest()
+            and receipt['test_log_sha256'] == hashlib.sha256(
+                receipt['test_log'].encode('utf-8')).hexdigest()
+            and receipt['python'] == sys.version
+            and receipt['cryptography'] == importlib.metadata.version('cryptography')
+            and receipt['network_policy'] == 'python-process-and-python-child-deny'
+            and receipt['network_scope'] == (
+                'Python socket and DNS APIs in verifier process and Python children; '
+                'non-Python child and direct os spawn/exec entrypoints refused')
+            and receipt.get('network_used') is False
+            and type(receipt.get('blocked_attempts')) is int
+            and receipt.get('blocked_attempts') > 0
+            and receipt.get('child_network_probe') == 'blocked-before-child-user-network'
+            and receipt.get('unassessed') == expected_unassessed
+            and type(claims) is dict and set(claims) == set(expected_claims)
+            and all(type(value) is bool and value is False for value in claims.values())
+            and claims == expected_claims)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        record['error_type'] = type(exc).__name__
+    base.store_json(output / 'shielded-note-lab-verifier-result.json', record)
+    return record
+
+
 def run(output, timeout=600):
     base.require(os.name == 'posix', 'current checker requires POSIX process isolation')
     base.require(type(timeout) is int and 30 <= timeout <= 1800, 'invalid per-group timeout')
@@ -187,6 +290,7 @@ def run(output, timeout=600):
     base.require(not output.is_relative_to(root), 'evidence output must be outside checkout')
     for parent in (output.parent, *output.parent.parents):
         base.require(not parent.is_symlink(), 'output ancestor symlink refused')
+    refuse_python_bytecode(root)
     source = base.source_identity(root)
     profile = coverage(root)
     installed = {}
@@ -228,9 +332,13 @@ def run(output, timeout=600):
                 report['distinct_python_test_ids'] = len(completed_ids)
             base.store_json(output / 'progress.json', report, replace=(output / 'progress.json').exists())
         report['javascript'] = javascript_checks(root, output, source, run_id, timeout)
+        report['shielded_note_lab_verifier'] = shielded_note_verification(
+            root, output, source, timeout)
         base.require(base.source_identity(root) == source, 'source changed during local checks')
         report['source_unchanged'] = True
-        passed = all(group['passed'] for group in report['groups']) and report['javascript']['passed']
+        passed = (all(group['passed'] for group in report['groups'])
+                  and report['javascript']['passed']
+                  and report['shielded_note_lab_verifier']['passed'])
         report.update(base.release_status(passed))
     except BaseException as exc:
         report['error_type'] = type(exc).__name__
