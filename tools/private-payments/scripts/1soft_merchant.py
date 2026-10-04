@@ -15,7 +15,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(ROOT / p) for p in (
     'src', 'scripts', 'tools/validator-transition/src', 'tools/protocol4-client/src',
-    'tools/protocol4-wallet/src', 'tools/protocol4-delivery/src',
+    'tools/protocol4-wallet/src', 'tools/protocol4-delivery/src', 'tools/protocol4-custody/src',
     'tools/protocol4-explorer/src', 'tools/protocol4-receipts/src',
     'tools/local-platform/src', 'tools/private-payments/src')]
 
@@ -110,13 +110,16 @@ def execute(args):
         wire = read_private(args.wire, MAX_WIRE_BYTES)
         need(0 < len(wire) and hashlib.sha256(wire).hexdigest() == args.wire_confirmation,
              'independently selected exact original native wire confirmation differs')
-        evidence = read_private(args.evidence, MAX_EVIDENCE_BYTES)
+        # Packet size is selected below from the independently validated workspace.
     # Import only after parser/file guards. The validated network checks source,
     # engine and workspace pins normally; no engine lifecycle/key API is called.
-    from merchant_devnet import MerchantNetwork
-    from merchant_ops import MerchantOps
-    network = MerchantNetwork(args.workspace, args.engine)
-    ops = MerchantOps(network)
+    from merchant_devnet import network_for_workspace
+    from merchant_alpha_ops import ops_for_network, AlphaMerchantOps
+    network = network_for_workspace(args.workspace, args.engine)
+    ops = ops_for_network(network)
+    if command == 'enroll-wire':
+        from p4_alpha_custody import MAX_RECEIPT_BYTES
+        evidence=read_private(args.evidence,MAX_RECEIPT_BYTES if type(ops) is AlphaMerchantOps else MAX_EVIDENCE_BYTES)
     if command == 'init-book': return ops.init_book()
     if command == 'inspect': return ops.inspect()
     if command == 'add-quote':

@@ -76,8 +76,9 @@ The private CLI now accepts alpha preparation heights through 4096 and exports t
 explicit alpha capsule within its original 64 MiB history plus framing limit.
 Capsules contain public original wire and authenticated historical execution;
 they do not grant current spending authority or resource fulfillment. Alpha
-`payment-header` is explicitly refused: legacy merchant books, merchant HTTP
-fulfillment and portable merchant-proof/v1 cannot consume alpha receipts.
+`payment-header` uses the separate alpha payload and merchant adapter described in
+[DURABLE_MERCHANT.md](DURABLE_MERCHANT.md). Legacy merchant books and portable
+merchant-proof/v1 continue to refuse alpha receipts.
 
 The browser's A1 download retains complete original authenticated **financial**
 history, including hidden roles, attempts, responses, receipts and unresolved

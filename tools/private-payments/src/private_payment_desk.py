@@ -155,7 +155,16 @@ class AlphaPrivatePaymentDesk(PrivatePaymentDesk):
         return invoice
 
     def payment_header(self, rid, capsule_id):
-        raise ValueError('alpha payer receipts cannot authorize legacy merchant fulfillment')
+        from merchant_alpha import make_signature
+        row,e=self._selected(rid,live=True);wire=self.platform.recover(rid)
+        capsule=self.platform.capsule(rid,capsule_id)
+        decision=self.platform.book.selected(rid)['review']
+        need(decision is not None,'original signed invoice required')
+        header=make_signature(required_header=row['required_header'],expectation=e,exact_wire=wire,
+            capsule=capsule,payer=decision['body']['sender'],now_ns=self.platform.clock())
+        return dict(payment_signature_header=header,quote_sha256=row['quote_sha256'],request_id=rid,
+            wire_sha256=hashlib.sha256(wire).hexdigest(),capsule_sha256=hashlib.sha256(capsule).hexdigest(),
+            resource_delivery_authorized=False,wallet_reservations_changed=False,onchain_privacy=False,full_public_ledger_disclosed=True)
 
 
 def desk_for_platform(platform, invoices):

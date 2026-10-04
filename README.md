@@ -19,8 +19,11 @@ encrypted invoice store with the original shared wallet. Owner and delegated
 payments retain exact signatures, fee holds, at-most-one local dispatch, historical
 alpha receipts and inert A1 financial history as the chain advances. Both payment
 and invoice consent remain required. See [the setup and boundaries](docs/DURABLE_INVOICES.md).
-Alpha merchant fulfillment and legacy merchant proof/payment-header consumption
-remain separate unsupported lanes; transactions remain public.
+The separate [durable merchant adapter](docs/DURABLE_MERCHANT.md) verifies alpha
+receipts before retaining one exact public resource result. Local HTTP retries and
+cold reopening retrieve the original result without another charge; portable
+alpha merchant proofs replay the payment and content commitment offline. The
+legacy merchant formats remain exclusive to legacy receipts. Transactions remain public.
 
 ## Try the local product
 
@@ -54,6 +57,7 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 | Changing validator committees | The opt-in P4 client verifies the complete signed roster history and replays payments from independently pinned genesis. | [P4 client](tools/protocol4-client/README.md) |
 | Owner key replacement | Incoming-key consent and current-owner approval share the wallet's fee reservation and exact receipt confirmation. | [Owner replacement](docs/P4_KEY_ROTATION.md) |
 | Encrypted historical recovery | Original journal rows, signed wires, holds and receipts survive complete backups, including larger admitted journals. Restored archives cannot sign or send. | [Custody and recovery](tools/protocol4-custody/README.md) |
+| Durable merchant delivery | Committed alpha receipts unlock exact resource bytes; durable consumption, cold retries and separate offline proof. | [Durable merchant](docs/DURABLE_MERCHANT.md) |
 | Durable private alpha | Incremental authenticated history, preserved original journal and an actual-hour qualification command; fresh genesis and explicit finite trust policy. | [Durable alpha](docs/DURABLE_ALPHA.md) |
 | Browser history download | Explicit encrypted export of all retained shared wallet/delivery history; no private keys or active restoration. | [Browser recovery](docs/BROWSER_HISTORY_BACKUP.md) |
 | Portable payment evidence | An offline checker verifies the original invoice, signed transaction, receipt and public content under external trust pins. | [Merchant proofs](docs/PORTABLE_MERCHANT_PROOF.md) |
