@@ -85,15 +85,16 @@ def _install_direct(network: Protocol5Network, target: int, snapshot: dict) -> N
             raise AssertionError("Protocol 5 direct snapshot chunk was not accepted")
 
 
-def _advance_sources(network: Protocol5Network, amount: int = 2) -> None:
+def _advance_sources(network: Protocol5Network, amount: int = 2) -> dict:
     network.stop_engine(4)
+    for index in (2, 3):
+        if index not in network.engines:
+            network.start_engine(index)
     network.set_empty_blocks(True)
     start = max(network.height(index) for index in range(4))
     wait_until(lambda: min(network.height(index) for index in range(4))
                >= start + amount, 60)
-    network.set_empty_blocks(False)
-    wanted = max(network.height(index) for index in range(4))
-    wait_until(lambda: all(network.height(index) == wanted for index in range(4)), 60)
+    return network.hold_sources_without_quorum()
 
 
 def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
@@ -145,7 +146,9 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
 
         network.set_empty_blocks(True)
         wait_until(lambda: min(network.height(index) for index in range(4)) >= 4, 60)
-        trust_height = min(network.height(index) for index in range(4)) - 1
+        frozen = network.hold_sources_without_quorum()
+        snapshot_height = frozen["height"]
+        trust_height = snapshot_height - 1
         trust_hash = rpc(network.http[0], "block", {
             "height": str(trust_height)})["block_id"]["hash"]
         config = network.homes / "node4/config/config.toml"
@@ -169,25 +172,25 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
         wait_until(lambda: network.apps[4].poll() is not None, 120)
         if network.apps[4].returncode != 96:
             raise AssertionError("final Apply crash exit code differs")
+        network.stop_engine(4)
         network.stop_app(4)
         network.start_app(4, crash={
             "run_token": token, "run_token_sha256": token_sha,
             "crash_phase": "observe", "event_log": events,
         })
-        wait_until(lambda: network.height(4) >= trust_height, 180)
+        network.start_engine(4)
+        wait_until(lambda: network.height(4) >= snapshot_height, 180)
         observed = [json.loads(line) for line in events.read_text().splitlines()]
         offers = [row for row in observed
                   if row["kind"] == "offer_snapshot" and row["result"] == OFFER_ACCEPT]
         if len(offers) < 2:
             raise AssertionError("CometBFT did not re-offer after lost final Apply reply")
 
-        wait_until(lambda: max(network.height(index) for index in range(5))
-                   - min(network.height(index) for index in range(5)) <= 1, 120)
-        network.set_empty_blocks(False)
-        wanted = max(network.height(index) for index in range(5))
-        wait_until(lambda: all(network.height(index) == wanted for index in range(5)), 90)
-        source = network.state(0)
-        target = network.state(4)
+        if network.height(4) != snapshot_height:
+            raise AssertionError("state-sync target exceeded frozen snapshot")
+        network.stop_engine(4)
+        source = network.direct_state(0)
+        target = network.direct_state(4)
         _check(report, "trusted-apphash-replay",
                source == target and target["state"]["current_root"] == current_root,
                {"height": target["height"], "app_hash": target["app_hash"],
@@ -259,7 +262,7 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
 
         _advance_sources(network)
         newest = _snapshot(network)
-        before_failure = network.state(4)
+        before_failure = network.direct_state(4)
         with sqlite3.connect(database) as connection:
             connection.execute(
                 "CREATE TRIGGER fail_p5_sync BEFORE INSERT ON committed "
@@ -280,7 +283,7 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
             "run_token": token, "run_token_sha256": token_sha,
             "crash_phase": "observe", "event_log": events,
         })
-        after_failure = network.state(4)
+        after_failure = network.direct_state(4)
         _check(report, "hostile-offer-chunk-matrix",
                same_height_fork == OFFER_REJECT
                and future_chunk == APPLY_RETRY
@@ -317,13 +320,21 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
         }), encoding="utf-8")
         network.start_engine(4)
         wait_until(lambda: network.height(4) >= newest["height"], 180)
+        if network.height(4) != newest["height"]:
+            raise AssertionError("same-height marker recovery advanced unexpectedly")
         post_outputs = _make_outputs(notes[1], genesis.value["fee"])
         post = controller.prove(raw_genesis, controller.spend_request(
             raw_genesis, commitments, 1, notes[1], post_outputs,
             valid_from=1, valid_until=500))
-        if int(network.broadcast(0, post)["code"]) != 0:
-            raise AssertionError("post-sync transaction was not admitted")
-        post_states = _wait_accepted(network, 2, nodes=(0, 1, 2, 3, 4), timeout=120)
+        network.stage_without_quorum([post])
+        _wait_accepted(network, 2, nodes=(0, 1, 2, 3, 4), timeout=120)
+        network.stop_engine(4)
+        post_checkpoint = network.hold_sources_without_quorum()
+        network.start_engine(4)
+        wait_until(
+            lambda: network.height(4) >= post_checkpoint["height"], 120)
+        network.stop_engine(4)
+        post_states = [network.direct_state(index) for index in range(5)]
         _check(report, "post-sync-continuation",
                len({state["app_hash"] for state in post_states}) == 1
                and all(state["state"]["spent_nullifiers"]
@@ -335,11 +346,14 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
         network.stop_node(4)
         network.start_app(4)
         network.start_engine(4)
-        wait_until(lambda: network.state(4)["height"] >= post_states[0]["height"], 90)
+        wait_until(
+            lambda: network.height(4) >= post_checkpoint["height"], 90)
+        network.stop_engine(4)
+        restarted = network.direct_state(4)
         _check(report, "same-store-restart",
-               network.state(4) == network.state(0),
-               {"height": network.state(4)["height"],
-                "app_hash": network.state(4)["app_hash"]})
+               restarted == network.direct_state(0),
+               {"height": restarted["height"],
+                "app_hash": restarted["app_hash"]})
     finally:
         network.close()
 

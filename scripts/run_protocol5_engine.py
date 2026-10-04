@@ -6,13 +6,13 @@ import argparse
 import base64
 import binascii
 import concurrent.futures
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import signal
 import socket
 import sqlite3
@@ -308,6 +308,26 @@ def _field_mutation(transaction: bytes, index: int, value: bytes) -> bytes:
     return bytes(result)
 
 
+def _backup_sqlite(source: Path, target: Path) -> dict:
+    if target.exists() or target.is_symlink():
+        raise FileExistsError("Protocol 5 retained database already exists")
+    with closing(sqlite3.connect(
+            f"file:{source}?mode=ro", uri=True)) as origin:
+        with closing(sqlite3.connect(target)) as retained:
+            origin.backup(retained)
+            integrity = retained.execute("PRAGMA integrity_check").fetchone()
+            if integrity != ("ok",):
+                raise RuntimeError("retained Protocol 5 database is corrupt")
+            committed = retained.execute(
+                "SELECT height, app_hash FROM committed WHERE id=1").fetchone()
+            if (committed is None or type(committed[0]) is not int
+                    or type(committed[1]) is not bytes
+                    or len(committed[1]) != 32):
+                raise RuntimeError("retained Protocol 5 checkpoint differs")
+    os.chmod(target, 0o600)
+    return {"height": committed[0], "app_hash": committed[1].hex()}
+
+
 class Protocol5Network:
     """Owned one-host CometBFT and ABCI processes for a single qualification run."""
 
@@ -489,12 +509,98 @@ class Protocol5Network:
         request.process_proposal.next_validators_hash = validator_hash
         return self.abci(index, request).process_proposal.status
 
+    def direct_prepare(self, index: int, transactions: list[bytes],
+                       height: int, max_bytes: int) -> list[bytes]:
+        request = Request()
+        request.prepare_proposal.txs.extend(transactions)
+        request.prepare_proposal.height = height
+        request.prepare_proposal.max_tx_bytes = max_bytes
+        return list(self.abci(index, request).prepare_proposal.txs)
+
     def broadcast(self, index: int, transaction: bytes) -> dict:
         return rpc(self.http[index], "broadcast_tx_sync", {
             "tx": base64.b64encode(transaction).decode("ascii")})
 
+    def mempool_transactions(self, index: int) -> list[bytes]:
+        response = rpc(self.http[index], "unconfirmed_txs", {"limit": "100"})
+        rows = response.get("txs") or []
+        try:
+            return [base64.b64decode(row, validate=True) for row in rows]
+        except (binascii.Error, TypeError) as exc:
+            raise RuntimeError("Protocol 5 mempool transaction differs") from exc
+
+    def hold_sources_without_quorum(self, attempts: int = 8) -> dict:
+        if not {0, 1, 2, 3} <= set(self.engines):
+            raise RuntimeError("four running source engines required")
+        for _ in range(attempts):
+            def converged():
+                with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                    states = list(pool.map(self.direct_state, range(4)))
+                identities = {(row["height"], row["app_hash"]) for row in states}
+                return states[0] if len(identities) == 1 else None
+
+            checkpoint = wait_until(converged, 30)
+            self.stop_engine(3)
+            self.stop_engine(2)
+            held = [self.direct_state(index) for index in range(4)]
+            identities = {(row["height"], row["app_hash"]) for row in held}
+            if len(identities) == 1:
+                return held[0]
+            self.start_engine(2)
+            self.start_engine(3)
+        raise RuntimeError("could not hold Protocol 5 sources at one checkpoint")
+
+    def stage_without_quorum(
+            self, transactions: list[bytes], *,
+            resume: tuple[int, ...] = (2, 3)) -> tuple[list[dict], dict]:
+        if (type(transactions) is not list or not transactions
+                or any(type(item) is not bytes or not item for item in transactions)):
+            raise ValueError("invalid Protocol 5 staged transactions")
+        if (type(resume) is not tuple or len(set(resume)) != len(resume)
+                or any(index not in (2, 3) for index in resume)):
+            raise ValueError("invalid Protocol 5 staged resume set")
+        running_sources = set(self.engines) & {0, 1, 2, 3}
+        if running_sources == {0, 1, 2, 3}:
+            checkpoint = self.hold_sources_without_quorum()
+        elif running_sources == {0, 1}:
+            states = [self.direct_state(index) for index in range(4)]
+            identities = {(row["height"], row["app_hash"]) for row in states}
+            if len(identities) != 1:
+                raise RuntimeError("held Protocol 5 sources differ")
+            checkpoint = states[0]
+        else:
+            raise RuntimeError("Protocol 5 sources are not runnable or held")
+        expected = set(transactions)
+        try:
+            admissions = [self.broadcast(0, item) for item in transactions]
+            if any(int(row["code"]) != 0 for row in admissions):
+                raise RuntimeError("Protocol 5 staged transaction was refused")
+
+            def staged():
+                observed = [
+                    set(self.mempool_transactions(index)) for index in (0, 1)]
+                return all(expected <= rows for rows in observed)
+
+            wait_until(staged, 30)
+        except Exception:
+            for index in (2, 3):
+                if index not in self.engines:
+                    self.start_engine(index)
+            raise
+        for index in resume:
+            self.start_engine(index)
+        return admissions, checkpoint
+
     def state(self, index: int = 0) -> dict:
         return app_query(self.http[index], "/state")
+
+    def direct_state(self, index: int) -> dict:
+        request = Request()
+        request.query.path = "/state"
+        response = self.abci(index, request).query
+        if response.code != 0:
+            raise RuntimeError("Protocol 5 direct state query was rejected")
+        return json.loads(bytes(response.value))
 
     def stop_node(self, index: int) -> None:
         for process in (
@@ -566,11 +672,12 @@ class Protocol5Network:
             database = self.runtime / f"app{index}/state.sqlite"
             if database.is_file():
                 target = artifacts / f"state{index}.sqlite"
-                shutil.copyfile(database, target)
-                os.chmod(target, 0o600)
+                checkpoint = _backup_sqlite(database, target)
                 manifest.append({
                     "name": target.name, "sha256": _sha(target),
                     "bytes": target.stat().st_size, "truncated": False,
+                    "height": checkpoint["height"],
+                    "app_hash": checkpoint["app_hash"],
                 })
         (artifacts / "manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -612,7 +719,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         prefix["genesis_field"] = field_hex(derive_genesis_field(prefix))
         controller = DevelopmentController(
             paths["client"], paths["prover"], prefix, network.receipts)
-        notes = [development_note(512, value) for value in (100, 90, 80, 70)]
+        notes = [development_note(512, value) for value in (100, 100, 100, 70)]
         commitments, genesis_root = controller.commitments(notes)
         raw_genesis = finalize_fresh_genesis(prefix, commitments)
         genesis = genesis_document(raw_genesis)
@@ -653,22 +760,27 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         first_b = controller.prove(raw_genesis, first_request)
         if first_a == first_b:
             raise AssertionError("development proofs were not randomized")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            admissions = list(pool.map(
-                lambda pair: network.broadcast(*pair),
-                ((0, first_a), (1, first_b))))
+        admissions = [
+            network.direct_check(0, first_a),
+            network.direct_check(1, first_b),
+        ]
+        prepared = network.direct_prepare(
+            0, [first_a, first_b], initial_states[0]["height"] + 1,
+            genesis.value["limits"]["max_block_bytes"])
         _check(report, "randomized-proof-conflict",
-               all(int(item["code"]) == 0 for item in admissions),
+               admissions == [0, 0] and prepared == [first_a],
                {"proof_a_sha256": hashlib.sha256(first_a).hexdigest(),
-                "proof_b_sha256": hashlib.sha256(first_b).hexdigest()})
+                "proof_b_sha256": hashlib.sha256(first_b).hexdigest(),
+                "prepared_count": len(prepared)})
+        if int(network.broadcast(0, first_a)["code"]) != 0:
+            raise AssertionError("first randomized proof was not broadcast")
         states = _wait_accepted(network, 1)
         winning = states[0]["state"]["receipts"][-1]
         _check(report, "actual-proof-commit",
                all(state["app_hash"] == states[0]["app_hash"] for state in states)
-               and winning["txid"] in {
-                   hashlib.sha256(b"1soft/shielded-txid/v1\0" + first_a).hexdigest(),
-                   hashlib.sha256(b"1soft/shielded-txid/v1\0" + first_b).hexdigest(),
-               },
+               and winning["txid"]
+               == hashlib.sha256(
+                   b"1soft/shielded-txid/v1\0" + first_a).hexdigest(),
                {"height": winning["height"], "txid": winning["txid"],
                 "app_hash": states[0]["app_hash"]})
         report["actual_proof_accepted"] = True
@@ -713,12 +825,8 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         same_root_two = controller.prove(raw_genesis, controller.spend_request(
             raw_genesis, commitments, 2, notes[2], outputs_two,
             valid_from=broad_from, valid_until=broad_until))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            same_admissions = list(pool.map(
-                lambda pair: network.broadcast(*pair),
-                ((0, same_root_one), (1, same_root_two))))
-        if not all(int(item["code"]) == 0 for item in same_admissions):
-            raise AssertionError("same-root spends did not both pass CheckTx")
+        same_admissions, staged_checkpoint = network.stage_without_quorum(
+            [same_root_one, same_root_two])
         states = _wait_accepted(network, 3)
         recent = states[0]["state"]["receipts"][-2:]
         same_height = recent[0]["height"] == recent[1]["height"]
@@ -729,11 +837,22 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         _check(report, "same-root-sequential-appends",
                same_height and same_anchor and sequential,
                {"height": recent[0]["height"],
+                "staged_from_height": staged_checkpoint["height"],
+                "admission_codes": [int(row["code"]) for row in same_admissions],
                 "anchor_root": recent[0]["anchor_root"],
                 "positions": [recent[0]["output_position_0"],
                               recent[1]["output_position_1"]]})
-        for transaction, outputs in (
-                (same_root_one, outputs_one), (same_root_two, outputs_two)):
+        staged = {
+            hashlib.sha256(b"1soft/shielded-txid/v1\0" + transaction).hexdigest():
+            (transaction, outputs)
+            for transaction, outputs in (
+                (same_root_one, outputs_one), (same_root_two, outputs_two))
+        }
+        if [row["txid"] for row in recent] != list(staged):
+            if set(row["txid"] for row in recent) != set(staged):
+                raise AssertionError("same-root committed transaction set differs")
+        for row in recent:
+            transaction, outputs = staged[row["txid"]]
             decoded = Transaction.decode(transaction, genesis)
             notes.extend(outputs)
             commitments.extend(item.hex() for item in decoded.public_fields[10:12])
@@ -794,11 +913,18 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
                and network.state(0)["app_hash"] == before_hash,
                {"unknown_code": 4, "tampered_code": 4})
 
-        wrong_deployment = bytearray(chained)
+        recovery_outputs = _make_outputs(notes[4], genesis.value["fee"])
+        recovery_transaction = controller.prove(
+            raw_genesis, controller.spend_request(
+                raw_genesis, commitments, 4, notes[4], recovery_outputs,
+                valid_from=broad_from, valid_until=broad_until))
+
+        wrong_deployment = bytearray(recovery_transaction)
         wrong_deployment[48] ^= 1
         wrong_fee = _field_mutation(
-            chained, 12, (genesis.value["fee"] + 1).to_bytes(32, "little"))
-        bad_proof = bytearray(chained)
+            recovery_transaction, 12,
+            (genesis.value["fee"] + 1).to_bytes(32, "little"))
+        bad_proof = bytearray(recovery_transaction)
         bad_proof[-1] ^= 1
         wrong_hash_status = network.direct_process(
             0, [], states[0]["height"] + 1, b"\0" * 32)
@@ -809,12 +935,6 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
                and wrong_hash_status == 2,
                {"identity": 2, "statement": 8, "proof": 9,
                 "proposal_status": wrong_hash_status})
-
-        recovery_outputs = _make_outputs(notes[4], genesis.value["fee"])
-        recovery_transaction = controller.prove(
-            raw_genesis, controller.spend_request(
-                raw_genesis, commitments, 4, notes[4], recovery_outputs,
-                valid_from=broad_from, valid_until=broad_until))
 
         # Controlled empty blocks give recovery cases a source checkpoint to
         # catch up to without consuming the final spend or changing roots.
@@ -841,9 +961,9 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         failure_evidence = []
         # Stall one exact worker after successful traffic. The request watchdog
         # quarantines the app; the remaining three validators advance.
+        stalled_height = network.state(1)["height"]
         network.stop_engine(1)
         stalled_pid = network.worker_pid(1)
-        stalled_height = network.state(1)["height"]
         os.kill(stalled_pid, signal.SIGSTOP)
         try:
             network.direct_check(1, recovery_transaction)
@@ -863,9 +983,9 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
             "height_before": stalled_height, "height_after": network.height(1)})
 
         # Kill a second exact worker and require the same durable-state recovery.
+        killed_height = network.state(2)["height"]
         network.stop_engine(2)
         killed_pid = network.worker_pid(2)
-        killed_height = network.state(2)["height"]
         os.kill(killed_pid, signal.SIGKILL)
         try:
             network.direct_check(2, recovery_transaction)
@@ -943,40 +1063,39 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
                {"startup_contract":
                 "worker self-test, KAT, confinement probes and framed stdout required"})
 
-        # Freeze height again for the exact validity boundary and then prove
-        # that three equal-power validators commit while the fourth is stopped.
-        network.set_empty_blocks(False)
-        converged_height = max(network.height(index) for index in range(4))
-        wait_until(lambda: all(network.height(index) == converged_height
-                              for index in range(4)), 60)
-
-        # One final spend is accepted exactly at valid_from == valid_until - 1;
-        # its exact replay is a window failure at valid_until before spentness.
-        state_before_boundary = network.state(0)
-        boundary_height = state_before_boundary["height"] + 1
+        # Hold two validators below quorum while constructing and staging the
+        # exact one-height validity case. Starting validator 2 releases exactly
+        # the three-validator quorum; validator 3 remains stopped.
+        held = network.hold_sources_without_quorum()
+        boundary_height = held["height"] + 1
         boundary_outputs = _make_outputs(notes[4], genesis.value["fee"])
         boundary = controller.prove(raw_genesis, controller.spend_request(
             raw_genesis, commitments, 4, notes[4], boundary_outputs,
             valid_from=boundary_height, valid_until=boundary_height + 1))
         if network.direct_check(0, boundary) != 0:
             raise AssertionError("valid_from boundary was not eligible")
-        network.stop_node(3)
-        if int(network.broadcast(0, boundary)["code"]) != 0:
-            raise AssertionError("valid_from boundary broadcast was refused")
+        network.stage_without_quorum([boundary], resume=(2,))
         states = _wait_accepted(network, 6, nodes=(0, 1, 2))
+        network.stop_engine(2)
+        boundary_receipts = [
+            row for row in states[0]["state"]["receipts"]
+            if row["txid"] == hashlib.sha256(
+                b"1soft/shielded-txid/v1\0" + boundary).hexdigest()]
         _check(report, "three-validator-continuation",
                len(states) == 3 and all(
                    state["state"]["accepted_transaction_count"] == 6
                    for state in states),
                {"height": states[0]["height"], "stopped_node": 3})
         _check(report, "validity-boundaries",
-               states[0]["height"] == boundary_height
+               len(boundary_receipts) == 1
+               and boundary_receipts[0]["height"] == boundary_height
                and network.direct_check(0, boundary) == 3,
                {"valid_from": boundary_height,
                 "valid_until": boundary_height + 1,
-                "committed_height": states[0]["height"],
+                "committed_height": boundary_receipts[0]["height"],
+                "observed_height": network.direct_state(0)["height"],
                 "valid_until_code": 3})
-        network.start_app(3)
+        network.start_engine(2)
         network.start_engine(3)
         wait_until(lambda: network.state(3)["height"] >= states[0]["height"], 60)
 
@@ -986,7 +1105,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         for note in private_notes:
             secret_values.extend((
                 note.owner_spend_secret, note.note_secret, note.blinding))
-        needles = [str(paths["prover"]).encode()]
+        needles = [str(paths["client"]).encode(), str(paths["prover"]).encode()]
         for secret in secret_values:
             needles.extend((
                 secret, secret.hex().encode(), base64.b64encode(secret)))

@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import base64
 import struct
+import sqlite3
 from pathlib import Path
+from contextlib import closing
 import tempfile
 import unittest
 
@@ -12,8 +14,8 @@ from protocol5_encoding import field_hex, h2f
 from protocol5_fixture import make_genesis
 from run_protocol5_engine import (
     CLIENT_MAGIC, CLIENT_GENESIS_MAGIC, PROVER_MAGIC, DevelopmentController,
-    ENGINE_SHA256, Note, finalize_fresh_genesis, fresh_genesis_prefix,
-    p5_app_command, preflight,
+    ENGINE_SHA256, Note, Protocol5Network, _backup_sqlite,
+    finalize_fresh_genesis, fresh_genesis_prefix, p5_app_command, preflight,
 )
 
 class Protocol5EngineRunnerTests(unittest.TestCase):
@@ -78,6 +80,7 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
     def test_validator_command_never_receives_prover_or_crash_controls(self):
         paths = {
             "worker": Path("/private/bin/worker"),
+            "client": Path("/private/controller/client"),
             "prover": Path("/private/controller/prover"),
             "kat": Path("/private/profile/kat"),
             "toolchain": Path("/private/profile/toolchain"),
@@ -87,9 +90,84 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
             paths, Path("/run/genesis"), "a" * 64,
             Path("/run/state"), Path("/run/app.sock"))
         joined = "\0".join(command)
+        self.assertNotIn(str(paths["client"]), joined)
         self.assertNotIn(str(paths["prover"]), joined)
         self.assertNotIn("--run-token", command)
         self.assertNotIn("--crash-phase", command)
+
+    def test_no_quorum_staging_waits_for_both_live_mempools(self):
+        network = object.__new__(Protocol5Network)
+        events = []
+        transactions = [b"one", b"two"]
+        network.engines = {index: object() for index in range(4)}
+
+        def hold():
+            events.append("held")
+            network.engines.pop(2)
+            network.engines.pop(3)
+            return {"height": 7}
+
+        network.hold_sources_without_quorum = hold
+        network.broadcast = (
+            lambda index, transaction:
+            events.append(("broadcast", index, transaction)) or {"code": "0"})
+        network.mempool_transactions = (
+            lambda index: events.append(("mempool", index)) or transactions)
+        network.start_engine = (
+            lambda index:
+            events.append(("start", index)) or network.engines.setdefault(index, object()))
+
+        admissions, checkpoint = network.stage_without_quorum(transactions)
+
+        self.assertEqual([int(row["code"]) for row in admissions], [0, 0])
+        self.assertEqual(checkpoint["height"], 7)
+        self.assertEqual(events[:3], [
+            "held", ("broadcast", 0, b"one"), ("broadcast", 0, b"two")])
+        self.assertIn(("mempool", 0), events)
+        self.assertIn(("mempool", 1), events)
+        self.assertEqual(events[-2:], [("start", 2), ("start", 3)])
+
+    def test_held_sources_drop_below_quorum_at_one_checkpoint(self):
+        network = object.__new__(Protocol5Network)
+        network.engines = {index: object() for index in range(4)}
+        state = {"height": 8, "app_hash": "11" * 32}
+        network.direct_state = lambda index: dict(state)
+        stopped = []
+
+        def stop(index):
+            stopped.append(index)
+            network.engines.pop(index)
+
+        network.stop_engine = stop
+        network.start_engine = lambda index: network.engines.setdefault(index, object())
+        checkpoint = network.hold_sources_without_quorum(attempts=1)
+        self.assertEqual(checkpoint, state)
+        self.assertEqual(stopped, [3, 2])
+        self.assertEqual(set(network.engines), {0, 1})
+
+    def test_retained_database_backup_includes_wal_commit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source.sqlite"
+            target = root / "target.sqlite"
+            connection = sqlite3.connect(source)
+            try:
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute(
+                    "CREATE TABLE committed("
+                    "id INTEGER PRIMARY KEY, height INTEGER, app_hash BLOB)")
+                connection.execute(
+                    "INSERT INTO committed VALUES(1, ?, ?)", (9, b"A" * 32))
+                connection.commit()
+                checkpoint = _backup_sqlite(source, target)
+            finally:
+                connection.close()
+            with closing(sqlite3.connect(target)) as retained:
+                row = retained.execute(
+                    "SELECT height, app_hash FROM committed WHERE id=1").fetchone()
+            self.assertEqual(row, (9, b"A" * 32))
+            self.assertEqual(
+                checkpoint, {"height": 9, "app_hash": (b"A" * 32).hex()})
 
     def test_missing_exact_inputs_are_unassessed_and_output_is_preserved(self):
         with tempfile.TemporaryDirectory() as td:
