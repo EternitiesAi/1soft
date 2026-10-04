@@ -308,8 +308,12 @@ def comet_validator_set(rows: list[dict]) -> ValidatorSet:
 def genesis_document(raw: bytes) -> GenesisDocument:
     value = _closed(decode_canonical_json(raw), GENESIS_KEYS, "Protocol 5 genesis")
     chain_id = value["chain_id"]
-    _need(type(chain_id) is str and 1 <= len(chain_id.encode("ascii", "strict")) <= 50
-          and all(0x20 <= ord(ch) <= 0x7E for ch in chain_id),
+    try:
+        chain_bytes = chain_id.encode("ascii", "strict") if type(chain_id) is str else b""
+    except UnicodeEncodeError as exc:
+        raise EncodingError("invalid chain identity") from exc
+    _need(1 <= len(chain_bytes) <= 50
+          and all(0x20 <= byte <= 0x7E for byte in chain_bytes),
           "invalid chain identity")
     _need(value["protocol_version"] == 5, "fresh Protocol 5 genesis required")
     profile_raw = _base64(value["profile_descriptor"], "profile descriptor")

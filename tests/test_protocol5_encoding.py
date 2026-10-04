@@ -85,6 +85,18 @@ class Protocol5EncodingTests(unittest.TestCase):
                 with self.assertRaises(EncodingError):
                     genesis_document(canonical_json(genesis))
 
+    def test_chain_id_matches_pinned_engine_ascii_boundary(self):
+        accepted = make_genesis(chain_id="a" * 50)
+        accepted["genesis_field"] = __import__("protocol5_encoding").field_hex(
+            __import__("protocol5_encoding").h2f(b"genesis", canonical_json(
+                {k: v for k, v in accepted.items() if k != "genesis_field"})))
+        genesis_document(canonical_json(accepted))
+        for chain_id in ("a" * 51, "chain-\N{SNOWMAN}"):
+            with self.subTest(chain_id=chain_id):
+                rejected = make_genesis(chain_id=chain_id)
+                with self.assertRaises(EncodingError):
+                    genesis_document(canonical_json(rejected))
+
     def test_transaction_complete_consumption_and_identity(self):
         genesis = genesis_document(canonical_json(make_genesis()))
         raw = make_tx(genesis.value)
