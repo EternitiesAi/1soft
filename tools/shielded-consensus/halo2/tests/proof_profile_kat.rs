@@ -62,4 +62,23 @@ fn generated_profile_qualifies_k13_and_kat() {
         "prescribed KAT mutation must fail"
     );
     assert!(generated.identity_dag_is_acyclic());
+    let profile_dir = root.join("profile");
+    let tracked_descriptor = std::fs::read(profile_dir.join("profile-descriptor-v1.bin"))
+        .expect("read tracked descriptor");
+    let tracked_kat = std::fs::read(profile_dir.join("kat-v1.bin"))
+        .expect("read tracked KAT");
+    assert_eq!(
+        tracked_descriptor,
+        generated.descriptor.encode().expect("encode generated descriptor"),
+        "tracked descriptor must be a current deterministic regeneration"
+    );
+    assert_eq!(
+        tracked_kat,
+        generated.kat.encode().expect("encode generated KAT"),
+        "tracked KAT must be a current deterministic regeneration"
+    );
+    let manifest = std::fs::read_to_string(profile_dir.join("profile-manifest-v1.json"))
+        .expect("read profile manifest");
+    assert!(!manifest.contains("descriptor_hash"));
+    assert!(!manifest.contains("worker_binary_hash"));
 }

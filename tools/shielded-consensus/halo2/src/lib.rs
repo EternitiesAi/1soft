@@ -11,3 +11,7 @@ pub mod profile;
 #[cfg(feature = "dev-prover")]
 pub mod prover;
 pub mod verifier;
+#[cfg(feature = "worker")]
+pub mod worker_protocol;
+#[cfg(feature = "worker")]
+pub mod sandbox_linux;

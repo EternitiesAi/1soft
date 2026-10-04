@@ -26,6 +26,7 @@ pub const CURVE_COMMITMENT_IDENTITY: &[u8] =
 pub const TRANSCRIPT_POSEIDON_IDENTITY: &[u8] =
     b"blake2b-write-read:challenge255:p128pow5t3:halo2-gadgets-0.6.0";
 const SOURCE_DOMAIN: &[u8] = b"1soft/shielded-circuit-source/v1\0";
+#[cfg(feature = "dev-prover")]
 const KAT_SEED: [u8; 32] = [0x5au8; 32];
 
 pub fn sha256(bytes: &[u8]) -> Digest32 {
@@ -96,18 +97,21 @@ pub fn load_artifacts(profile_dir: &Path) -> Result<(ProfileDescriptorV1, KatV1)
     Ok((descriptor, kat))
 }
 
-pub fn validate_runtime_artifacts(
-    root: &Path,
+pub fn validate_pinned_cryptography(
     verifier: &PinnedVerifier,
     descriptor: &ProfileDescriptorV1,
     kat: &KatV1,
 ) -> Result<(), String> {
-    if descriptor.exact_proof_length as usize != kat.proof.len() {
-        return Err("descriptor/KAT proof-length mismatch".to_string());
-    }
-    let expected = runtime_descriptor(root, verifier, kat.proof.len(), kat)?;
-    if &expected != descriptor {
-        return Err("profile descriptor does not match pinned runtime".to_string());
+    if descriptor.exact_proof_length as usize != kat.proof.len()
+        || descriptor.parameter_hash
+            != verifier.parameter_hash().map_err(|_| "parameter hashing failed".to_string())?
+        || descriptor.verifying_key_hash
+            != verifier.verifying_key_hash().map_err(|_| "verifying-key hashing failed".to_string())?
+        || descriptor.kat_hash != kat.identity_hash()
+        || descriptor.curve_commitment_hash != sha256(CURVE_COMMITMENT_IDENTITY)
+        || descriptor.transcript_poseidon_hash != sha256(TRANSCRIPT_POSEIDON_IDENTITY)
+    {
+        return Err("profile does not match pinned cryptography".to_string());
     }
     verifier
         .verify_public_bytes(&kat.public_inputs, &kat.proof)
@@ -118,6 +122,20 @@ pub fn validate_runtime_artifacts(
         Err(VerifyError::InvalidProof) => Ok(()),
         _ => Err("KAT prescribed mutation did not fail as InvalidProof".to_string()),
     }
+}
+
+pub fn validate_runtime_artifacts(
+    root: &Path,
+    verifier: &PinnedVerifier,
+    descriptor: &ProfileDescriptorV1,
+    kat: &KatV1,
+) -> Result<(), String> {
+    validate_pinned_cryptography(verifier, descriptor, kat)?;
+    let expected = runtime_descriptor(root, verifier, kat.proof.len(), kat)?;
+    if &expected != descriptor {
+        return Err("profile descriptor does not match pinned runtime".to_string());
+    }
+    Ok(())
 }
 
 #[cfg(feature = "dev-prover")]
