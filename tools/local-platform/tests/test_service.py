@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from device_fence import DeviceFence, FencedApproval, wallet_identity
 from delivery_fixture import Fixture
 from wallet_fixture import PASSWORD
 from block_application import encode
@@ -44,6 +46,149 @@ class ServiceTests(unittest.TestCase):
     def open(self,**kw):
         return PlatformService(self.workspace,self.fx.chain.genesis,self.fx.chain.policy,
             self.fx.url,self.roles,clock=self.fx.chain.clock,**kw)
+
+    def test_enabling_fence_preserves_pre_fence_decision_recovery(self):
+        rid = self.request()
+        prepared = self.service.prepare(rid, "raven", valid_until=30)
+        first = self.service.approve(
+            rid, "raven", prepared["review"], prepared["confirmation"],
+            password=PASSWORD,
+        )
+        key = Ed25519PrivateKey.from_private_bytes(b"y" * 32)
+        fence = DeviceFence(self.workspace / "new-device-fence.sqlite")
+        self.addCleanup(fence.close)
+        identity = wallet_identity(self.service.wallet)
+        fence.enroll(identity, "new-device", key.public_key().public_bytes_raw())
+        self.service.close()
+        self.service = self.open(approval_factory=lambda wallet: FencedApproval(
+            wallet, fence, "new-device", 0, key, owns_wallet=False,
+        ))
+        with patch("p4_wallet._load_vault", side_effect=AssertionError("must not resign")):
+            repeated = self.service.approve(
+                rid, "raven", prepared["review"], first["decision_id"],
+                password=b"ignored",
+            )
+        self.assertEqual(repeated["status"], "original_signed_decision_retained")
+        self.assertEqual(repeated["fence_status"], "unfenced_decision")
+        self.assertIsNone(fence.inspect(identity, rid))
+        self.assertEqual(
+            fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 0,
+        )
+
+    def test_real_fenced_adapter_records_product_request_and_reconciles_repeat(self):
+        key = Ed25519PrivateKey.from_private_bytes(b"z" * 32)
+        fence = DeviceFence(self.workspace / "device-fence.sqlite")
+        self.addCleanup(fence.close)
+        identity = wallet_identity(self.service.wallet)
+        fence.enroll(identity, "product-device", key.public_key().public_bytes_raw())
+        self.service.close()
+        self.service = self.open(approval_factory=lambda wallet: FencedApproval(
+            wallet, fence, "product-device", 0, key, owns_wallet=False,
+        ))
+        rid = self.request()
+        prepared = self.service.prepare(rid, "raven", valid_until=30)
+        first = self.service.approve(
+            rid, "raven", prepared["review"], prepared["confirmation"],
+            password=PASSWORD,
+        )
+        row = fence.inspect(identity, rid)
+        self.assertEqual(first["fence_status"], "decision_committed")
+        self.assertEqual(row["state"], "decision_committed")
+        self.assertEqual(row["decision_id"], first["decision_id"])
+        self.assertEqual(row["wire_sha256"], first["wire_sha256"])
+        with patch("p4_wallet._load_vault", side_effect=AssertionError("must not resign")):
+            repeated = self.service.approve(
+                rid, "raven", prepared["review"], prepared["confirmation"],
+                password=b"ignored",
+            )
+        self.assertEqual(repeated["status"], "original_signed_decision_retained")
+        self.assertEqual(repeated["fence_status"], "already_reconciled")
+        self.assertEqual(
+            fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 1,
+        )
+
+    def test_fenced_adapter_is_opt_in_and_runs_after_binding(self):
+        calls=[]
+        service_ref=[None]
+        class Adapter:
+            def __init__(self,wallet): self.wallet=wallet
+            def approve(self,review,confirmation,**kw):
+                self.assert_bound(service_ref[0],kw['request_id'])
+                calls.append(('approve',kw['request_id']))
+                result=self.wallet.approve(
+                    review,confirmation,vault=kw['vault'],password=kw['password'])
+                result.update(fence_status='decision_committed',request_id=kw['request_id'])
+                return result
+            def assert_bound(self,service,rid):
+                assert service.book.selected(rid)['review'] is not None
+            def reconcile(self,review,confirmation,**kw):
+                calls.append(('reconcile',kw['request_id'])); return {'status':'reconciled'}
+            def close(self): calls.append(('close',))
+        self.service.close()
+        self.service=self.open(approval_factory=Adapter)
+        service_ref[0]=self.service
+        rid=self.request(); p=self.service.prepare(rid,'raven',valid_until=30)
+        result=self.service.approve(rid,'raven',p['review'],p['confirmation'],password=PASSWORD)
+        self.assertEqual('signed_and_reserved',result['status'])
+        self.assertEqual('approve',calls[0][0]); self.assertEqual(rid,calls[0][1])
+        self.service.close(); self.assertEqual('close',calls[-1][0])
+
+    def test_fenced_reconciliation_precedes_repeat_and_rejects_unknown(self):
+        calls=[]
+        class Adapter:
+            def __init__(self,wallet): self.wallet=wallet
+            def approve(self,review,confirmation,**kw):
+                result=self.wallet.approve(
+                    review,confirmation,vault=kw['vault'],password=kw['password'])
+                result.update(fence_status='decision_committed',request_id=kw['request_id'])
+                return result
+            def reconcile(self,review,confirmation,**kw):
+                calls.append(kw['request_id']); return {'status':'reconciled'}
+            def close(self): pass
+        self.service.close(); self.service=self.open(approval_factory=Adapter)
+        rid=self.request(); p=self.service.prepare(rid,'raven',valid_until=30)
+        first=self.service.approve(rid,'raven',p['review'],p['confirmation'],password=PASSWORD)
+        with patch('p4_wallet._load_vault',side_effect=AssertionError('must not resign')):
+            again=self.service.approve(rid,'raven',p['review'],first['decision_id'],password=b'ignored')
+        self.assertEqual('original_signed_decision_retained',again['status']); self.assertEqual([rid],calls)
+
+    def test_fenced_close_failure_still_closes_platform_wallet(self):
+        class Adapter:
+            def __init__(self,wallet): self.wallet=wallet
+            def approve(self,*a,**k): raise AssertionError("unused")
+            def reconcile(self,*a,**k): raise AssertionError("unused")
+            def close(self): raise RuntimeError("adapter close failed")
+        self.service.close()
+        self.service=self.open(approval_factory=Adapter)
+        wallet=self.service.wallet
+        with self.assertRaisesRegex(RuntimeError,"adapter close failed"):
+            self.service.close()
+        self.assertIsNone(wallet.db)
+        self.assertIsNone(self.service.wallet)
+
+    def test_fenced_constructor_rejects_wrong_wallet(self):
+        class Adapter:
+            def __init__(self,wallet): self.wallet=object()
+            def approve(self,*a,**k): pass
+            def reconcile(self,*a,**k): pass
+        self.service.close()
+        with self.assertRaises(ValueError): self.open(approval_factory=Adapter)
+
+    def test_fenced_unknown_reconciliation_fails_closed(self):
+        class Adapter:
+            def __init__(self,wallet): self.wallet=wallet
+            def approve(self,review,confirmation,**kw):
+                result=self.wallet.approve(
+                    review,confirmation,vault=kw['vault'],password=kw['password'])
+                result.update(fence_status='decision_committed',request_id=kw['request_id'])
+                return result
+            def reconcile(self,review,confirmation,**kw): return {'status':'unknown_quarantined'}
+            def close(self): pass
+        self.service.close(); self.service=self.open(approval_factory=Adapter)
+        rid=self.request(); p=self.service.prepare(rid,'raven',valid_until=30)
+        first=self.service.approve(rid,'raven',p['review'],p['confirmation'],password=PASSWORD)
+        with self.assertRaises(ValueError):
+            self.service.approve(rid,'raven',p['review'],first['decision_id'],password=b'ignored')
 
     def request(self,units='58',note='Coffee'):
         c=self.fx.chain

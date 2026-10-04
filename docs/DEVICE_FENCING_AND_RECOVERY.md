@@ -6,8 +6,11 @@ production custody.
 
 **4 October update:** an [opt-in local device-fence seam](DEVICE_FENCE_RESERVATION.md)
 now coordinates P4 journal clones that explicitly use `FencedApproval` and the
-same live owner-only POSIX registry. This document remains the baseline for direct
-`P4Wallet.approve`, existing CLIs, raw signers, independent registries and
+same live owner-only POSIX registry. It records exact positive wallet outcomes,
+recovers a committed decision after a lost registry response, and can be injected
+into the canonical `PlatformService.approve` seam. Missing decisions remain
+quarantined and never release a lane. This document remains the baseline for
+direct `P4Wallet.approve`, default CLIs, raw signers, independent registries and
 recovery copies. Those paths still have the forked-device behavior described
 below.
 
