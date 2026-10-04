@@ -16,12 +16,17 @@ from private_payment_desk import PrivatePaymentDesk, AlphaPrivatePaymentDesk
 class MerchantBrowserService:
     allow_unsigned_requests = False
 
-    def __init__(self, desk):
+    def __init__(self, desk, *, fulfillment=None):
         need(type(desk) in (PrivatePaymentDesk, AlphaPrivatePaymentDesk), 'canonical private payment desk required')
         self.desk = desk
         self.policy = desk.platform.policy
         self.clock = desk.platform.clock
         self.book = self  # The HTTP request export must check invoice correlation too.
+        if fulfillment is not None:
+            from merchant_browser_delivery import AlphaMerchantBridge
+            need(type(desk) is AlphaPrivatePaymentDesk and type(fulfillment) is AlphaMerchantBridge,
+                 'explicit original alpha merchant capability required')
+        self.fulfillment=fulfillment
 
     def _committed(self, rid, *, live=False):
         row, expected = self.desk._selected(rid, live=live)
@@ -100,6 +105,20 @@ class MerchantBrowserService:
         # Scope is the complete canonical shared pair, including hidden generic roles.
         return self.desk.platform.backup_history(password)
 
+    def _resource_context(self,rid):
+        self._committed(rid)
+        need(self.fulfillment is not None,'merchant fulfillment is not configured')
+        return self.fulfillment
+
+    def resource_review(self,rid):
+        return self._resource_context(rid).review(self.desk,rid)
+
+    def retrieve_purchase(self,rid,review,confirmation):
+        return self._resource_context(rid).retrieve(self.desk,rid,review,confirmation)
+
+    def merchant_proof(self,rid):
+        return self._resource_context(rid).proof(self.desk,rid)
+
     def state(self):
         catalog = {}
         for invoice in self.desk.invoices.entries():
@@ -119,10 +138,14 @@ class MerchantBrowserService:
             if rid not in catalog: continue
             request = dict(entry['request'])
             request.update(created_ns=str(request['created_ns']), expires_ns=str(request['expires_ns']))
-            rows.append({**entry, 'request':request, 'invoice':catalog[rid]})
+            delivery=None if self.fulfillment is None else self.fulfillment.status(self.desk,rid)
+            if delivery is not None:
+                delivery['retrieval_available']=delivery.get('retrieval_available',False) and delivery.get('reference_id') in entry['capsule_ids']
+            rows.append({**entry, 'request':request, 'invoice':catalog[rid], 'merchant_delivery':delivery})
         return {**state, 'requests':rows, 'payment_mode':'committed_merchant_invoices',
             'hidden_generic_request_count':len(state['requests'])-len(rows),
-            'invoice_data_decrypted':False, 'onchain_privacy':False, 'merchant_fulfillment_performed':False}
+            'invoice_data_decrypted':False, 'onchain_privacy':False, 'merchant_fulfillment_performed':False,
+            'merchant_fulfillment_available':self.fulfillment is not None}
 
 
 def ready_for_browser(network):

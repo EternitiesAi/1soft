@@ -25,6 +25,11 @@ cold reopening retrieve the original result without another charge; portable
 alpha merchant proofs replay the payment and content commitment offline. The
 legacy merchant formats remain exclusive to legacy receipts. Transactions remain public.
 
+The [browser purchase flow](docs/BROWSER_MERCHANT_DELIVERY.md) can now retrieve
+the enrolled original resource through a guarded host bridge, verify its digest,
+and offer resource and proof downloads. Lost returns and cold listener reopening
+require explicit review of the original payment, without another signature or charge.
+
 ## Try the local product
 
 The [first-run guide](docs/LOCAL_DEMO_GUIDE.md) walks through a native payment,
@@ -58,6 +63,7 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 | Owner key replacement | Incoming-key consent and current-owner approval share the wallet's fee reservation and exact receipt confirmation. | [Owner replacement](docs/P4_KEY_ROTATION.md) |
 | Encrypted historical recovery | Original journal rows, signed wires, holds and receipts survive complete backups, including larger admitted journals. Restored archives cannot sign or send. | [Custody and recovery](tools/protocol4-custody/README.md) |
 | Durable merchant delivery | Committed alpha receipts unlock exact resource bytes; durable consumption, cold retries and separate offline proof. | [Durable merchant](docs/DURABLE_MERCHANT.md) |
+| Browser purchase retrieval | Separate public-receipt consent, verified resource download and original proof through a fixed local merchant bridge; operator enrollment stays separate. | [Browser delivery](docs/BROWSER_MERCHANT_DELIVERY.md) |
 | Durable private alpha | Incremental authenticated history, preserved original journal and an actual-hour qualification command; fresh genesis and explicit finite trust policy. | [Durable alpha](docs/DURABLE_ALPHA.md) |
 | Browser history download | Explicit encrypted export of all retained shared wallet/delivery history; no private keys or active restoration. | [Browser recovery](docs/BROWSER_HISTORY_BACKUP.md) |
 | Portable payment evidence | An offline checker verifies the original invoice, signed transaction, receipt and public content under external trust pins. | [Merchant proofs](docs/PORTABLE_MERCHANT_PROOF.md) |

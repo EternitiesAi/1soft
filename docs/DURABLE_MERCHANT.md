@@ -47,7 +47,9 @@ Transactions and receipt history are public; this is not onchain privacy.
 
 The complete caller path is CLI invoice payment and receipt export, explicit
 merchant enrollment, authenticated local HTTP resource retrieval, and cold proof
-verification. Direct cross-origin browser fulfillment is not implemented here.
-Existing browser invoice/receipt behavior is retained. Actual short four-validator
+verification. The optional [browser host bridge](BROWSER_MERCHANT_DELIVERY.md)
+connects the guarded wallet to the separately configured fixed loopback merchant;
+direct cross-origin browser fulfillment remains unavailable. Existing browser
+invoice/receipt behavior is retained. Actual short four-validator
 qualification is separate from historical hour-scale source receipts; it cannot
 relabel an old hour test as a new-source long-horizon qualification.

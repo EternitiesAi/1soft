@@ -102,11 +102,50 @@ async function historyBlob(response){
     complete=true;return blob;
   }finally{if(!complete)await reader.cancel().catch(()=>{});reader.releaseLock();}
 }
-if(typeof module!=='undefined')module.exports={atomic,formatUnits,shortId,deadline,STAGES,paymentProgress,backupInputs,historyProfile,historyBlob};
+async function merchantBlob(response,pin,{proof=false}={}){
+  let reader=null,complete=false;
+  try{
+  if(!response.ok||response.status!==200||response.headers.get('Content-Type')!=='application/octet-stream'||
+     response.headers.get('Content-Encoding')!==null||response.headers.get('Transfer-Encoding')!==null)throw Error('Purchase response is unavailable or has another encoding.');
+  const length=response.headers.get('Content-Length'),limit=proof?90*1024*1024:65536;
+  if(!/^[1-9][0-9]{0,8}$/.test(length||'')||Number(length)>limit)throw Error('Purchase response exceeds its declared bound.');
+  for(const key of ['request_id','quote_sha256','resource_sha256','wire_sha256','capsule_sha256','native_txid']){
+    if(!/^[0-9a-f]{64}$/.test(pin?.[key]||'')||response.headers.get('X-1soft-'+key.replaceAll('_','-'))!==pin[key])throw Error('Purchase response belongs to another invoice or original payment.');
+  }
+  const fulfilled=response.headers.get('X-1soft-Fulfilled-Ns');
+  if(!/^[1-9][0-9]{0,18}$/.test(fulfilled||'')||BigInt(fulfilled)>9223372036854775807n||
+     (pin.fulfilled_ns!==null&&pin.fulfilled_ns!==undefined&&fulfilled!==pin.fulfilled_ns))throw Error('Original fulfillment time differs.');
+  const digest=proof?response.headers.get('X-1soft-Proof-Sha256'):pin.resource_sha256;
+  if(!/^[0-9a-f]{64}$/.test(digest||'')||(proof&&response.headers.get('X-1soft-Proof-Format')!=='alpha-v1'))throw Error('Purchase proof format or digest differs.');
+  reader=response.body?.getReader();if(!reader)throw Error('Purchase bytes are unavailable.');
+  const chunks=[];let total=0;
+    while(true){const item=await reader.read();if(item.done)break;total+=item.value.byteLength;
+      if(total>Number(length)||chunks.length>=32768)throw Error('Purchase byte stream exceeds its bound.');chunks.push(item.value);}
+    if(total!==Number(length))throw Error('Purchase byte stream was truncated.');
+    const blob=new Blob(chunks,{type:'application/octet-stream'});
+    const actual=Array.from(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256',await blob.arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('');
+    if(actual!==digest)throw Error('Purchase bytes do not match the retained digest.');
+    complete=true;return {blob,fulfilled_ns:fulfilled};
+  }finally{if(!complete){if(reader)await reader.cancel().catch(()=>{});else await response.body?.cancel().catch(()=>{});}reader?.releaseLock();}
+}
+const resourceBlob=(response,pin)=>merchantBlob(response,pin);
+const merchantProofBlob=(response,pin)=>merchantBlob(response,pin,{proof:true});
+async function checkedMerchantReview(prepared){
+  if(typeof prepared?.review_json!=='string'||!/^[0-9a-f]{64}$/.test(prepared.confirmation||''))throw Error('Retrieval review text or confirmation is missing.');
+  const review=JSON.parse(prepared.review_json),summary=prepared.summary;
+  if(!review||Array.isArray(review)||!summary||Array.isArray(summary)||
+     review.format!=='1soft/alpha-browser-resource-review/v1'||review.full_public_ledger_disclosed!==true||review.signing_or_submission_performed!==false||
+     Object.keys(review).length!==Object.keys(summary).length||Object.keys(review).some(k=>
+       !Object.hasOwn(summary,k)||review[k]!==summary[k]||(review[k]!==null&&!['string','boolean'].includes(typeof review[k]))))throw Error('Displayed retrieval facts differ from the original review.');
+  const digest=Array.from(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(prepared.review_json))),b=>b.toString(16).padStart(2,'0')).join('');
+  if(digest!==prepared.confirmation)throw Error('Retrieval confirmation differs from the exact review text.');
+  return review;
+}
+if(typeof module!=='undefined')module.exports={atomic,formatUnits,shortId,deadline,STAGES,paymentProgress,backupInputs,historyProfile,historyBlob,resourceBlob,merchantProofBlob,checkedMerchantReview};
 
 if(typeof document!=='undefined'){
   const $=id=>document.getElementById(id);
-  let state=null,selected=null,payment=null,dispatch=null,csrf='',busy=false,viewAvailable=false,generation=0;
+  let state=null,selected=null,payment=null,dispatch=null,purchase=null,csrf='',busy=false,viewAvailable=false,generation=0;
   function text(id,value){$(id).textContent=value;}
   function show(id,yes){$(id).hidden=!yes;}
   function tell(message,error=false){text('feedback',message);$('feedback').classList.toggle('error',error);}
@@ -146,8 +185,11 @@ if(typeof document!=='undefined'){
     $('reconcile').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||e?.stage==='recorded'||!live||busy;
     $('retain').disabled=!signed||e?.delivery?.receipt_status!=='verified_historical_receipt'||!live||busy;
     $('backup-download').disabled=!viewAvailable||!$('backup-scope').checked||busy;
+    $('purchase-review').disabled=!viewAvailable||!e?.merchant_delivery?.retrieval_available||busy;
+    $('purchase-retrieve').disabled=!purchase||!current(purchase.context)||!$('purchase-share').checked||!viewAvailable||busy;
+    $('purchase-proof').disabled=!purchase||!current(purchase.context)||!$('purchase-share').checked||!e?.merchant_delivery?.consumption_retained||!viewAvailable||busy;
   }
-  function clearReviews(){generation++;payment=null;dispatch=null;$('password').value='';$('sign-check').checked=false;$('terms-check').checked=false;$('terms-facts').replaceChildren();text('terms-digest','');show('merchant-terms-review',false);$('send-check').checked=false;show('payment-review',false);show('dispatch-review',false);}
+  function clearReviews(){generation++;payment=null;dispatch=null;purchase=null;$('password').value='';$('sign-check').checked=false;$('terms-check').checked=false;$('terms-facts').replaceChildren();text('terms-digest','');show('merchant-terms-review',false);$('send-check').checked=false;show('payment-review',false);show('dispatch-review',false);$('purchase-share').checked=false;show('purchase-confirmation',false);}
   async function reload(){const next=await get('/api/state');state=next;clearReviews();viewAvailable=true;render();}
   function render(){const live=viewAvailable&&state.current_evidence_available,ready=live&&(state.signing_ready??live),walletCurrent=live&&(state.wallet_current??live),
       w=viewAvailable&&(live||state.wallet_current!==undefined)?state.wallet:null,l=live?state.ledger:null;
@@ -182,6 +224,10 @@ if(typeof document!=='undefined'){
     for(const step of progress.steps){const li=document.createElement('li'),label=document.createElement('strong'),status=document.createElement('span');
       li.classList.toggle('done',step.done);label.textContent=step.label;status.textContent=step.status;li.append(label,status);steps.append(li);}
     show('review-controls',!signed);show('signed-controls',signed);
+    show('purchase-section',!!e.invoice&&!!state.merchant_fulfillment_available);
+    if(e.merchant_delivery){const d=e.merchant_delivery;
+      text('purchase-status',d.consumption_retained?'The merchant retains the original consumption. Resource receipt in this browser is still unconfirmed; explicitly retrieve and verify it.':d.enrolled?'The merchant enrolled the original paid receipt. Resource consumption has not been confirmed.':'The merchant operator must separately enroll the original paid receipt before retrieval.');
+      text('purchase-review',d.consumption_retained?'Review retrieval again':'Review purchase retrieval');}
     if(signed){const d=e.delivery,execution=['recorded','recorded_historical'].includes(e.stage),live=viewAvailable&&state.current_evidence_available;
       text('delivery-status',`Original signature: retained\nSubmission: ${d?.attempt_recorded?d.transport_observation:'no local attempt recorded'}\nReceipt: ${d?.receipt_status==='verified_historical_receipt'?'verified at collection':execution?'not collected; execution evidenced separately':'unavailable; outcome unknown'}\nWallet: ${!viewAvailable?'needs inspection; current hold unavailable':!live?'current hold unavailable':e.stage==='recorded'?'exact execution reconciled':'original obligation retained'}`);
       $('original-download').href='/api/original/'+e.request_id;const cid=e.capsule_ids[0];show('capsule-download',!!cid);if(cid)$('capsule-download').href='/api/capsule/'+e.request_id+'/'+cid;}
@@ -215,6 +261,42 @@ if(typeof document!=='undefined'){
   $('collect').addEventListener('click',()=>run(async()=>{const q=await post('collect',{request_id:selected});await reload();tell(q.status==='unavailable'?paymentProgress(entry(),viewAvailable,viewAvailable&&state.current_evidence_available).detail:'Exact receipt collected. Collection does not change wallet holds.');}));
   $('reconcile').addEventListener('click',()=>run(async()=>{await post('reconcile',{request_id:selected,expected_revision:state.wallet.revision});await reload();tell('Exact verified execution reconciled in the wallet.');}));
   $('retain').addEventListener('click',()=>run(async()=>{await post('retain',{request_id:selected});await reload();tell('Verified capsule retained under the original trust deadline. It includes full chain history; review that scope before sharing.');}));
+  $('purchase-review').addEventListener('click',()=>run(async()=>{
+    clearReviews();const context=capture();const prepared=await post('merchant-review',{request_id:context.request_id});requireCurrent(context);
+    const s=await checkedMerchantReview(prepared);requireCurrent(context);const e=entry();
+    if(prepared.request_id!==context.request_id||!s||s.request_id!==context.request_id||s.decision_id!==e.decision_id||
+       s.quote_sha256!==e.invoice.quote_sha256||s.resource_sha256!==e.invoice.resource_sha256||
+       s.resource_url!==e.invoice.resource_url||s.merchant_origin!==e.invoice.merchant_origin||
+       ['wire_sha256','capsule_sha256','native_txid'].some(k=>s[k]!==e.merchant_delivery[k])||
+       typeof prepared.review_json!=='string'||!/^[0-9a-f]{64}$/.test(prepared.confirmation||''))throw Error('Returned retrieval review differs from the selected original invoice.');
+    purchase={...prepared,summary:s,context};facts('purchase-facts',[['Merchant endpoint',s.merchant_origin],['Resource',s.resource_url],['Public resource digest',s.resource_sha256],
+      ['Original payment',s.native_txid],['Receipt packet digest',s.capsule_sha256],['Original role',s.grant_id||'Owner'],['Retained fulfillment',s.fulfilled_ns?deadline(s.fulfilled_ns):'Not yet consumed']]);
+    show('purchase-confirmation',true);tell('Review sharing the original public receipt. Retrieval does not sign, submit or reconcile the wallet.');
+  }));
+  $('purchase-share').addEventListener('change',controls);
+  function downloadBlob(blob,filename){const url=URL.createObjectURL(blob),a=document.createElement('a');
+    try{a.href=url;a.download=filename;document.body.append(a);a.click();}finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}}
+  async function purchaseFetch(path,options,p,proof=false){
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),150000);
+    try{const response=await fetch(path,{...options,signal:controller.signal,credentials:'omit',cache:'no-store',redirect:'error'});
+      const result=await (proof?merchantProofBlob:resourceBlob)(response,p.summary);requireCurrent(p.context);return result;
+    }finally{clearTimeout(timer);}}
+  $('purchase-retrieve').addEventListener('click',()=>run(async()=>{
+    const p=purchase;requireCurrent(p?.context);if(!$('purchase-share').checked)throw Error('Public receipt disclosure consent is required.');
+    purchase=null;show('purchase-confirmation',false);
+    const result=await purchaseFetch('/api/merchant-retrieve',{method:'POST',headers:{'Content-Type':'application/json','X-1soft-CSRF':csrf},
+      body:JSON.stringify({request_id:p.context.request_id,review_json:p.review_json,confirmation:p.confirmation})},p);
+    downloadBlob(result.blob,'1soft-purchase-'+p.context.request_id+'.bin');await reload();
+    if(selected!==p.context.request_id)throw Error('The selected invoice changed while refreshing purchase state.');
+    text('purchase-status','Original purchase bytes received and digest-verified in this browser. The download was offered; saving it is your browser’s decision.');
+    tell('Purchase bytes verified and download offered. No payment was repeated.');
+  }));
+  $('purchase-proof').addEventListener('click',()=>run(async()=>{
+    const p=purchase;requireCurrent(p?.context);if(!$('purchase-share').checked)throw Error('Public receipt disclosure consent is required.');
+    const result=await purchaseFetch('/api/merchant-proof/'+p.context.request_id,{method:'GET'},p,true);
+    downloadBlob(result.blob,'1soft-merchant-proof-'+p.context.request_id+'.json');
+    tell('Merchant proof download offered. It includes full public history; independent genesis, policy and invoice pins are needed for offline verification.');
+  }));
   $('backup-scope').addEventListener('change',controls);
   $('backup-form').addEventListener('submit',async event=>{
     event.preventDefault();let passphrase=$('backup-passphrase').value,repeat=$('backup-repeat').value;
