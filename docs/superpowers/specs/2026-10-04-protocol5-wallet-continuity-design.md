@@ -90,7 +90,7 @@ This phase does not claim resistance to that attacker.
 
 ## Controller-only Rust extension
 
-Existing client opcodes 1 and 2 remain byte-for-byte. Two additive version-1
+Existing client opcodes 1 and 2 remain byte-for-byte. Three additive version-1
 opcodes support the wallet without changing the circuit or ProverRequestV1. All
 integers are little-endian and fields are canonical 32-byte Pallas base-field
 representations. Requests start `1SFTCLI1 | u16 version=1 | u16 opcode`; the
@@ -107,7 +107,7 @@ Exact 44-byte request:
 Exact 42-byte output:
 
 ```text
-1SFTOWN1 | u16 1 | nonzero owner_key[32]
+1SFTKEY1 | u16 1 | nonzero owner_key[32]
 ```
 
 The result is the relation's existing `SpendKey(spend_secret)`. Only this public
@@ -118,7 +118,7 @@ owner key may leave the wallet.
 This has the existing Spend layout, except outputs contain public owner keys:
 
 ```text
-1SFTCLI1 | u16 1 | u16 5
+1SFTCLI1 | u16 1 | u16 4
 | genesis_sha256[32] | deployment_id[32]
 | SpendHeaderV1[8 x 32]
 | u16 commitment_count | commitments[commitment_count x 32]
@@ -138,6 +138,34 @@ unchanged exact 1,010-byte ProverRequestV1. The client reconstructs the input,
 path, fourteen public fields and outputs, then runs existing native relation
 checks. It rejects invalid count/position, zero values/owner keys, noncanonical
 fields, trailing bytes, bad balance/expiry, zero/equal outputs, or identity drift.
+
+### Opcode 5: DeriveNoteNullifierV1
+
+This bounded operation derives the relation's position-bound nullifier without
+constructing a future spend. It is required for valid low-value, expired, and
+final-capacity notes that cannot satisfy opcode 4's spend shape.
+
+Exact 270-byte request:
+
+```text
+1SFTCLI1 | u16 1 | u16 5
+| relation_field[32] | genesis_field[32] | asset_field[32]
+| context_field[32] | authority_epoch_field[32]
+| u16 input_position
+| nonzero input_commitment[32]
+| nonzero spend_secret[32]
+| nonzero note_secret[32]
+```
+
+Exact 42-byte output:
+
+```text
+1SFTNUL1 | u16 1 | nonzero nullifier[32]
+```
+
+Position is 0 through 15. The Rust client calls the existing relation nullifier
+function; Python performs no hash or field arithmetic. It rejects zero,
+noncanonical, overbound, or trailing input and consumes the request exactly.
 
 `development_client.rs` is outside the descriptor's frozen circuit-source list.
 Implementation must still prove the descriptor, KAT, worker, worker profile
@@ -233,32 +261,18 @@ Valid-until is at least checkpoint plus three and at most input expiry and
 `max_height`. Any revision/checkpoint change supersedes it. Approval repeats the
 exact recipient, amounts, fee and validity. Ceiling is 4,096 bytes.
 
-### WalletRecoveryV1
+### Exact transaction recovery
 
-The private canonical JSON has exactly these top-level keys:
+An approved decision durably stores its canonical review, input lineage,
+ProverRequest SHA-256, exact TransactionV1 bytes, payment capsule, and change
+capsule in one authority row. `recover(decision_id)` returns those exact
+transaction bytes without invoking the client or prover. This is the recovery
+boundary for this stage.
 
-```text
-format, version, recovery_id, wallet_meta, wallet_secret, checkpoint,
-notes, reviews, obligations, attempts, outgoing_capsules
-```
-
-Format is `1soft/protocol5-wallet-recovery/v1`, version 1. Arrays sort by binary
-primary key. Every member is the exact closed logical row projection of the schema
-below: BLOBs are canonical padded RFC-4648 base64, u64le BLOBs become JSON
-integers, and nullable columns become JSON null. Checkpoint contains parsed state
-and signed-header objects plus their exact canonical bytes in base64; re-encoding
-must match.
-
-Recovery ID hashes domain `1soft/protocol5-wallet-recovery-id/v1\0` and the
-document without its ID. Ceiling is 16 MiB. It is plaintext synthetic authority,
-created new mode 0600, never overwritten. There is no password, encryption, cloud
-upload, key escrow, reset, or production recovery claim.
-
-Restore requires separately supplied trusted genesis files/hashes, verifies every
-row and the saved H+1 certificate into a fresh workspace, and opens
-`recovery_required`. Signing, proving, submission, export, and reconciliation
-remain disabled until a live certificate at or above the saved height installs.
-Lower or conflicting same-height state is fatal.
+No wallet-clone export, password wrapping, cloud backup, device migration, or
+hostile-host rollback-resistance claim is made. Those require a separate design
+with clone fencing and key custody rather than an implicit extension of the
+local journal.
 
 ## Filesystem and process boundary
 
@@ -281,139 +295,75 @@ the operation with no partial authority retained.
 
 ## Exact SQLite schema
 
-Database has `PRAGMA user_version=1` and exactly these tables/indexes, with no
-triggers, views, virtual tables, unknown objects or columns. Startup audits
-normalized `sqlite_master` SQL, `table_info`, foreign keys and indexes; it
-never repairs drift. `u64le` is an exact eight-byte little-endian BLOB.
+The wallet database has application ID `0x31503557`, user version 1, and exactly
+four `STRICT` tables: `config`, `observations`, `notes`, and `decisions`.
+Reviews are mutation-free values until approval. Approval persists the reviewed
+facts, exact proved transaction, and both private output capsules in one
+`decisions` row. Delivery attempts live in the separate delivery journal.
+
+`config` contains the fixed external identities, one spend secret and owner key,
+a monotonic revision, exact row counts, and an authority digest over every
+authority-bearing cell. Every mutation increments the revision and reseals the
+counts and digest in the same transaction. Startup compares exact
+`sqlite_master.sql`, rejects every extra table/index/view/trigger, runs
+`quick_check` and `foreign_key_check`, and never repairs drift.
 
 ```sql
-CREATE TABLE wallet_meta(
- singleton INTEGER PRIMARY KEY CHECK(singleton=1),
- schema_version INTEGER NOT NULL CHECK(schema_version=1),
- wallet_id BLOB NOT NULL UNIQUE CHECK(length(wallet_id)=32),
- genesis_sha256 BLOB NOT NULL CHECK(length(genesis_sha256)=32),
- engine_genesis_sha256 BLOB NOT NULL CHECK(length(engine_genesis_sha256)=32),
- profile_id BLOB NOT NULL CHECK(length(profile_id)=32),
- deployment_id BLOB NOT NULL CHECK(length(deployment_id)=32),
- client_sha256 BLOB NOT NULL CHECK(length(client_sha256)=32),
- prover_sha256 BLOB NOT NULL CHECK(length(prover_sha256)=32),
- source_commit TEXT NOT NULL CHECK(length(source_commit)=40),
- source_tree TEXT NOT NULL CHECK(length(source_tree)=40),
- revision INTEGER NOT NULL CHECK(revision>=0),
- mode TEXT NOT NULL CHECK(mode IN ('active','recovery_required','fatal'))
-) STRICT;
-
-CREATE TABLE wallet_secret(
- singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+CREATE TABLE config(
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ version INTEGER NOT NULL CHECK(version=1),
+ wallet_id TEXT NOT NULL UNIQUE,
+ genesis_sha256 TEXT NOT NULL,
+ engine_genesis_sha256 TEXT NOT NULL,
+ profile_id TEXT NOT NULL,
+ deployment_id TEXT NOT NULL,
  spend_secret BLOB NOT NULL CHECK(length(spend_secret)=32),
- owner_key BLOB NOT NULL UNIQUE CHECK(length(owner_key)=32)
+ owner_key BLOB NOT NULL CHECK(length(owner_key)=32),
+ revision INTEGER NOT NULL CHECK(revision>=0),
+ created_ns INTEGER NOT NULL CHECK(created_ns>=0),
+ observation_count INTEGER NOT NULL CHECK(observation_count BETWEEN 0 AND 32),
+ note_count INTEGER NOT NULL CHECK(note_count BETWEEN 0 AND 16),
+ decision_count INTEGER NOT NULL CHECK(decision_count BETWEEN 0 AND 16),
+ authority_digest TEXT NOT NULL CHECK(length(authority_digest)=64)
 ) STRICT;
 
-CREATE TABLE checkpoint(
- singleton INTEGER PRIMARY KEY CHECK(singleton=1),
- state_height INTEGER NOT NULL CHECK(state_height BETWEEN 0 AND 511),
- app_hash BLOB NOT NULL CHECK(length(app_hash)=32),
- header_height INTEGER NOT NULL CHECK(header_height=state_height+1),
- header_hash BLOB NOT NULL CHECK(length(header_hash)=32),
- state_json BLOB NOT NULL,
- signed_header_json BLOB NOT NULL,
- installed_revision INTEGER NOT NULL CHECK(installed_revision>=0)
+CREATE TABLE observations(
+ seq INTEGER PRIMARY KEY,
+ observation_id TEXT NOT NULL UNIQUE,
+ height INTEGER NOT NULL UNIQUE CHECK(height BETWEEN 0 AND 511),
+ payload BLOB NOT NULL
 ) STRICT;
 
 CREATE TABLE notes(
- capsule_id BLOB PRIMARY KEY CHECK(length(capsule_id)=32),
- capsule_json BLOB NOT NULL,
- commitment BLOB NOT NULL UNIQUE CHECK(length(commitment)=32),
- owner_key BLOB NOT NULL CHECK(length(owner_key)=32),
- expiry_u64le BLOB NOT NULL CHECK(length(expiry_u64le)=8),
- value_u64le BLOB NOT NULL CHECK(length(value_u64le)=8),
- note_secret BLOB NOT NULL CHECK(length(note_secret)=32),
- blinding BLOB NOT NULL CHECK(length(blinding)=32),
- origin_kind TEXT NOT NULL CHECK(origin_kind IN ('genesis','transaction')),
- origin_position INTEGER,
- origin_txid BLOB,
- origin_output_index INTEGER,
- chain_position INTEGER,
- state TEXT NOT NULL CHECK(state IN ('unconfirmed','spendable','reserved','spent','expired')),
- reserved_by BLOB,
- admitted_revision INTEGER NOT NULL CHECK(admitted_revision>=0),
- CHECK((origin_kind='genesis' AND origin_position BETWEEN 0 AND 15 AND
-        origin_txid IS NULL AND origin_output_index IS NULL) OR
-       (origin_kind='transaction' AND origin_position IS NULL AND
-        length(origin_txid)=32 AND origin_output_index IN (0,1))),
- CHECK(chain_position IS NULL OR chain_position BETWEEN 0 AND 15),
- CHECK(reserved_by IS NULL OR length(reserved_by)=32)
+ capsule_id TEXT PRIMARY KEY,
+ payload BLOB NOT NULL,
+ nullifier BLOB NOT NULL CHECK(length(nullifier)=32),
+ chain_position INTEGER NOT NULL CHECK(chain_position BETWEEN 0 AND 15),
+ imported_revision INTEGER NOT NULL CHECK(imported_revision>=0)
 ) STRICT;
 
-CREATE TABLE reviews(
- review_id BLOB PRIMARY KEY CHECK(length(review_id)=32),
- review_json BLOB NOT NULL,
- base_revision INTEGER NOT NULL CHECK(base_revision>=0),
- checkpoint_height INTEGER NOT NULL CHECK(checkpoint_height BETWEEN 0 AND 511),
- input_capsule_id BLOB NOT NULL CHECK(length(input_capsule_id)=32),
- state TEXT NOT NULL CHECK(state IN ('open','superseded','approved')),
+CREATE TABLE decisions(
+ decision_id TEXT PRIMARY KEY,
+ review_id TEXT NOT NULL UNIQUE,
+ review BLOB NOT NULL,
+ input_capsule_id TEXT NOT NULL,
+ nullifier BLOB NOT NULL CHECK(length(nullifier)=32),
+ txid TEXT NOT NULL UNIQUE,
+ transaction_bytes BLOB NOT NULL,
+ prover_request_sha256 TEXT NOT NULL,
+ payment_capsule BLOB NOT NULL,
+ change_capsule BLOB NOT NULL,
+ valid_until INTEGER NOT NULL CHECK(valid_until BETWEEN 1 AND 512),
+ created_revision INTEGER NOT NULL CHECK(created_revision>=0),
  FOREIGN KEY(input_capsule_id) REFERENCES notes(capsule_id)
 ) STRICT;
-
-CREATE TABLE obligations(
- obligation_id BLOB PRIMARY KEY CHECK(length(obligation_id)=32),
- review_id BLOB NOT NULL UNIQUE CHECK(length(review_id)=32),
- input_capsule_id BLOB NOT NULL CHECK(length(input_capsule_id)=32),
- input_nullifier BLOB NOT NULL CHECK(length(input_nullifier)=32),
- expected_txid BLOB NOT NULL UNIQUE CHECK(length(expected_txid)=32),
- prover_request_sha256 BLOB NOT NULL CHECK(length(prover_request_sha256)=32),
- transaction_bytes BLOB NOT NULL,
- payment_capsule_json BLOB NOT NULL,
- change_capsule_json BLOB NOT NULL,
- valid_until INTEGER NOT NULL CHECK(valid_until BETWEEN 1 AND 512),
- state TEXT NOT NULL CHECK(state IN ('ready','attempt_claimed',
-   'executed_exact','executed_equivalent','conflicting_spend',
-   'expired_unexecuted')),
- winning_txid BLOB,
- resolved_height INTEGER,
- created_revision INTEGER NOT NULL CHECK(created_revision>=0),
- resolved_revision INTEGER,
- FOREIGN KEY(review_id) REFERENCES reviews(review_id),
- FOREIGN KEY(input_capsule_id) REFERENCES notes(capsule_id),
- CHECK(winning_txid IS NULL OR length(winning_txid)=32),
- CHECK((resolved_height IS NULL AND resolved_revision IS NULL) OR
-       (resolved_height BETWEEN 1 AND 511 AND resolved_revision>=0))
-) STRICT;
-
-CREATE TABLE attempts(
- obligation_id BLOB PRIMARY KEY CHECK(length(obligation_id)=32),
- claimed_revision INTEGER NOT NULL CHECK(claimed_revision>=0),
- outcome TEXT NOT NULL CHECK(outcome IN ('claimed','rpc_returned','transport_failed')),
- response_json BLOB,
- response_sha256 BLOB,
- FOREIGN KEY(obligation_id) REFERENCES obligations(obligation_id),
- CHECK((response_json IS NULL AND response_sha256 IS NULL) OR
-       (response_json IS NOT NULL AND length(response_sha256)=32))
-) STRICT;
-
-CREATE TABLE outgoing_capsules(
- obligation_id BLOB NOT NULL CHECK(length(obligation_id)=32),
- output_index INTEGER NOT NULL CHECK(output_index IN (0,1)),
- capsule_json BLOB NOT NULL,
- exported INTEGER NOT NULL CHECK(exported IN (0,1)),
- export_revision INTEGER,
- PRIMARY KEY(obligation_id,output_index),
- FOREIGN KEY(obligation_id) REFERENCES obligations(obligation_id),
- CHECK((exported=0 AND export_revision IS NULL) OR
-       (exported=1 AND export_revision>=0))
-) STRICT;
-
-CREATE UNIQUE INDEX notes_reserved_by_unique
- ON notes(reserved_by) WHERE reserved_by IS NOT NULL;
-CREATE INDEX obligations_nullifier_index ON obligations(input_nullifier);
-CREATE INDEX obligations_state_index ON obligations(state);
 ```
 
 `wallet_id = SHA-256("1soft/protocol5-wallet-id/v1\0" || genesis_sha256 ||
-owner_key)`. `obligation_id = SHA-256("1soft/protocol5-obligation-id/v1\0" ||
-wallet_id || review_id || expected_txid)`. Transaction bytes are bounded by
-genesis `max_tx_bytes` and decode exactly. All redundant columns are recomputed
-on every open.
+owner_key)`. Decision ID binds wallet ID, review ID, and exact transaction ID.
+All redundant identities, openings, public fields, receipts, output positions,
+and request lineage are recomputed on explicit cryptographic audit. Structural
+recovery remains possible when the client/prover is unavailable.
 
 ## Authenticated checkpoint installation
 
@@ -432,10 +382,12 @@ Sync is exact:
 6. Validate retained transactions, receipts, roots, commitments, nullifiers,
    positions, counters and transaction identities used by the wallet. Other P5
    query paths are hints only.
-7. Refuse lower height. Same height accepts only byte-identical witness and header;
-   conflict sets mode `fatal`. Higher state supersedes open reviews and
-   recomputes every note and obligation.
-8. Commit checkpoint, classifications, revision and supersession atomically.
+7. Refuse lower height. Same height accepts only a byte-identical observation.
+   A conflict raises without mutation. Higher state extends every retained
+   commitment, root, receipt, execution block, and spent-nullifier fact.
+8. Verify and derive any executed change outside the write transaction, then
+   recheck revision/extension and commit the observation, change notes, revision,
+   counts, and authority digest atomically.
 
 The certificate is authenticated as-of state, not global freshness. Bootstrap also
 requires externally configured minimum height; later state cannot fall below the
@@ -472,11 +424,12 @@ secrets/blindings from OS CSPRNG, invokes opcode 4, validates all ProverRequest
 fields, invokes the exact prover, and decodes TransactionV1. It requires exact
 genesis, deployment, public fields, proof length, nullifier, outputs, fee and txid.
 
-One commit inserts the obligation, ProverRequest SHA-256, exact transaction,
-two unexported capsules and input reservation; approves the review and increments
-the revision. Crash before commit leaves nothing; crash after commit recovers
-identical transaction bytes. The raw ProverRequest is wiped after proving and is
-never persisted. Return values exclude witnesses and note secrets.
+One commit inserts the decision, canonical review, ProverRequest SHA-256,
+exact transaction, both private capsules, and increments the revision. The hold
+is derived from the unresolved decision rather than a mutable reservation row.
+Crash before commit leaves nothing; crash after commit recovers identical
+transaction bytes. The raw ProverRequest is not persisted. Return values exclude
+witnesses and note secrets.
 
 Approval is the point of no return for the input reservation. There is no
 cancellation or release merely because the transaction has not been submitted;
@@ -514,40 +467,38 @@ For every higher certificate:
 Winning execution precedes expiry. Txid query, CheckTx, broadcast result, timeout,
 clock, capsule import and absence from an uncertified response never decide.
 
-Exact/equivalent execution recreates transaction-origin capsules with winning
-txid. Change is admitted internally. Payment becomes exportable once. Lost export
-response may reproduce byte-identical capsule at a fresh path; chain state does not
-change.
+Exact/equivalent execution recreates transaction-origin capsules with the
+winning txid and admits change atomically with the authenticated observation.
+Output 0 becomes exportable as a byte-identical payment capsule; output 1 remains
+internal. Repeating export is recovery of the same authority and does not change
+chain or journal state.
 
-## Startup and cold recovery
+## Startup and transaction recovery
 
-Startup acquires lock, audits files/schema, verifies stored hashes/IDs, rederives
-owner key, reparses all canonical objects and exact binary requests, verifies saved
-H+1 certificate, and recomputes classifications from full saved state. Any change
-or impossible transition sets `fatal` and exposes no signing/submission.
+Startup acquires the exclusive lock, audits paths, exact schema, row counts,
+authority digest, canonical objects, saved certificates, transaction bytes, and
+lineage. Structural open, review preparation, and exact transaction recovery do
+not invoke the controller or prover. `status()` and capsule export perform the
+cryptographic audit, including owner-key, commitment, nullifier, complete
+ProverRequest reconstruction, receipt, and output checks.
 
-Recovery export checkpoints SQLite, reads one transactionally consistent snapshot,
-constructs/self-verifies WalletRecoveryV1 and writes create-new. Restore targets a
-new empty workspace, never merges or overwrites. Duplicate restore creates a clone
-with the same authority; each clone is `recovery_required` until explicit operator
-selection and equal/newer live certification. This local flag does not fence the
-other clone.
+A decision committed before a lost return is found after restart and returns the
+same TransactionV1 without reproving. This stage has no wallet clone/restore
+operation; adding one requires explicit duplicate-authority fencing semantics.
 
 ## Resource ceilings
 
 | Resource | Ceiling |
 |---|---:|
 | owner keys | 1 |
+| observations / total observation bytes | 32 / 8 MiB |
 | notes | 16 |
-| reviews / open reviews | 64 / 8 |
-| obligations / attempts | 64 / 64 |
-| outgoing capsules | 128 |
-| NoteCapsuleV1 / SpendReviewV1 | 2 KiB / 4 KiB |
+| decisions | 16 |
+| NoteCapsuleV1 / SpendReviewV1 | 4 KiB / 4 KiB |
 | decoded state witness / signed header | 8 MiB / 256 KiB |
 | complete RPC / broadcast response | 12 MiB / 64 KiB |
-| WalletRecoveryV1 | 16 MiB |
 | SQLite main / main plus sidecars | 32 MiB / 64 MiB |
-| client request/output | 1,966 / 1,010 bytes |
+| client request / prover request | 1,966 / 1,010 bytes |
 | transaction | genesis max, never above 64 KiB |
 | client / prover / RPC watchdog | 30 / 300 / 15 seconds |
 
@@ -559,13 +510,13 @@ controls and never establish chain result.
 
 1. Unsafe storage, second writer, schema/corruption or source/binary drift: fatal.
 2. Invalid trust/certificate: no mutation; same-height conflict is fatal.
-3. Client/prover failure before durable approval: no obligation/reservation.
+3. Client/prover failure before durable approval: no decision or derived hold.
 4. SQLite failure: rollback and retain prior memory.
-5. Durable obligation without attempt: recover exact bytes; retain the reservation.
+5. Durable decision without attempt: recover exact bytes; retain the derived hold.
 6. Durable attempt: never resend regardless of transport result.
 7. Certified winner: exact, equivalent or conflicting execution.
 8. Certified validity end with no winner: expired unexecuted.
-9. Everything else: unavailable/unknown with obligation retained.
+9. Everything else: unavailable/unknown with the decision hold retained.
 
 ## Real four-validator acceptance matrix
 
@@ -581,7 +532,7 @@ and checker require each row separately:
 | Owners | A/B derive independent public keys; neither side nor any validator artifact sees the other's secret |
 | Genesis | A imports exact genesis capsule; B reports unavailable rather than inferred zero |
 | Review | A reviews 20 from 100, fee 5, change 75; checkpoint/revision change invalidates it |
-| Approval faults | before commit leaves nothing; after commit recovers identical request, txid, nullifier, outputs and capsules |
+| Approval faults | before commit leaves nothing; after commit recovers the identical transaction, txid, nullifier, and private output capsules without reproving |
 | Attempt | durable before RPC; lost response, timeout and nonzero CheckTx each make one attempt and no resend |
 | A to B | real proof commits; H+1 certificate authenticates receipt/output; capsule exports only afterward |
 | Import hostility | wrong owner/secret/blinding/commitment/txid/index/profile/deployment/genesis and uncommitted capsule fail |
@@ -594,8 +545,7 @@ and checker require each row separately:
 | Capsules | malformed/noncanonical/oversized/duplicate/wrong-position/spent capsules never become available |
 | Storage | symlink/mode/owner/lock/schema/object/type corruption and write faults preserve prior state |
 | Restart | every lifecycle boundary preserves rows and performs no implicit network call |
-| Recovery | fresh restore verifies saved certificate, refuses rollback/fork, activates only on equal/newer state, and reproduces notes/obligations/attempts |
-| Clone | two restores remain recovery-required; evidence makes no fencing claim |
+| Recovery | a lost approval return or process exit after commit recovers the exact stored transaction with the controller and prover unavailable |
 | Leakage | secrets, capsules and ProverRequest absent from public output, argv, env, URLs, validator homes, app DBs, snapshots, receipts and logs |
 | Convergence | four validators agree; A/B projections match authenticated history; negative evidence retained |
 
@@ -606,13 +556,13 @@ umbrella, unassessed, dirty-source, identity-drifted or overclaiming results.
 ## Test-first order
 
 1. Freeze existing P5 artifacts/vectors; add failing opcode tests.
-2. Implement opcodes 3-4 and prove consensus artifacts byte-identical.
-3. Add strict capsule/review/recovery parsers and mutations.
+2. Implement opcodes 3-5 and prove consensus artifacts byte-identical.
+3. Add strict capsule/review parsing and exact transaction recovery mutations.
 4. Add hardened storage/schema audit, checkpoint install and restart audit.
 5. Add note import/classification and certificate hostility tests.
 6. Add prepare/approval atomic persistence and fault injection.
 7. Add attempt claim/transport no-retry tests.
-8. Add nullifier precedence, equivalent/conflict/expiry, export and cold recovery.
+8. Add nullifier precedence, equivalent/conflict/expiry, payment export and restart recovery.
 9. Run the real A-to-B-to-spend matrix and bind a strict wallet checker.
 10. Rerun P5 consensus/state sync, P4 preservation, historical Halo2 benchmark and
     complete release gate.
