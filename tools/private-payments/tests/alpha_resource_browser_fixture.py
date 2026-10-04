@@ -42,6 +42,22 @@ def read_line(child,seconds=60):
         return json.loads(line)
 
 
+class ControlReader:
+    """Bound the idle channel and partial lines without TextIO read-ahead stalls."""
+    def __init__(self,stream):self.fd=stream.fileno();self.pending=b''
+    def read(self,deadline):
+        with selectors.DefaultSelector() as selector:
+            selector.register(self.fd,selectors.EVENT_READ)
+            while b'\n' not in self.pending:
+                remaining=deadline-time.monotonic();need(remaining>0,'fixture control deadline exceeded')
+                need(len(self.pending)<=4096,'fixture control line exceeds bound')
+                need(bool(selector.select(remaining)),'fixture control deadline exceeded')
+                raw=os.read(self.fd,4097-len(self.pending));need(bool(raw),'fixture control channel closed before explicit stop')
+                self.pending+=raw
+        line,self.pending=self.pending.split(b'\n',1);need(len(line)<=4096,'fixture control line exceeds bound')
+        return line.decode('ascii')
+
+
 def main():
     os.umask(0o077);engine=verify_engine(Path(sys.argv[1]));out=Path(sys.argv[2]).absolute()
     need(not out.exists() and not out.is_relative_to(ROOT),'new external evidence required');private_path(out);out.mkdir(mode=0o700)
@@ -74,18 +90,50 @@ def main():
             return financial_pin(svc,signed,AlphaPrivatePaymentDesk(svc,inv))
     def close_listeners():
         nonlocal web,merchant,thread,log
+        failures=[]
         if web is not None:
-            need(web.poll() is None,'wallet listener exited unexpectedly');web.terminate();web.wait(20)
-            remaining=web.stdout.read();private_new(out/('wallet-%d-close.log'%generation),remaining)
-            record=next(r for r in report['owned_processes'] if r['pid']==web.pid)
-            record.update(returncode=web.returncode,reaped=True,same_birth_still_present=_birth(web.pid)==record['birth'],expected_stop_outcome=web.returncode==0)
-            need(web.returncode==0 and b'owned_http_listener_closed' in remaining,'wallet graceful closure failed');closed_wallets.append(web);web=None
-        if log is not None:log.close();log=None
+            child=web;web=None;before=child.poll();forced=False;remaining=b''
+            record=next(r for r in report['owned_processes'] if r['pid']==child.pid)
+            try:
+                if before is None:child.terminate()
+                else:failures.append('wallet_unexpected_exit')
+                try:child.wait(20)
+                except subprocess.TimeoutExpired:
+                    forced=True;failures.append('wallet_forced_stop');child.kill();child.wait(10)
+                remaining=child.communicate(timeout=5)[0]
+                need(len(remaining)<=65536,'wallet closure output exceeded bound')
+                private_new(out/('wallet-%d-close.log'%generation),remaining)
+                if child.returncode!=0 or b'owned_http_listener_closed' not in remaining:failures.append('wallet_closure_not_verified')
+            except BaseException:failures.append('wallet_cleanup_failed')
+            finally:
+                if child.poll() is None:
+                    try:forced=True;child.kill();child.wait(10)
+                    except BaseException:failures.append('wallet_owned_child_unreaped')
+                record.update(returncode=child.returncode,returncode_before_stop=before,forced_stop=forced,
+                    reaped=child.poll() is not None,same_birth_still_present=_birth(child.pid)==record['birth'],
+                    expected_stop_outcome=before is None and not forced and child.returncode==0 and b'owned_http_listener_closed' in remaining)
+                if child.stdout is not None:
+                    try:child.stdout.close()
+                    except BaseException:failures.append('wallet_stdout_close_failed')
+                closed_wallets.append(child)
+        if log is not None:
+            try:log.close()
+            except BaseException:failures.append('wallet_log_close_failed')
+            log=None
         if merchant is not None:
-            merchant.shutdown();thread.join(10);merchant.server_close()
-            report['merchant_listeners'][-1].update(thread_closed=not thread.is_alive(),socket_closed=merchant.socket.fileno()==-1)
-            need(not thread.is_alive() and merchant.socket.fileno()==-1,'owned merchant listener did not close');merchant=None;thread=None
-        save()
+            owned=merchant;serving=thread;merchant=None;thread=None;stopper=None
+            try:
+                if serving is not None and serving.is_alive():
+                    stopper=threading.Thread(target=owned.shutdown,daemon=True);stopper.start();stopper.join(10);serving.join(10)
+                if (serving is not None and serving.is_alive()) or (stopper is not None and stopper.is_alive()):failures.append('merchant_thread_close_failed')
+            except BaseException:failures.append('merchant_shutdown_failed')
+            finally:
+                try:owned.server_close()
+                except BaseException:failures.append('merchant_socket_close_failed')
+                if report['merchant_listeners'] and report['merchant_listeners'][-1]['generation']==generation:
+                    report['merchant_listeners'][-1].update(thread_closed=serving is None or not serving.is_alive(),
+                        shutdown_thread_closed=stopper is None or not stopper.is_alive(),socket_closed=owned.socket.fileno()==-1)
+        report['cleanup_errors'].extend(failures);save();need(not failures,'owned listener cleanup failed')
     def start_listeners():
         nonlocal web,merchant,thread,log
         token=secrets.token_hex(32);tokens.append(token.encode());until=time.monotonic()+75
@@ -132,8 +180,9 @@ def main():
             invoice_ciphertext=encode(inv.entries())
         check('original_committed_invoice_catalog',len(rows)==3 and len({r['quote_sha256'] for r in rows})==3)
         reply(dict(ready=start_listeners()))
-        for line in sys.stdin:
-            need(time.monotonic()-started<900,'finite browser fixture exceeded its declared budget')
+        controls=ControlReader(sys.stdin)
+        while True:
+            line=controls.read(started+900)
             if line.strip()=='stop':break
             q=json.loads(line);need(type(q) is dict,'exact fixture control required');operation=q.get('operation')
             if operation=='operator-enroll':
@@ -188,7 +237,6 @@ def main():
                 check('cold_listeners_same_home_no_financial_change',finance()==pins['cold'] and _files(workspace)==identities and (ops.path.stat().st_dev,ops.path.stat().st_ino)==merchant_identity and read_private(workspace/'policy.json')==policy_bytes)
                 reply(dict(reply=operation,ready=ready,passed=True));continue
             raise ValueError('unsupported fixture control')
-        else:raise ValueError('browser must explicitly finish fixture')
         need(enrolled==set(ROLES) and audited=={(r,p) for r in ROLES for p in ('pending','cold')},'actual browser journey incomplete')
         close_listeners()
         with net.service() as svc,open_invoice_storage(invoices,config['genesis_sha256']) as inv:

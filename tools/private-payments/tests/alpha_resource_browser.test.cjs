@@ -43,15 +43,17 @@ test('three real browser payments retrieve original resources with a pending hol
       waiters.set(key,v=>{clearTimeout(timer);resolve(v);});child.stdin.write(JSON.stringify(q)+'\n');});}
   t.after(async()=>{
     const stopped=await Promise.allSettled([context?.close(),browser?.close()]);if(exit===null)child.stdin.end('stop\n');
-    let timer;const code=await Promise.race([closed,new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('owned fixture cleanup deadline exceeded')),90000))]).finally(()=>clearTimeout(timer));
+    let timer,code=null,closeError=null;
+    try{code=await Promise.race([closed,new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('owned fixture cleanup deadline exceeded')),90000))]);}
+    catch(e){closeError=e.message;}finally{clearTimeout(timer);}
     const final=lines.at(-1),fixturePassed=code===0&&final?.status==='passed'&&final.payments===3&&final.owned_processes_after_cleanup===0&&final.source_unchanged===true&&final.cleanup_errors.length===0;
-    const cleanupPassed=stopped.every(r=>r.status==='fulfilled')&&stderr.join('')==='';
+    const cleanupPassed=stopped.every(r=>r.status==='fulfilled')&&stderr.join('')===''&&closeError===null&&code===0&&final?.owned_processes_after_cleanup===0;
     fs.writeFileSync(path.join(artifacts,'browser-result.json'),JSON.stringify({schema:1,passed:workflowComplete&&fixturePassed&&cleanupPassed,
-      workflow_complete:workflowComplete,fixture_passed:fixturePassed,cleanup_passed:cleanupPassed,calls,downloads,fixture_return:final,errors,
+      workflow_complete:workflowComplete,fixture_passed:fixturePassed,cleanup_passed:cleanupPassed,fixture_exit:code,cleanup_timeout_or_error:closeError,calls,downloads,fixture_return:final,errors,
       scope:'short actual browser, guarded wallet bridge and real fixed loopback merchant HTTP; three original DEV payments/four validators; lost return and cold same-home listeners; no real-hour, public service or privacy qualification'},null,2)+'\n');
     fs.writeFileSync(path.join(artifacts,'fixture-ipc.jsonl'),lines.map(q=>JSON.stringify(q)).join('\n')+'\n');
     fs.writeFileSync(path.join(artifacts,'fixture.stderr.log'),stderr.join(''));
-    assert.equal(workflowComplete,true);assert.equal(fixturePassed,true);assert.equal(cleanupPassed,true);assert.deepEqual(errors,[]);
+    assert.equal(closeError,null);assert.equal(workflowComplete,true);assert.equal(fixturePassed,true);assert.equal(cleanupPassed,true);assert.deepEqual(errors,[]);
   });
   let timer;let fixture=await Promise.race([ready,closed.then(code=>{throw Error('fixture exited before ready: '+code);}),new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('native startup deadline exceeded')),240000))]).finally(()=>clearTimeout(timer));
   browser=await chromium.launch({headless:true,executablePath:process.env.ONE_BROWSER_TEST_EXECUTABLE});
@@ -86,6 +88,7 @@ test('three real browser payments retrieve original resources with a pending hol
       assert.equal((await command({operation:'inspect-retained',request_id:invoice.request_id})).passed,true);await consent(page);
       await page.screenshot({path:path.join(artifacts,'purchase-consent-desktop.png'),fullPage:true});await page.setViewportSize({width:390,height:844});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:path.join(artifacts,'purchase-consent-mobile.png'),fullPage:true});await page.setViewportSize({width:1280,height:900});
+      await page.locator('#purchase-section').screenshot({path:path.join(artifacts,'purchase-panel-desktop.png')});
     }
     downloads.push(await saveDownload(page,fixture,invoice,'pending','resource'));assert.match(await page.locator('#purchase-status').textContent(),/digest-verified/);
     downloads.push(await saveDownload(page,fixture,invoice,'pending','proof'));
