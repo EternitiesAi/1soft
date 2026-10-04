@@ -7,8 +7,8 @@ use crate::{
         BACKEND_ID, CAPACITY, CIRCUIT_ID, DEPLOYMENT_BINDING_VERSION, DEPLOYMENT_DOMAIN,
         DEPLOYMENT_MAGIC, DEPTH, K, KAT_DOMAIN, KAT_MAGIC, MAX_PROOF_BYTES,
         MAX_TRANSACTION_BYTES, MAX_WORKER_FRAME_BYTES, PROFILE_DESCRIPTOR_VERSION,
-        PROFILE_DOMAIN, PROFILE_MAGIC, PUBLIC_INPUT_COUNT, RELATION_VERSION,
-        TRANSACTION_MAGIC, TRANSACTION_PREFIX_BYTES, TRANSACTION_WIRE_VERSION, TXID_DOMAIN,
+        PROFILE_DOMAIN, PROFILE_MAGIC, PROVER_REQUEST_BYTES, PROVER_REQUEST_MAGIC,
+        PROVER_REQUEST_VERSION, PUBLIC_INPUT_COUNT, RELATION_VERSION, TRANSACTION_MAGIC, TRANSACTION_PREFIX_BYTES, TRANSACTION_WIRE_VERSION, TXID_DOMAIN,
         WITNESS_BYTES, WITNESS_MAGIC, WITNESS_VERSION, WORKER_PROTOCOL_VERSION,
         WORKER_REQUEST_MAGIC, WORKER_RESPONSE_MAGIC,
     },
@@ -668,6 +668,67 @@ impl WitnessV1 {
 
     pub fn decode_test(bytes: &[u8]) -> bool {
         Self::decode(bytes).is_ok()
+    }
+}
+
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProverRequestV1 {
+    pub genesis_sha256: Digest32,
+    pub deployment_id: Digest32,
+    pub public_inputs: [FieldBytes; PUBLIC_INPUT_COUNT],
+    pub witness: WitnessV1,
+}
+
+impl ProverRequestV1 {
+    pub fn encode(&self) -> Result<Vec<u8>, EncodingError> {
+        checked_fields(self.public_inputs)?;
+        let witness = self.witness.encode()?;
+        let mut output = Vec::with_capacity(PROVER_REQUEST_BYTES);
+        output.extend_from_slice(&PROVER_REQUEST_MAGIC);
+        push_u16(&mut output, PROVER_REQUEST_VERSION);
+        push_u16(&mut output, BACKEND_ID);
+        push_u32(&mut output, RELATION_VERSION);
+        output.extend_from_slice(&self.genesis_sha256);
+        output.extend_from_slice(&self.deployment_id);
+        push_u16(&mut output, PUBLIC_INPUT_COUNT as u16);
+        for field in self.public_inputs {
+            output.extend_from_slice(&field);
+        }
+        output.extend_from_slice(&witness);
+        debug_assert_eq!(output.len(), PROVER_REQUEST_BYTES);
+        Ok(output)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, EncodingError> {
+        if bytes.len() != PROVER_REQUEST_BYTES {
+            return Err(EncodingError::InvalidLength);
+        }
+        let mut reader = Reader::new(bytes);
+        read_magic(&mut reader, PROVER_REQUEST_MAGIC)?;
+        if reader.u16()? != PROVER_REQUEST_VERSION {
+            return Err(EncodingError::WrongVersion);
+        }
+        if reader.u16()? != BACKEND_ID {
+            return Err(EncodingError::WrongBackend);
+        }
+        if reader.u32()? != RELATION_VERSION {
+            return Err(EncodingError::WrongRelation);
+        }
+        let genesis_sha256 = reader.array()?;
+        let deployment_id = reader.array()?;
+        if usize::from(reader.u16()?) != PUBLIC_INPUT_COUNT {
+            return Err(EncodingError::InvalidLength);
+        }
+        let public_inputs = read_fields(&mut reader)?;
+        let witness = WitnessV1::decode(reader.take(WITNESS_BYTES)?)?;
+        reader.finish()?;
+        Ok(Self {
+            genesis_sha256,
+            deployment_id,
+            public_inputs,
+            witness,
+        })
     }
 }
 

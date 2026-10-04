@@ -1,7 +1,13 @@
 pub mod circuit;
 pub mod constants;
 pub mod encoding;
+#[cfg(feature = "dev-prover")]
+pub mod development_client;
 pub mod field;
 pub mod fixture;
 pub mod relation;
 pub mod tree;
+pub mod profile;
+#[cfg(feature = "dev-prover")]
+pub mod prover;
+pub mod verifier;

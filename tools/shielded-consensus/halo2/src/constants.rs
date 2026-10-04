@@ -4,6 +4,7 @@ pub const PROFILE_DESCRIPTOR_VERSION: u16 = 1;
 pub const DEPLOYMENT_BINDING_VERSION: u16 = 1;
 pub const TRANSACTION_WIRE_VERSION: u16 = 1;
 pub const WITNESS_VERSION: u16 = 1;
+pub const PROVER_REQUEST_VERSION: u16 = 1;
 pub const WORKER_PROTOCOL_VERSION: u16 = 1;
 
 pub const K: u32 = 13;
@@ -15,6 +16,7 @@ pub const MAX_TRANSACTION_BYTES: usize = 64 * 1024;
 pub const MAX_WORKER_FRAME_BYTES: usize = 1024 * 1024;
 pub const TRANSACTION_PREFIX_BYTES: usize = 534;
 pub const WITNESS_BYTES: usize = 480;
+pub const PROVER_REQUEST_BYTES: usize = 1010;
 
 pub const CIRCUIT_ID: &str = "1soft/shielded-consensus/halo2-pasta/v1";
 pub const PUBLIC_INPUT_NAMES: [&str; PUBLIC_INPUT_COUNT] = [
@@ -39,6 +41,7 @@ pub const DEPLOYMENT_MAGIC: [u8; 8] = *b"1SFTDEP1";
 pub const KAT_MAGIC: [u8; 8] = *b"1SFTKAT1";
 pub const TRANSACTION_MAGIC: [u8; 8] = *b"1SFTSHD1";
 pub const WITNESS_MAGIC: [u8; 8] = *b"1SFTWIT1";
+pub const PROVER_REQUEST_MAGIC: [u8; 8] = *b"1SFTPRV1";
 pub const WORKER_REQUEST_MAGIC: [u8; 8] = *b"1SFTVRQ1";
 pub const WORKER_RESPONSE_MAGIC: [u8; 8] = *b"1SFTVRS1";
 
