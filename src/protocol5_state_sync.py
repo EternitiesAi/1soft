@@ -181,7 +181,6 @@ class Protocol5StateSync:
     def offer(self, snapshot: dict, trusted_app_hash: bytes) -> int:
         with self.app.lock:
             self._offer = None
-            self._completed = None
             expected = self._expected()
             if expected is None:
                 return OFFER_ABORT
@@ -217,6 +216,7 @@ class Protocol5StateSync:
                             metadata["deployment_id"], metadata["height"],
                             metadata["app_hash"], metadata["payload_sha256"]),
                             "same-height Protocol 5 snapshot differs")
+                self._completed = None
                 self._offer = {
                     "metadata": metadata,
                     "height": metadata["height"],

@@ -103,6 +103,15 @@ class Protocol5StateSyncTests(unittest.TestCase):
                 target.apply_snapshot_chunk(last, chunks[last], "peer")["result"],
                 APPLY_ACCEPT,
             )
+            rejected = copy.deepcopy(snapshot)
+            rejected["hash"] = b"X" * 32
+            self.assertEqual(target.offer_snapshot(
+                rejected, bytes.fromhex(source.app_hash)), OFFER_REJECT)
+            self.assertEqual(
+                target.apply_snapshot_chunk(last, chunks[last], "peer")["result"],
+                APPLY_ACCEPT,
+                "rejected offer must not erase completed-final receipt",
+            )
             target.close()
             reopened = Protocol5Application(
                 target_path, FixtureWorker(), expected_genesis=self.raw)
@@ -141,6 +150,95 @@ class Protocol5StateSyncTests(unittest.TestCase):
             self.assertEqual(reopened.offer_snapshot(
                 snapshot, bytes.fromhex(source.app_hash)), OFFER_ACCEPT)
             source.close(); reopened.close()
+
+    def test_newer_marker_replacement_and_older_rollback_refusal(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = self._source(Path(td) / "source.sqlite")
+            snapshot_one = source.list_snapshots()[0]
+            target = Protocol5Application(
+                Path(td) / "target.sqlite", FixtureWorker(),
+                expected_genesis=self.raw)
+            target.offer_snapshot(snapshot_one, bytes.fromhex(source.app_hash))
+            for index in range(snapshot_one["chunks"]):
+                target.apply_snapshot_chunk(
+                    index, source.load_snapshot_chunk(1, 1, index), "peer")
+            app_hash_one = source.app_hash
+            validator_set = comet_validator_set(self.genesis.value["validators"])
+            votes = [{"address": v.address.hex(), "power": v.power, "block_id_flag": 2}
+                     for v in validator_set.validators]
+            source.finalize_block(
+                [], 2, b"C" * 32, bytes.fromhex(validator_set.hash), votes, b"two")
+            source.commit()
+            snapshot_two = source.list_snapshots()[0]
+            self.assertEqual(target.offer_snapshot(
+                snapshot_two, bytes.fromhex(source.app_hash)), OFFER_ACCEPT)
+            for index in range(snapshot_two["chunks"]):
+                target.apply_snapshot_chunk(
+                    index, source.load_snapshot_chunk(2, 1, index), "peer")
+            self.assertEqual(target.height, 2)
+            self.assertEqual(target.offer_snapshot(
+                snapshot_one, bytes.fromhex(app_hash_one)), OFFER_REJECT)
+            source.close(); target.close()
+
+    def test_short_excess_and_corrupt_chunks_reject_without_install(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = self._source(Path(td) / "source.sqlite")
+            target = Protocol5Application(
+                Path(td) / "target.sqlite", FixtureWorker(),
+                expected_genesis=self.raw)
+            snapshot = source.list_snapshots()[0]
+            first = source.load_snapshot_chunk(1, 1, 0)
+            target.offer_snapshot(snapshot, bytes.fromhex(source.app_hash))
+            self.assertEqual(target.apply_snapshot_chunk(
+                0, first[:-1], "peer")["result"], APPLY_REJECT_SNAPSHOT)
+            target.offer_snapshot(snapshot, bytes.fromhex(source.app_hash))
+            self.assertEqual(target.apply_snapshot_chunk(
+                0, first + b"x", "peer")["result"], APPLY_REJECT_SNAPSHOT)
+            target.offer_snapshot(snapshot, bytes.fromhex(source.app_hash))
+            corrupt = bytearray(first); corrupt[0] ^= 1
+            self.assertEqual(target.apply_snapshot_chunk(
+                0, bytes(corrupt), "peer")["result"], APPLY_ACCEPT)
+            final = None
+            for index in range(1, snapshot["chunks"]):
+                final = target.apply_snapshot_chunk(
+                    index, source.load_snapshot_chunk(1, 1, index), "peer")
+            self.assertEqual(final["result"], APPLY_REJECT_SNAPSHOT)
+            self.assertIsNone(target.genesis)
+            source.close(); target.close()
+
+    def test_sqlite_install_failure_rolls_back_old_marker_and_memory(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = self._source(Path(td) / "source.sqlite")
+            snapshot_one = source.list_snapshots()[0]
+            target = Protocol5Application(
+                Path(td) / "target.sqlite", FixtureWorker(),
+                expected_genesis=self.raw)
+            target.offer_snapshot(snapshot_one, bytes.fromhex(source.app_hash))
+            for index in range(snapshot_one["chunks"]):
+                target.apply_snapshot_chunk(
+                    index, source.load_snapshot_chunk(1, 1, index), "peer")
+            before = (target.height, target.app_hash, copy.deepcopy(target.state))
+            validator_set = comet_validator_set(self.genesis.value["validators"])
+            votes = [{"address": v.address.hex(), "power": v.power, "block_id_flag": 2}
+                     for v in validator_set.validators]
+            source.finalize_block(
+                [], 2, b"C" * 32, bytes.fromhex(validator_set.hash), votes, b"two")
+            source.commit()
+            snapshot_two = source.list_snapshots()[0]
+            target.offer_snapshot(snapshot_two, bytes.fromhex(source.app_hash))
+            target.db.execute(
+                "CREATE TRIGGER fail_history BEFORE INSERT ON history "
+                "BEGIN SELECT RAISE(ABORT, 'disk fault'); END")
+            chunks = [source.load_snapshot_chunk(2, 1, i)
+                      for i in range(snapshot_two["chunks"])]
+            for index, chunk in enumerate(chunks[:-1]):
+                target.apply_snapshot_chunk(index, chunk, "peer")
+            with self.assertRaises(Exception):
+                target.apply_snapshot_chunk(len(chunks) - 1, chunks[-1], "peer")
+            self.assertEqual((target.height, target.app_hash, target.state), before)
+            self.assertEqual(target.db.execute(
+                "SELECT height,app_hash FROM committed").fetchone(), before[:2])
+            source.close(); target.close()
 
     def test_first_post_sync_commit_replaces_marker_with_only_real_response(self):
         with tempfile.TemporaryDirectory() as td:
