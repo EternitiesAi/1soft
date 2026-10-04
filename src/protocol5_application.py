@@ -462,6 +462,9 @@ class Protocol5Application:
     def _commit_test_hook(self, phase: str) -> None:
         """Private seam overridden only by the run-token-gated test server."""
 
+    def _state_sync_test_hook(self, phase: str) -> None:
+        """Private seam overridden only by the run-token-gated test server."""
+
     def commit(self) -> dict:
         with self.lock:
             if self.pending is None:

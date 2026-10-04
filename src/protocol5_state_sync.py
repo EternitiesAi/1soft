@@ -287,6 +287,7 @@ class Protocol5StateSync:
             if app.db.in_transaction:
                 app.db.execute("ROLLBACK")
             raise
+        app._state_sync_test_hook("after_snapshot_commit")
         app.genesis = genesis
         from protocol5_encoding import comet_validator_set
         app.validator_set = comet_validator_set(genesis.value["validators"])

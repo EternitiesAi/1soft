@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -16,39 +17,76 @@ from serve_abci_p5 import build_parser, serve
 
 BEFORE_COMMIT_EXIT = 94
 AFTER_COMMIT_EXIT = 95
+AFTER_SNAPSHOT_COMMIT_EXIT = 96
 
 
 class CrashProtocol5Application(Protocol5Application):
     """Test-only process crash hook authenticated by a private run token."""
 
     def __init__(self, *args, crash_phase: str, run_token: str,
-                 run_token_sha256: str, **kwargs):
+                 run_token_sha256: str, event_log: Path | None = None, **kwargs):
         if (type(run_token) is not str or not run_token
                 or hashlib.sha256(run_token.encode("ascii", "strict")).hexdigest()
                 != run_token_sha256):
             raise ValueError("Protocol 5 crash run token differs")
-        if crash_phase not in ("before_commit", "after_commit"):
+        if crash_phase not in (
+                "observe", "before_commit", "after_commit", "after_snapshot_commit"):
             raise ValueError("unsupported Protocol 5 crash phase")
         self.crash_phase = crash_phase
+        self.event_log = event_log
         super().__init__(*args, **kwargs)
+
+    def _event(self, kind: str, **values) -> None:
+        if self.event_log is None:
+            return
+        raw = (json.dumps(
+            {"kind": kind, **values}, sort_keys=True,
+            separators=(",", ":")) + "\n").encode("utf-8")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(self.event_log, flags, 0o600)
+        try:
+            os.write(descriptor, raw)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     def _commit_test_hook(self, phase: str) -> None:
         if phase == self.crash_phase:
             os._exit(BEFORE_COMMIT_EXIT if phase == "before_commit"
                      else AFTER_COMMIT_EXIT)
 
+    def _state_sync_test_hook(self, phase: str) -> None:
+        self._event(phase, height=self.height)
+        if phase == self.crash_phase:
+            os._exit(AFTER_SNAPSHOT_COMMIT_EXIT)
+
+    def offer_snapshot(self, snapshot: dict, app_hash: bytes):
+        result = super().offer_snapshot(snapshot, app_hash)
+        self._event(
+            "offer_snapshot", height=snapshot.get("height"), result=result)
+        return result
+
+    def apply_snapshot_chunk(self, index: int, chunk: bytes, sender: str):
+        result = super().apply_snapshot_chunk(index, chunk, sender)
+        self._event("apply_snapshot_chunk", index=index, result=result["result"])
+        return result
+
 
 def main() -> None:
     parser = build_parser()
     parser.add_argument("--run-token", required=True)
     parser.add_argument("--run-token-sha256", required=True)
+    parser.add_argument("--event-log", type=Path)
     parser.add_argument(
-        "--crash-phase", required=True, choices=("before_commit", "after_commit"))
+        "--crash-phase", required=True,
+        choices=("observe", "before_commit", "after_commit", "after_snapshot_commit"))
     args = parser.parse_args()
     serve(
         args, application_type=CrashProtocol5Application,
         crash_phase=args.crash_phase, run_token=args.run_token,
-        run_token_sha256=args.run_token_sha256)
+        run_token_sha256=args.run_token_sha256, event_log=args.event_log)
 
 
 if __name__ == "__main__":
