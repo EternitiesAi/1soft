@@ -5,7 +5,12 @@ import hashlib
 import os
 from pathlib import Path
 import struct
+import tempfile
+import time
 import unittest
+from unittest.mock import patch
+
+import protocol5_controller as controller_module
 
 from protocol5_controller import (
     CLIENT_GENESIS_MAGIC, CLIENT_MAGIC, CLIENT_NULLIFIER_MAGIC,
@@ -146,6 +151,106 @@ class Protocol5ControllerTests(unittest.TestCase):
             with self.subTest(value=repr(bad)), self.assertRaises(ValueError):
                 self.controller.derive_owner_key(bad)
         self.assertEqual(len(self.controller.captured), before)
+
+    def executable(self, root: Path, body: str) -> tuple[Path, str]:
+        path = root / "controller"
+        path.write_text("#!/usr/bin/python3\n" + body, encoding="utf-8")
+        path.chmod(0o700)
+        return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def test_measured_inode_is_pinned_before_bounded_stdin_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.chmod(0o700)
+            binary, digest = self.executable(
+                root,
+                "import sys\n"
+                "raw=sys.stdin.buffer.read()\n"
+                "assert len(raw)==44 and raw[:8]==b'1SFTCLI1'\n"
+                "sys.stdout.buffer.write(b'1SFTKEY1'+(1).to_bytes(2,'little')"
+                "+(17).to_bytes(32,'little'))\n",
+            )
+            receipts = []
+            controller = DevelopmentController(
+                binary, binary, self.prefix, receipts,
+                expected_client_sha256=digest,
+                expected_prover_sha256=digest)
+            result = controller.derive_owner_key(
+                (9).to_bytes(32, "little"))
+            self.assertEqual(result, (17).to_bytes(32, "little"))
+            self.assertEqual(len(receipts), 1)
+            self.assertEqual(receipts[0]["executable_sha256"], digest)
+            self.assertEqual(receipts[0]["exit_code"], 0)
+
+    def test_wrong_pin_and_overbound_output_wipe_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.chmod(0o700)
+            binary, digest = self.executable(
+                root,
+                "import sys\n"
+                "sys.stdin.buffer.read()\n"
+                "sys.stdout.buffer.write(b'x'*4096)\n",
+            )
+            controller = DevelopmentController(
+                binary, binary, self.prefix,
+                expected_client_sha256="00" * 32,
+                expected_prover_sha256=digest)
+            request = bytearray(b"secret-request")
+            with self.assertRaisesRegex(RuntimeError, "digest differs"):
+                controller._run(
+                    "development-client-test", binary, request,
+                    maximum_length=8)
+            self.assertEqual(request, b"\0" * len(request))
+            controller = DevelopmentController(
+                binary, binary, self.prefix,
+                expected_client_sha256=digest,
+                expected_prover_sha256=digest)
+            request = bytearray(b"secret-request")
+            with self.assertRaisesRegex(RuntimeError, "stdout exceeded"):
+                controller._run(
+                    "development-client-test", binary, request,
+                    maximum_length=8)
+            self.assertEqual(request, b"\0" * len(request))
+
+    def test_overbound_client_request_is_wiped_before_open_or_launch(self):
+        controller = DevelopmentController(
+            Path("/must-not-open-client"), Path("/must-not-open-prover"),
+            self.prefix)
+        request = bytearray(b"x" * (
+            controller_module.MAX_CLIENT_REQUEST_BYTES + 1))
+        with patch.object(controller_module, "_open_executable") as opened:
+            with self.assertRaisesRegex(ValueError, "request exceeds bound"):
+                controller._run(
+                    "development-client-test", controller.client, request)
+        opened.assert_not_called()
+        self.assertEqual(request, b"\0" * len(request))
+
+    def test_client_watchdog_is_one_elapsed_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            root.chmod(0o700)
+            binary, digest = self.executable(
+                root,
+                "import sys,time\n"
+                "sys.stdin.buffer.read()\n"
+                "time.sleep(2)\n",
+            )
+            controller = DevelopmentController(
+                binary, binary, self.prefix,
+                expected_client_sha256=digest,
+                expected_prover_sha256=digest)
+            request = bytearray(b"secret-request")
+            started = time.monotonic()
+            with patch.object(
+                    controller_module, "CLIENT_TIMEOUT_SECONDS", 0.05):
+                with self.assertRaisesRegex(
+                        TimeoutError, "watchdog"):
+                    controller._run(
+                        "development-client-test", binary, request,
+                        maximum_length=8)
+            self.assertLess(time.monotonic() - started, 1.0)
+            self.assertEqual(request, b"\0" * len(request))
 
     @unittest.skipUnless(
         os.environ.get("ONE_P5_CLIENT") and os.environ.get("ONE_P5_PROVER"),

@@ -10,8 +10,11 @@ from dataclasses import dataclass
 import hashlib
 import os
 from pathlib import Path
+import selectors
+import stat
 import struct
 import subprocess
+import time
 
 from protocol5_encoding import (
     PALLAS_BASE_MODULUS, Transaction, field_bytes, genesis_document,
@@ -30,6 +33,10 @@ SPEND_TO_RECIPIENT_KEYS_OPCODE = 4
 DERIVE_NOTE_NULLIFIER_OPCODE = 5
 MAX_CLIENT_REQUEST_BYTES = 1966
 PROVER_REQUEST_BYTES = 1010
+MAX_EXECUTABLE_BYTES = 256 * 1024 * 1024
+MAX_STDERR_BYTES = 64 * 1024
+CLIENT_TIMEOUT_SECONDS = 30.0
+PROVER_TIMEOUT_SECONDS = 300.0
 
 
 def _field(value: bytes, label: str) -> bytes:
@@ -94,12 +101,131 @@ def development_note(expiry: int, value: int) -> SecretNote:
     return SecretNote(expiry, value, random_field(), random_field(), random_field())
 
 
-def _sha(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+def _digest_pin(value: str | None, label: str) -> str | None:
+    if value is not None and (
+            type(value) is not str or len(value) != 64
+            or any(character not in "0123456789abcdef"
+                   for character in value)):
+        raise ValueError("invalid expected " + label + " SHA-256")
+    return value
+
+
+def _open_executable(path: Path) -> tuple[int, str]:
+    selected = Path(os.path.abspath(path))
+    for parent in (selected.parent, *selected.parent.parents):
+        if parent.is_symlink():
+            raise ValueError("controller executable has a symlink parent")
+    descriptor = os.open(
+        selected,
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_uid not in {0, os.geteuid()}
+                or metadata.st_mode & 0o022
+                or not metadata.st_mode & 0o111
+                or not 0 < metadata.st_size <= MAX_EXECUTABLE_BYTES):
+            raise ValueError("unsafe controller executable")
+        digest = hashlib.sha256()
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
             digest.update(chunk)
-    return digest.hexdigest()
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        return descriptor, digest.hexdigest()
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _remaining(deadline: float) -> float:
+    value = deadline - time.monotonic()
+    if value <= 0:
+        raise TimeoutError("controller process exceeded its watchdog")
+    return value
+
+
+def _bounded_exchange(
+        process: subprocess.Popen, request: bytearray, *,
+        maximum_length: int, timeout_seconds: float) -> tuple[bytes, bytes]:
+    deadline = time.monotonic() + timeout_seconds
+    selector = selectors.DefaultSelector()
+    streams = {
+        "stdin": process.stdin,
+        "stdout": process.stdout,
+        "stderr": process.stderr,
+    }
+    if any(stream is None for stream in streams.values()):
+        raise RuntimeError("controller process pipes unavailable")
+    for stream in streams.values():
+        os.set_blocking(stream.fileno(), False)
+    selector.register(streams["stdin"], selectors.EVENT_WRITE, "stdin")
+    selector.register(streams["stdout"], selectors.EVENT_READ, "stdout")
+    selector.register(streams["stderr"], selectors.EVENT_READ, "stderr")
+    offset = 0
+    output = bytearray()
+    error = bytearray()
+
+    def close_stream(name: str) -> None:
+        stream = streams[name]
+        if stream is None:
+            return
+        try:
+            selector.unregister(stream)
+        except KeyError:
+            pass
+        stream.close()
+        streams[name] = None
+
+    try:
+        while selector.get_map():
+            events = selector.select(_remaining(deadline))
+            if not events:
+                raise TimeoutError(
+                    "controller process exceeded its watchdog")
+            for key, _mask in events:
+                name = key.data
+                stream = key.fileobj
+                if name == "stdin":
+                    try:
+                        written = os.write(
+                            stream.fileno(), memoryview(request)[offset:])
+                    except BrokenPipeError:
+                        close_stream(name)
+                        continue
+                    if written <= 0:
+                        raise RuntimeError("controller stdin write stalled")
+                    offset += written
+                    if offset == len(request):
+                        close_stream(name)
+                    continue
+                limit = (maximum_length if name == "stdout"
+                         else MAX_STDERR_BYTES)
+                target = output if name == "stdout" else error
+                chunk = os.read(
+                    stream.fileno(), min(65_536, limit + 1 - len(target)))
+                if not chunk:
+                    close_stream(name)
+                    continue
+                target.extend(chunk)
+                if len(target) > limit:
+                    raise RuntimeError(
+                        "controller " + name + " exceeded bound")
+        process.wait(timeout=_remaining(deadline))
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError(
+            "controller process exceeded its watchdog") from exc
+    finally:
+        selector.close()
+        for name in tuple(streams):
+            stream = streams[name]
+            if stream is not None:
+                stream.close()
+                streams[name] = None
+    return bytes(output), bytes(error)
 
 
 def _start_ticks(pid: int) -> int:
@@ -111,51 +237,95 @@ class DevelopmentController:
     """Controller-only Rust client/prover adapter; secrets use bounded stdin."""
 
     def __init__(self, client: Path, prover: Path, genesis_prefix: dict,
-                 receipts: list[dict] | None = None):
+                 receipts: list[dict] | None = None, *,
+                 expected_client_sha256: str | None = None,
+                 expected_prover_sha256: str | None = None):
         self.client = Path(client)
         self.prover = Path(prover)
         self.prefix = genesis_prefix
         self.receipts = receipts if receipts is not None else []
+        self.expected_client_sha256 = _digest_pin(
+            expected_client_sha256, "client")
+        self.expected_prover_sha256 = _digest_pin(
+            expected_prover_sha256, "prover")
+
+    def validate_executables(self) -> dict[str, str]:
+        """Measure both controller binaries before any secret-bearing call."""
+        result = {}
+        for role, binary, expected in (
+                ("client", self.client, self.expected_client_sha256),
+                ("prover", self.prover, self.expected_prover_sha256)):
+            descriptor = None
+            try:
+                descriptor, digest = _open_executable(binary)
+                if expected is not None and digest != expected:
+                    raise RuntimeError(
+                        "development " + role + " executable digest differs")
+                result[role + "_sha256"] = digest
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
+        return result
 
     def _run(self, role: str, binary: Path, request: bytearray,
              *, expected_length: int | None = None,
              maximum_length: int = 131_072) -> bytes:
-        if type(request) is not bytearray or not request:
+        if type(request) is not bytearray:
             raise ValueError("invalid controller request")
-        if len(request) > MAX_CLIENT_REQUEST_BYTES and binary == self.client:
-            raise ValueError("development client request exceeds bound")
-        process = subprocess.Popen(
-            [str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-        )
-        receipt = {
-            "role": role,
-            "node": None,
-            "pid": process.pid,
-            "start_ticks": _start_ticks(process.pid),
-            "executable_sha256": _sha(binary),
-        }
-        self.receipts.append(receipt)
-        output = b""
-        error = b""
+        descriptor = None
+        process = None
         try:
-            output, error = process.communicate(bytes(request), timeout=120)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            output, error = process.communicate(timeout=10)
-            raise RuntimeError(role + " exceeded its watchdog")
+            if not request:
+                raise ValueError("invalid controller request")
+            if (len(request) > MAX_CLIENT_REQUEST_BYTES
+                    and binary == self.client):
+                raise ValueError("development client request exceeds bound")
+            descriptor, executable_sha256 = _open_executable(binary)
+            is_prover = role == "development-prover"
+            expected = (self.expected_prover_sha256
+                        if is_prover
+                        else self.expected_client_sha256)
+            if expected is not None and executable_sha256 != expected:
+                raise RuntimeError(role + " executable digest differs")
+            process = subprocess.Popen(
+                [f"/proc/self/fd/{descriptor}"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+                pass_fds=(descriptor,), close_fds=True,
+            )
+            receipt = {
+                "role": role,
+                "node": None,
+                "pid": process.pid,
+                "start_ticks": _start_ticks(process.pid),
+                "executable_sha256": executable_sha256,
+            }
+            self.receipts.append(receipt)
+            timeout_seconds = (
+                PROVER_TIMEOUT_SECONDS
+                if is_prover else CLIENT_TIMEOUT_SECONDS)
+            output, error = _bounded_exchange(
+                process, request, maximum_length=maximum_length,
+                timeout_seconds=timeout_seconds)
+            receipt["exit_code"] = process.returncode
+            receipt["stdout_sha256"] = hashlib.sha256(output).hexdigest()
+            receipt["stderr_sha256"] = hashlib.sha256(error).hexdigest()
+            if process.returncode != 0 or error:
+                raise RuntimeError(role + " failed closed")
+            if expected_length is not None and len(output) != expected_length:
+                raise RuntimeError(role + " output length differs")
+            return output
         finally:
             request[:] = b"\0" * len(request)
-        receipt["exit_code"] = process.returncode
-        receipt["stdout_sha256"] = hashlib.sha256(output).hexdigest()
-        receipt["stderr_sha256"] = hashlib.sha256(error).hexdigest()
-        if process.returncode != 0 or error:
-            raise RuntimeError(role + " failed closed")
-        if len(output) > maximum_length:
-            raise RuntimeError(role + " output exceeded bound")
-        if expected_length is not None and len(output) != expected_length:
-            raise RuntimeError(role + " output length differs")
-        return output
+            if process is not None and process.poll() is None:
+                process.kill()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+            if descriptor is not None:
+                os.close(descriptor)
 
     def _domain_fields(self) -> tuple[bytes, ...]:
         return (
