@@ -324,6 +324,32 @@ class Protocol5WalletRunnerTests(unittest.TestCase):
             self.assertFalse((root/"report.json.private").exists())
             self.assertEqual(report["checks"], [])
 
+    def test_wallet_network_stages_runtime_beside_private_evidence(self):
+        module = runner()
+        testcase = self
+        with tempfile.TemporaryDirectory() as directory:
+            private = Path(directory) / "report.json.private"
+            private.mkdir(mode=0o700)
+
+            def fake_base_init(network, paths, output, report, *,
+                               include_target, runtime_parent=None):
+                testcase.assertFalse(include_target)
+                testcase.assertEqual(Path(runtime_parent), private)
+                network.temp = tempfile.TemporaryDirectory(
+                    prefix="one-protocol5-engine-", dir=runtime_parent)
+                network.runtime = Path(network.temp.name)
+                network.homes = network.runtime / "nodes"
+                network.homes.mkdir()
+
+            with patch.object(module.Protocol5Network, "__init__", fake_base_init):
+                network = module.WalletNetwork(
+                    {}, private / "network-report.json", {}, private)
+
+            self.assertEqual(network.runtime, private / "network")
+            self.assertEqual(network.homes, private / "network/nodes")
+            self.assertTrue(network.homes.is_dir())
+            network.temp.cleanup()
+
 
 
     def test_artifact_manifest_refuses_omissions_and_unknown_names(self):

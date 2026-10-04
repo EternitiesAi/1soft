@@ -690,7 +690,11 @@ def _same_process(pid: int, ticks: int) -> bool:
 class WalletNetwork(Protocol5Network):
     """The existing real four-node launcher, retaining this run's private data."""
     def __init__(self, paths, output, report, private: Path):
-        super().__init__(paths, output, report, include_target=False)
+        # Build the disposable engine tree beside its retained private target.
+        # A default /tmp runtime may be a different filesystem, where rename(2)
+        # cannot atomically transfer ownership into the evidence directory.
+        super().__init__(paths, output, report, include_target=False,
+                         runtime_parent=private)
         target = private / "network"
         os.rename(self.runtime, target)
         self.runtime = target

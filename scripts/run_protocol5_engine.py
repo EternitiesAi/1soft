@@ -194,12 +194,18 @@ class Protocol5Network:
     """Owned one-host CometBFT and ABCI processes for a single qualification run."""
 
     def __init__(self, paths: dict[str, Path], output: Path, report: dict,
-                 *, include_target: bool):
+                 *, include_target: bool,
+                 runtime_parent: Path | None = None):
         self.paths = paths
         self.output = output
         self.report = report
         self.include_target = include_target
-        self.temp = tempfile.TemporaryDirectory(prefix="one-protocol5-engine-")
+        if runtime_parent is not None:
+            runtime_parent = Path(runtime_parent)
+            if runtime_parent.is_symlink() or not runtime_parent.is_dir():
+                raise ValueError("unsafe Protocol 5 runtime parent")
+        self.temp = tempfile.TemporaryDirectory(
+            prefix="one-protocol5-engine-", dir=runtime_parent)
         self.runtime = Path(self.temp.name)
         self.homes = self.runtime / "nodes"
         self.apps: dict[int, subprocess.Popen] = {}
