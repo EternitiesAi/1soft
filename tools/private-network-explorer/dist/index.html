@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Private 1soft network explorer. Inspect illustrative blocks, native payments and accounts with explicit data provenance.">
+  <meta name="theme-color" content="#f7f8fa">
+  <meta name="robots" content="noindex, nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>1soft · Network Explorer</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to explorer</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#/overview" aria-label="1soft Explorer home"><span class="brand-icon">1</span><span>1soft<span class="brand-sub">NETWORK EXPLORER</span></span></a>
+      <div class="nav-label">WORKSPACE</div>
+      <nav aria-label="Explorer sections">
+        <a href="#/overview" data-nav="overview"><span data-icon="overview"></span>Overview</a>
+        <a href="#/blocks" data-nav="blocks"><span data-icon="blocks"></span>Blocks</a>
+        <a href="#/transactions" data-nav="transactions"><span data-icon="transactions"></span>Transactions</a>
+        <a href="#/addresses" data-nav="addresses"><span data-icon="addresses"></span>Addresses</a>
+        <a href="#/network" data-nav="network"><span data-icon="network"></span>Network</a>
+      </nav>
+      <div class="sidebar-bottom"><div class="private-card"><span data-icon="lock"></span><div><strong>Private workspace</strong><span>Owner access only</span></div></div><div class="byline">ETERNITIES <span> / </span> 1soft</div><a href="#/network" class="revision">Source 1984266 <span>↗</span></a></div>
+    </aside>
+    <div class="main-shell">
+      <header class="topbar">
+        <form id="search-form" role="search"><span data-icon="search"></span><label class="sr-only" for="global-search">Search block height, hash or address</label><input id="global-search" name="q" type="search" placeholder="Search height, transaction hash or address" autocomplete="off" maxlength="200"><kbd>/</kbd><button class="search-submit" type="submit" aria-label="Search">↵</button></form>
+        <label class="mode-control"><span class="sr-only">Data source</span><select id="data-mode"><option value="fixture">Fixture ledger</option><option value="live">Live network</option></select></label>
+        <span class="private-pill"><span data-icon="lock"></span>PRIVATE</span>
+      </header>
+      <main id="content" tabindex="-1" aria-label="Explorer"><div class="loading">Opening the ledger…</div></main>
+      <footer><span>1soft · native payments for people & agents</span><a href="#/network">Data provenance & implementation scope <span>↗</span></a></footer>
+    </div>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
