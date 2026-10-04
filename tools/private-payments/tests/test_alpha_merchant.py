@@ -139,6 +139,26 @@ class AlphaMerchantTests(unittest.TestCase):
                 with self.assertRaises(ValueError):m.fulfill(q,header,raw)
             self.c.now+=1
             self.assertIsNone(m.selected(q)['fulfillment'])
+    def test_historical_retry_persists_final_clock_across_cold_reopen(self):
+        row=self.paid();rid,q,e,h,resource,wire,raw,header=row
+        with patch('p4_alpha_custody.time.time_ns',self.c.clock),self.merchant() as m:
+            self.enroll(m,q,wire,raw);first=m.fulfill(q,header,raw)
+        self.c.now+=1
+        with patch('p4_alpha_custody.time.time_ns',self.c.clock),self.merchant() as m:
+            original=m._catalog;calls=0
+            def advance_during_verification(now):
+                nonlocal calls
+                result=original(now);calls+=1
+                if calls==1:self.c.now+=10
+                return result
+            with patch.object(m,'_catalog',side_effect=advance_during_verification):
+                again=m.fulfill(q,header,raw)
+            self.assertEqual(again['fulfilled_ns'],first['fulfilled_ns'])
+            self.assertEqual(m.db.execute('SELECT last_ns FROM config').fetchone()[0],self.c.now)
+        self.c.now-=5
+        with self.assertRaises(ValueError):self.merchant()
+        self.c.now+=5
+        with self.merchant() as m:self.assertEqual(m.selected(q)['fulfillment']['fulfilled_ns'],first['fulfilled_ns'])
     def test_packet_depth_is_bounded_before_decode(self):
         from merchant_alpha import parse_packet
         with self.assertRaises(ValueError):parse_packet(b'['*17+b'0'+b']'*17)

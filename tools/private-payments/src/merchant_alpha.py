@@ -147,6 +147,7 @@ class AlphaMerchantBook:
                 self._advance(end)
                 self._live(self._commit_row,end)
                 self._advance(self._observed_ns)
+            if write:self._advance(self._observed_ns)
             self.db.execute('COMMIT')
         except BaseException:
             if self.db.in_transaction:self.db.execute('ROLLBACK')
