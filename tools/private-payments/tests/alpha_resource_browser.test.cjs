@@ -5,6 +5,9 @@ const test=require('node:test'),assert=require('node:assert/strict'),{spawn}=req
 const readline=require('node:readline'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const {chromium}=require(process.env.ONE_BROWSER_TEST_DRIVER||'playwright-core');
 const PASSWORD='fixture passphrase not for funds',sha=x=>crypto.createHash('sha256').update(x).digest('hex');
+async function waitForLoopback(origin){const http=require('node:http'),limit=Date.now()+15000;
+  while(true){try{const status=await new Promise((resolve,reject)=>{const req=http.get(origin+'/',res=>{res.resume();res.once('end',()=>resolve(res.statusCode));});req.once('error',reject);req.setTimeout(1000,()=>req.destroy(Error('readiness timeout')));});assert.equal(status,200);return;
+  }catch(e){if(e.code!=='ECONNREFUSED'||Date.now()>=limit)throw e;await new Promise(r=>setTimeout(r,100));}}}
 async function settled(page){await page.waitForFunction(()=>!document.querySelector('#feedback').textContent.startsWith('Working'));}
 async function select(page,invoice){await page.locator('.request-item').filter({has:page.locator('b').filter({hasText:new RegExp('^'+invoice.amount+' DEV$')})}).click();
   assert.equal(await page.locator('#request-id').textContent(),invoice.request_id);}
@@ -61,7 +64,7 @@ test('three real browser payments retrieve original resources with a pending hol
     const rid=route.request().postDataJSON().request_id;calls.push({path:'/api/merchant-retrieve',request_id:rid,generation:fixture.generation});
     if(!lost&&rid===fixture.invoices[0].request_id){lost=true;const response=await route.fetch({maxRetries:0,maxRedirects:0});assert.equal(response.status(),200);
       assert.equal(sha(await response.body()),fixture.invoices[0].resource_sha256);await route.abort('failed');}else await route.continue();});
-  const response=await page.goto(fixture.origin+'/');assert.match(response.headers()['content-security-policy'],/connect-src 'self'/);
+  await waitForLoopback(fixture.origin);const response=await page.goto(fixture.origin+'/');assert.match(response.headers()['content-security-policy'],/connect-src 'self'/);
   await page.waitForFunction(()=>document.querySelector('#feedback').textContent.startsWith('Ready.'));
   for(const [i,invoice] of fixture.invoices.entries()){
     await select(page,invoice);await page.locator('#role').selectOption(invoice.role);await page.locator('#prepare').click();await page.locator('#payment-review').waitFor({state:'visible'});
@@ -91,6 +94,7 @@ test('three real browser payments retrieve original resources with a pending hol
     await page.locator('#reconcile').click();await settled(page);assert.equal(await page.locator('#progress-title').textContent(),'Execution reconciled');
   }
   const restarted=await command({operation:'restart-listeners'});assert.equal(restarted.passed,true);fixture=restarted.ready;
+  await waitForLoopback(fixture.origin);
   await page.goto(fixture.origin+'/');await page.waitForFunction(()=>document.querySelector('#feedback').textContent.startsWith('Ready.'));
   for(const invoice of fixture.invoices){await select(page,invoice);await consent(page);
     downloads.push(await saveDownload(page,fixture,invoice,'cold','resource'));downloads.push(await saveDownload(page,fixture,invoice,'cold','proof'));
