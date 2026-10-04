@@ -38,7 +38,7 @@ def main():
     need(not out.exists() and not out.is_relative_to(ROOT),'new external evidence required');out.mkdir(mode=0o700)
     source=evidence.source_identity(ROOT);private_new(out/'source.json',encode(source))
     runtime=Path.home()/('1sm-'+uuid.uuid4().hex[:12]);runtime.mkdir(mode=0o700)
-    workspace=runtime/'net';invoices=runtime/'invoices';net=None;servers=[];allchildren=[];generation=0;rows=[]
+    workspace=runtime/'net';invoices=runtime/'invoices';net=None;servers=[];allchildren=[];generation=0;rows=[];started=time.monotonic()
     report=dict(schema=1,format='1soft/alpha-merchant-actual-acceptance/v1',status='running',runtime=str(runtime),
         source={k:source[k] for k in ('commit','tree','source_id','tracked_files')},engine_sha256=PIN_SHA,checks=[],payments=[],
         owned_processes=[],real_funds=False,public_network=False,onchain_privacy=False,independent_operators=False,
@@ -193,7 +193,7 @@ def main():
             if p.poll() is None:
                 try:p.terminate();p.wait(5)
                 except BaseException:report['cleanup_errors'].append('owned_child_cleanup_failed')
-        report.update(all_owned_processes_reaped=all(p.poll() is not None for p in allchildren),original_runtime_preserved=runtime.is_dir(),elapsed_seconds=time.monotonic())
+        report.update(all_owned_processes_reaped=all(p.poll() is not None for p in allchildren),original_runtime_preserved=runtime.is_dir(),elapsed_seconds=time.monotonic()-started)
         if report['cleanup_errors'] or not report['all_owned_processes_reaped']:report['status']='failed'
         evidence.store_json(out/'result.json',report);save();print(encode(report).decode(),flush=True)
     return 0 if report['status']=='passed' else 1
