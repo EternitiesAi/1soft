@@ -68,7 +68,7 @@ class Protocol5StateSyncRunnerTests(unittest.TestCase):
                 (root / f"node{index}/config/addrbook.json").exists()
                 for index in range(5)))
 
-    def test_restoring_partition_restarts_every_running_affected_engine(self):
+    def test_restoring_partition_preserves_running_marker_only_target(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             for node in range(5):
@@ -76,6 +76,8 @@ class Protocol5StateSyncRunnerTests(unittest.TestCase):
                 config.parent.mkdir(parents=True)
                 config.write_text(
                     '[p2p]\npersistent_peers = "partitioned"\n', encoding="utf-8")
+                (config.parent / "addrbook.json").write_text(
+                    "live-address-book", encoding="utf-8")
 
             class Network:
                 homes = root
@@ -99,8 +101,13 @@ class Protocol5StateSyncRunnerTests(unittest.TestCase):
             _restore_source_peers(network)
             self.assertEqual(network.events, [
                 ("stop", 0), ("stop", 1), ("stop", 2), ("stop", 3),
-                ("stop", 4), ("start", 1), ("start", 2), ("start", 3),
-                ("start", 0), ("start", 4)])
+                ("start", 1), ("start", 2), ("start", 3), ("start", 0)])
+            self.assertIn(4, network.engines)
+            self.assertTrue(
+                (root / "node4/config/addrbook.json").is_file())
+            self.assertFalse(any(
+                (root / f"node{index}/config/addrbook.json").exists()
+                for index in range(4)))
             for index in range(5):
                 config = (
                     root / f"node{index}/config/config.toml").read_text()

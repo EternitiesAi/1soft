@@ -310,16 +310,19 @@ def _prepare_snapshot_provider(
 
 
 def _restore_source_peers(network: Protocol5Network) -> None:
-    running = tuple(sorted(network.engines))
+    running_sources = tuple(
+        index for index in range(4) if index in network.engines)
+    target_running = 4 in network.engines
     catchup_height = min(network.height(index) for index in (1, 2, 3))
-    for index in running:
+    for index in running_sources:
         network.stop_engine(index)
     for index in range(5):
         _set_persistent_peers(
             network, index, tuple(peer for peer in range(5) if peer != index))
-    _remove_addrbooks(network, tuple(range(5)))
-    for index in (1, 2, 3, 0, 4):
-        if index in running:
+    _remove_addrbooks(
+        network, tuple(range(4)) if target_running else tuple(range(5)))
+    for index in (1, 2, 3, 0):
+        if index in running_sources:
             network.start_engine(index)
     wait_until(lambda: network.height(0) >= catchup_height, 90)
 
