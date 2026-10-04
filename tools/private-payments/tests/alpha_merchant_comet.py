@@ -105,7 +105,7 @@ def main():
                 qid=q['quote_sha256'];req=out/(role+'-required.txt');exp=out/(role+'-expectation.json')
                 merchant(role+'-quote-export','export-quote',['--quote-id',qid,'--required-out',req,'--expectation-out',exp])
                 with ops.book(read_only=True) as book:quote=book.selected(qid)
-                svc.refresh();svc.sync(expected_revision=svc.state()['wallet']['revision'])
+                svc.refresh(expected_tip=svc.store.current()['checkpoint']['id']);svc.sync(expected_revision=svc.state()['wallet']['revision'])
                 rid=desk.import_invoice(quote['required_header'],quote['expectation'],dict(description='private invoice',contact='',
                     content='PRIVATE_ALPHA_MERCHANT_SENTINEL'),invoice_password=PASSWORD)['request_id']
                 prepared=desk.prepare(rid,role,valid_until=svc.state()['wallet']['state_height']+32)
