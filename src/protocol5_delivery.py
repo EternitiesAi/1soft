@@ -780,6 +780,20 @@ class Protocol5Delivery:
                 "endpoint_admission_is_execution": False,
             }
 
+    def status(self) -> dict:
+        """Return the closed public identity and finite journal occupancy."""
+        with self.atomic(write=False):
+            snapshot = self._snapshot()
+        return {
+            "format": DELIVERY_FORMAT,
+            "journal_id": snapshot["config"]["journal_id"],
+            "wallet_id": snapshot["config"]["wallet_id"],
+            "revision": snapshot["revision"],
+            "endpoint": self.endpoint,
+            "attempts": len(snapshot["attempts"]),
+            "observations": len(snapshot["observations"]),
+        }
+
     def import_receipt(self, raw: bytes) -> dict:
         _need(type(raw) is bytes
               and 0 < len(raw) <= MAX_STATE_OBSERVATION_BYTES,

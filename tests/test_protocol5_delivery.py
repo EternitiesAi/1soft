@@ -182,6 +182,17 @@ class Protocol5DeliveryTests(unittest.TestCase):
         self.assertEqual(review["confirmation"], confirmation)
         self.assertNotIn(self.raw.hex(), canonical_json(review).decode())
 
+    def test_status_is_closed_and_contains_no_transaction_bytes(self):
+        value = self.delivery.status()
+        self.assertEqual(set(value), {
+            "format", "journal_id", "wallet_id", "revision", "endpoint",
+            "attempts", "observations",
+        })
+        self.assertEqual(value["wallet_id"], self.wallet_id)
+        self.assertEqual(value["attempts"], 0)
+        self.assertEqual(value["observations"], 0)
+        self.assertNotIn(self.raw.hex(), repr(value))
+
     def test_attempt_is_durable_before_io_and_never_retried(self):
         review, confirmation = self.prepared()
         self.delivery.close()

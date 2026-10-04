@@ -62,6 +62,7 @@ exact = {
     "tests/test_protocol5_controller.py", "tests/test_protocol5_delivery.py",
     "tests/test_protocol5_engine_runner.py", "tests/test_protocol5_note_capsule.py",
     "tests/test_protocol5_state_reader.py", "tests/test_protocol5_wallet.py",
+    "tests/test_protocol5_transport.py",
     "tests/test_protocol5_wallet_cli.py", "tests/test_protocol5_wallet_gate.py",
     "tests/test_protocol5_wallet_runner.py",
     "tools/release/check_protocol5_wallet.py",
@@ -92,7 +93,7 @@ git diff --quiet "$PHASE8_BASE" --   tools/privacy-proof-benchmark tools/shielde
 - Private note handoff: add `src/protocol5_note_capsule.py` and `tests/test_protocol5_note_capsule.py`.
 - Authenticated reads: add `src/protocol5_state_reader.py`, `scripts/read_protocol5_state.py`, and `tests/test_protocol5_state_reader.py`.
 - Wallet: add `src/protocol5_wallet.py` and `tests/test_protocol5_wallet.py`.
-- Delivery: add `src/protocol5_transport.py`, `src/protocol5_delivery.py`, and `tests/test_protocol5_delivery.py`.
+- Delivery: add `src/protocol5_transport.py`, `src/protocol5_delivery.py`, `tests/test_protocol5_transport.py`, and `tests/test_protocol5_delivery.py`.
 - Operator entrypoint: add `scripts/protocol5_wallet.py` and `tests/test_protocol5_wallet_cli.py`.
 - Qualification: add `scripts/run_protocol5_wallet_engine.py`, `tools/release/check_protocol5_wallet.py`, `tests/test_protocol5_wallet_runner.py`, `tests/test_protocol5_wallet_gate.py`, and `reference/protocol5-wallet-qualification-settings-v1.json`.
 - Registration: add `tools/protocol5-wallet/{README.md,COMPONENT_MANIFEST.json,DEPENDENCY_RECEIPT.json}` and `docs/PROTOCOL5_WALLET_CONTINUITY.md`; update root README, ROADMAP, P5 guide, ABCI guide, shielded-consensus README, and `SOURCE_MANIFEST.json`.
@@ -194,7 +195,7 @@ git diff --quiet "$PHASE8_BASE" --   tools/privacy-proof-benchmark tools/shielde
   ```
 - `scripts/run_protocol5_engine.py` continues to export `Note`, `DevelopmentController`, and `development_note` so the state-sync runner and existing tests do not change import behavior.
 
-- [ ] **Step 1: Write failing adapter tests.** Capture subprocess arguments/stdin; require zero extra argv, reduced `PATH`/`LC_ALL` environment, secrets only in stdin, a 120-second watchdog, bounded exact stdout, empty stderr, request-buffer overwrite in `finally`, and fail-closed nonzero/trailing/malformed output. Add one actual-binary client→prover→TransactionV1 test guarded by required `ONE_P5_CLIENT` and `ONE_P5_PROVER` paths; it must not skip in the qualification command.
+- [ ] **Step 1: Write failing adapter tests.** Capture subprocess arguments/stdin; require zero extra argv, reduced `PATH`/`LC_ALL` environment, secrets only in stdin, separate 30-second client and 300-second prover elapsed watchdogs, bounded stdout/stderr while the child runs, empty stderr on success, request-buffer overwrite in `finally`, and fail-closed nonzero/trailing/malformed output. Add one actual-binary client→prover→TransactionV1 test guarded by required `ONE_P5_CLIENT` and `ONE_P5_PROVER` paths; it must not skip in the qualification command.
 - [ ] **Step 2: Run RED.**
   ```bash
   PYTHONPATH=src:tests:scripts "$P8_PYTHON" -B -m unittest     test_protocol5_controller.Protocol5ControllerTests.test_public_recipient_wire_is_exact_and_stdin_only
@@ -313,17 +314,20 @@ class Protocol5Wallet:
 **Files:**
 - Create: `scripts/protocol5_wallet.py`
 - Create: `tests/test_protocol5_wallet_cli.py`
+- Modify: `src/protocol5_controller.py`
+- Modify: `src/protocol5_wallet.py`
+- Modify: `src/protocol5_delivery.py`
 
-**Interfaces:** Commands are `init`, `owner-key`, `sync`, `import-note`, `prepare`, `approve`, `recover`, `export-capsule`, `status`, `delivery-init`, `delivery-prepare`, `delivery-send`, `delivery-collect`, `delivery-reconcile`, and `delivery-inspect`. Secrets/capsules enter through stdin or `0600` files, never argv/environment. Outputs use exclusive no-follow `0600` creation.
+**Interfaces:** Commands are `init`, `owner-key`, `sync`, `import-note`, `prepare`, `approve`, `recover`, `export-capsule`, `status`, `delivery-init`, `delivery-prepare`, `delivery-send`, `delivery-collect`, `delivery-reconcile`, and `delivery-inspect`. Secrets/capsules enter through stdin or `0600` files, never argv/environment. Outputs use exclusive no-follow `0600` creation. `recover` accepts the pre-approval review ID as well as the durable decision ID, so a return lost after commit remains recoverable without either controller executable.
 
-- [ ] Write actual-process RED tests for init→owner-key, genesis import, sync, prepare, approval, lost-return recovery, capsule handoff, and delivery. Assert argv/stdout/stderr/process listings never contain known secret hex/base64/decimal sequences.
-- [ ] Add malformed tests for duplicate flags, missing confirmation, wrong revision, unsafe files/modes/symlinks, existing output, trailing stdin, and forbidden raw-secret arguments.
-- [ ] RED:
+- [x] Write actual-process RED tests for init→owner-key, genesis import, sync, prepare, approval, lost-return recovery, capsule handoff, and delivery. Assert argv/stdout/stderr/process listings never contain known secret hex/base64/decimal sequences. These tests use explicit codec/state fixtures and do not claim Halo2 qualification.
+- [x] Add malformed tests for duplicate flags, missing confirmation, wrong revision, unsafe files/modes/symlinks, existing output, trailing stdin, and forbidden raw-secret arguments.
+- [x] RED:
   ```bash
   PYTHONPATH=src:tests:scripts "$P8_PYTHON" -B -m unittest     test_protocol5_wallet_cli.Protocol5WalletCliTests.test_terminal_lost_return_recovers_exact_transaction
   ```
-- [ ] Implement thin dispatch; keep monetary/certificate/capsule/journal/delivery rules in source modules. Emit closed canonical results and sanitized nonzero refusal.
-- [ ] GREEN: run the module, preservation, and commit `feat(protocol5-wallet): add local continuity CLI`.
+- [x] Implement thin dispatch; keep monetary/certificate/capsule/journal/delivery rules in source modules. Emit closed canonical results and sanitized nonzero refusal. Measure and pin the executable inode before launch, bound output while reading, wipe the request on every exit path, and retain controller-free recovery by review ID.
+- [x] GREEN: run the module, preservation, and commit `feat(protocol5-wallet): add local continuity CLI`.
 
 ### Task 8: Add source-bound real-engine qualification
 

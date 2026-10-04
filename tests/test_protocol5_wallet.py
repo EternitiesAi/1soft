@@ -783,6 +783,37 @@ class Protocol5WalletTests(unittest.TestCase):
             self.wallet.delivery_record(
                 approved["decision_id"], expected_revision="00" * 32)
 
+    def test_continuity_resolves_lost_return_without_controller(self):
+        imported = self.bootstrap()
+        prepared = self.wallet.prepare(
+            note_id=imported["capsule_id"],
+            recipient_owner_key=field_text(10),
+            value=20, valid_until=20)
+        approved = self.wallet.approve(
+            prepared["review"], prepared["confirmation"])
+        self.wallet.close()
+        self.wallet = Protocol5Wallet(
+            self.path, self.genesis_raw, self.engine_genesis,
+            UnavailableController())
+        value = self.wallet.continuity()
+        self.assertEqual(
+            set(value), {
+                "format", "wallet_id", "owner_key", "revision",
+                "state_height", "decisions", "cryptographic_audit",
+            })
+        self.assertFalse(value["cryptographic_audit"])
+        self.assertEqual(len(value["decisions"]), 1)
+        self.assertEqual(value["decisions"][0], {
+            "decision_id": approved["decision_id"],
+            "review_id": prepared["review"]["review_id"],
+            "txid": approved["txid"],
+            "state": "ready",
+        })
+        self.assertEqual(
+            self.wallet.recover(value["decisions"][0]["decision_id"]),
+            self.wallet.delivery_record(
+                approved["decision_id"])["transaction_bytes"])
+
 
 if __name__ == "__main__":
     unittest.main()

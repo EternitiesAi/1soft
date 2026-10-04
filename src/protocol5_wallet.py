@@ -974,6 +974,27 @@ class Protocol5Wallet:
             "real_funds": False,
         }
 
+    def continuity(self) -> dict:
+        """Return controller-free public identities for recovery and routing."""
+        with self.atomic(write=False):
+            snapshot = self._snapshot(cryptographic=False)
+        return {
+            "format": "1soft/protocol5-wallet-continuity/v1",
+            "wallet_id": snapshot["config"]["wallet_id"],
+            "owner_key": snapshot["config"]["owner_key"].hex(),
+            "revision": snapshot["revision"],
+            "state_height": (
+                None if snapshot["witness"] is None
+                else snapshot["witness"]["height"]),
+            "decisions": [{
+                "decision_id": row["decision_id"],
+                "review_id": row["review_id"],
+                "txid": row["txid"],
+                "state": row["state"],
+            } for row in snapshot["decisions"]],
+            "cryptographic_audit": False,
+        }
+
     def _authenticated_changes(self, snapshot: dict,
                                witness: dict) -> list[dict]:
         additions = []

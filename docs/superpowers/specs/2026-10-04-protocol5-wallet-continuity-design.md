@@ -289,9 +289,33 @@ Memory advances only after commit.
 
 Client and prover are opened no-follow, checked for file type, owner, mode and
 hash, then launched from the measured inode with minimal environment. Stdin write
-and stdout read share a deadline. Wrong length, stderr on success, trailing bytes,
-timeout, signal, nonzero exit, path replacement, or output mismatch is fatal for
-the operation with no partial authority retained.
+and stdout/stderr reads share one elapsed deadline: 30 seconds for the client and
+300 seconds for the prover. Capture is bounded while the process runs rather than
+after it exits. Wrong length, stderr on success, trailing bytes, timeout, signal,
+nonzero exit, path replacement, or output mismatch is fatal for the operation
+with no partial authority retained.
+
+The local CLI takes explicit wallet, application-genesis, engine-genesis, and
+expected-digest arguments on every command. Commands that can invoke Rust also
+take explicit client/prover paths and trusted SHA-256 values, and validate both
+executables before opening the wallet or accepting secret input. Structural
+owner-key lookup, review preparation, exact recovery, and delivery inspection do
+not require either executable. `status()` and the commands that derive or verify
+cryptographic facts keep the full controller audit.
+
+Secret-bearing command values use closed canonical JSON envelopes read only from
+a nonterminal stdin stream or an owned regular one-link mode-0600 file in an
+owned private directory. Public review values may be emitted as canonical JSON.
+Recovered TransactionV1 and released NoteCapsuleV1 bytes are created only at a
+new exclusive no-follow mode-0600 output. Ordinary refusals return no private
+value, no exception or path, and no reflected argument token.
+
+Approval can commit before its randomized decision ID reaches the caller. The
+controller-free continuity projection therefore exposes bounded public
+`decision_id`, `review_id`, txid, and state tuples. Recovery accepts either the
+decision ID or the unique review ID known before approval, so a process lost
+after commit can reopen and recover the identical transaction with the client
+and prover unavailable.
 
 ## Exact SQLite schema
 
