@@ -340,17 +340,17 @@ class Protocol5Wallet:
 
 **Interfaces:** Inputs are exact CometBFT, worker, client, prover, descriptor, KAT, toolchain, policy, empty genesis template, and expected client/prover hashes. Output and sibling artifacts are fresh external paths. Required check IDs are `four-validator-wallet-init`, `recipient-secret-separation`, `actual-proof-recipient-payment`, `approval-lost-return-recovery`, `one-attempt-no-resend`, `signed-h-plus-one-sync`, `capsule-mutation-matrix`, `recipient-import-and-spend`, `conflicting-nullifier-not-original`, `expiry-hold-preservation`, `wallet-delivery-restart`, `validator-controller-boundary`, and `secret-leakage-scan`.
 
-- [ ] Write checker RED tests binding source commit/tree/cleanliness, inputs/binaries, profile/deployment/genesis, processes, exact checks, sanitized wallet/delivery manifests, artifacts, and all false claims. Every omission/mutation/duplicate fails. Missing pins are accepted only as unqualified `unassessed`.
-- [ ] Write runner RED tests for four validators, controller processes with `node: null`, no controller paths in validator commands/homes, owned cleanup, fresh outputs, sanitized names, and no private absolute paths in public projections.
-- [ ] RED:
+- [x] Write checker RED tests binding source commit/tree/cleanliness, inputs/binaries, profile/deployment/genesis, processes, exact checks, sanitized wallet/delivery manifests, artifacts, and all false claims. Every omission/mutation/duplicate fails. Missing pins are accepted only as unqualified `unassessed`.
+- [x] Write runner RED tests for four validators, controller processes with `node: null`, no controller paths in validator commands/homes, owned cleanup, fresh outputs, sanitized names, and no private absolute paths in public projections.
+- [x] RED:
   ```bash
   PYTHONPATH=src:tests:scripts:tools/release "$P8_PYTHON" -B -m unittest     test_protocol5_wallet_runner test_protocol5_wallet_gate
   ```
-- [ ] Implement: create A/B with distinct synthetic secrets; put only A's genesis commitment in fresh genesis; give A only B's owner key; A pays B plus change with opcode 4; exit after wallet commit/before return; reopen and recover exact bytes without reproving.
-- [ ] Claim one attempt, submit once, wait for commit and H+1, collect/reconcile A, export output-0 capsule, import it in B, and have B spend with another actual proof.
-- [ ] Mutate every capsule field; inject a separate same-nullifier randomized conflict; cross expiry without receipt; crash/reopen wallet/delivery at durable boundaries; reject stale/unsigned/wrong-genesis/profile/deployment observations.
-- [ ] Scan validator homes, node DBs, snapshots, reports, artifacts, logs, process argv/environ, TransactionV1, and public manifests for all known secrets, WitnessV1, and ProverRequestV1. Private journals are excluded; only sanitized size/hash/schema receipts are artifacts.
-- [ ] GREEN: run runner/checker tests, preservation, and commit `test(protocol5-wallet): add source-bound real-engine qualification`.
+- [x] Implement: create A/B with distinct synthetic secrets; put only A's genesis commitment in fresh genesis; give A only B's owner key; A pays B plus change with opcode 4; exit after wallet commit/before return; reopen and recover exact bytes without reproving.
+- [x] Claim one attempt, submit once, wait for commit and H+1, collect/reconcile A, export output-0 capsule, import it in B, and have B spend with another actual proof.
+- [x] Mutate every capsule field; inject a separate same-nullifier randomized conflict; cross expiry without receipt; crash/reopen wallet/delivery at durable boundaries; reject stale/unsigned/wrong-genesis/profile/deployment observations.
+- [x] Scan validator homes, node DBs, snapshots, reports, artifacts, logs, process argv/environ, TransactionV1, and public manifests for all known secrets, WitnessV1, and ProverRequestV1. Private journals are excluded; only sanitized size/hash/schema receipts are artifacts.
+- [x] GREEN: run runner/checker tests, preservation, and commit `test(protocol5-wallet): add source-bound real-engine qualification`.
 
 ### Task 9: Build and execute qualification on a clean implementation commit
 
