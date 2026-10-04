@@ -54,12 +54,15 @@ def checked_roles(roles, workspace):
 
 
 class PlatformService:
-    def __init__(self,workspace,genesis_bytes,policy,endpoint,roles,*,create=False,clock=time.time_ns):
+    def __init__(self,workspace,genesis_bytes,policy,endpoint,roles,*,create=False,clock=time.time_ns,
+                 approval_factory=None):
         need(type(create) is bool, 'invalid creation mode')
+        need(approval_factory is None or callable(approval_factory), 'invalid approval factory')
         self.root=Path(workspace).absolute();self.clock=clock
         self.genesis=bytes(genesis_bytes);self.policy=policy_checked(policy)
         endpoint_port(endpoint);self.endpoint=endpoint;self.roles=checked_roles(roles,self.root)
         self.wallet=self.delivery=self.store=self.book=None
+        self.approval=None
         self.paths={name:private_path(self.root/(name+'.sqlite'))
                     for name in ('wallet','delivery','ledger','requests','receipts')}
         if create:
@@ -77,12 +80,25 @@ class PlatformService:
                                      now_ns=self.clock(),create=True):pass
             else:
                 need(self.paths['receipts'].is_file(),'receipt archive is not initialized')
+            if approval_factory is not None:
+                self.approval=approval_factory(self.wallet)
+                need(self.approval is not None and
+                     getattr(self.approval,'wallet',None) is self.wallet and
+                     callable(getattr(self.approval,'approve',None)) and
+                     callable(getattr(self.approval,'reconcile',None)),
+                     'invalid fenced approval adapter')
         except BaseException:self.close();raise
 
     def close(self):
-        for name in ('book','store','delivery','wallet'):
-            obj=getattr(self,name,None)
-            if obj is not None:obj.close();setattr(self,name,None)
+        approval=getattr(self,'approval',None);self.approval=None
+        try:
+            if approval is not None:
+                close=getattr(approval,'close',None)
+                if callable(close):close()
+        finally:
+            for name in ('book','store','delivery','wallet'):
+                obj=getattr(self,name,None)
+                if obj is not None:obj.close();setattr(self,name,None)
     def __enter__(self):return self
     def __exit__(self,*_):self.close()
 
@@ -136,6 +152,7 @@ class PlatformService:
 
     def approve(self,rid,role,review,confirmation,*,password):
         row=self._role(role);entry=self.book.selected(rid);value=freeze(review,32768)
+        approval=getattr(self,'approval',None)
         hash_text(confirmation)
         need(hmac.compare_digest(content_id(value),confirmation),'review confirmation differs')
         body=value['body']
@@ -148,15 +165,35 @@ class PlatformService:
                 need(len(previous)==1 and entry['decision_id']==confirmation and
                      encode(previous[0]['review'])==encode(value)==encode(entry['review']),
                      'saved decision binding differs')
-                return {'status':'original_signed_decision_retained','decision_id':confirmation,
-                        'broadcast':False,'signing_performed':False}
+        if previous:
+            # Reconciliation opens its own historical read transaction, after the
+            # decision audit above has released this wallet transaction.
+            if approval is not None:
+                outcome=approval.reconcile(value,confirmation,request_id=rid)
+                need(type(outcome) is dict and outcome.get('status') in
+                     {'reconciled','already_reconciled','unfenced_decision'},
+                     'fence reconciliation is not confirmed')
+            result={'status':'original_signed_decision_retained','decision_id':confirmation,
+                    'broadcast':False,'signing_performed':False}
+            if approval is not None:
+                result.update(fence_status=outcome['status'],fence_request_id=rid)
+            return result
         current=self.prepare(rid,role,valid_until=body['valid_until'],invoice_terms=value.get('invoice_terms'))
         need(encode(current['review'])==encode(value) and current['confirmation']==confirmation,
              'wallet or requested payment changed; review again')
         self.book.bind_review(rid,value)  # Durable correlation before any key access.
-        result=self.wallet.approve(value,confirmation,vault=self.root/row['vault'],password=password)
-        return {'status':result['status'],'decision_id':result['decision_id'],
-                'wire_sha256':hashlib.sha256(self.recover(rid)).hexdigest(),'broadcast':False}
+        if approval is None:
+            result=self.wallet.approve(value,confirmation,vault=self.root/row['vault'],password=password)
+        else:
+            result=approval.approve(value,confirmation,vault=self.root/row['vault'],password=password,
+                                    request_id=rid)
+            need(type(result) is dict and result.get('fence_status')=='decision_committed' and
+                 result.get('request_id')==rid,'fenced approval outcome is not confirmed')
+        response={'status':result['status'],'decision_id':result['decision_id'],
+                  'wire_sha256':hashlib.sha256(self.recover(rid)).hexdigest(),'broadcast':False}
+        if approval is not None:
+            response.update(fence_status=result['fence_status'],fence_request_id=rid)
+        return response
 
     def recover(self,rid):
         entry,selection=self._selection(rid)

@@ -52,17 +52,57 @@ them hit the five-second SQLite timeout and fail closed.
 A missing vault, bad password, stale wallet revision, process interruption, or
 other failure after reservation leaves its lane/nonce reserved. The adapter
 refuses an exact retry rather than treating idempotent reservation as permission
-to sign twice. There is no release, delete, cancellation, or receipt-reconciliation
-API in this registry. If the wallet has already committed a decision and the
-later registry transaction or output fails, recover that decision's original
-bytes from the wallet; do not repeat approval. A crash before wallet COMMIT can
-leave a reservation without a wallet decision. Resolving that case requires a
-separately qualified recovery design.
+to sign twice. There is no release, delete, cancellation, expiry shortcut, or
+negative terminal outcome.
 
-Use the adapter as a context manager or call `close()`. A successfully created
-adapter owns its supplied wallet and closes it exactly once; it borrows the
-caller-owned registry and leaves that registry open for other adapters. Closed
-adapters and registries refuse approval.
+A successful approval now records a monotonic `decision_committed` registry
+outcome before return. That row binds the reservation digest, native decision ID,
+and SHA-256 of the exact canonical signed wire. The active device authorizes the
+outcome at its current epoch, and one append-only event retains that authorization
+evidence. If the wallet commits but the registry COMMIT or response fails,
+`FencedApproval.reconcile` reauthenticates the exact saved wallet decision,
+checks its original review and reservation, and records the same outcome without
+vault access, signing, submission, or hold changes. A successor device may record
+that proven outcome after a valid rotation; it cannot re-sign the old request.
+
+Absence is never recovery evidence. These reservations coordinate cloned journals,
+so a decision missing from one clone may exist in another. Reconciliation therefore
+returns `unknown_quarantined` and leaves the reservation consumed when the supplied
+journal has no exact decision. If the registry already records a decision that the
+supplied clone does not hold, it returns `committed_elsewhere` without fabricating
+transaction bytes. Neither result releases the lane or nonce.
+
+Use the adapter as a context manager or call `close()`. By default it owns its
+supplied wallet and closes it exactly once. `owns_wallet=False` lets a checked
+composition such as `PlatformService` borrow the exact shared wallet; closing that
+adapter leaves the wallet open for its owner. Every adapter borrows the caller-owned
+registry. Closed adapters and registries refuse approval.
+
+## Opt-in product composition
+
+`PlatformService` now accepts an optional approval factory. With no factory, its
+behavior and direct P4 approval path are unchanged. An injected adapter must wrap
+the exact wallet object owned by the service. The service durably binds its
+RequestBook entry, then calls the fence immediately before the existing vault
+approval. The product request ID becomes the registry request identity, while the
+review confirmation remains the native decision ID.
+
+Browser signing and private-payment callers already converge on this service
+method, so an explicitly configured service inherits the same fence without adding
+device keys or caller-selected authority fields to HTTP or CLI requests. If a
+native decision already exists after a lost response, the service requires an
+exact recovery classification before returning its retained-decision result.
+A verified decision that predates fence activation returns `unfenced_decision`
+with its original bytes and creates no registry reservation or event. The opt-in
+response exposes that limitation. Unknown or conflicting results for an actual
+fenced reservation fail closed. Enrollment, device-key custody, rotation, and
+factory injection remain explicit trusted-host operator work; normal startup does
+not perform them.
+
+The reservation digest and device epoch remain outside the native signed body.
+Validators do not enforce this registry, and the default browser/CLI constructors
+do not silently activate it. See the
+[phase-three design decision](superpowers/specs/2026-10-04-device-fence-recovery-design.md).
 
 ## Storage boundary
 
@@ -70,9 +110,12 @@ Use an existing owner-only POSIX directory. The constructor creates a new 0600
 database exclusively, or opens an existing recognized registry in read/write
 mode. It refuses symlink parents, writable non-sticky ancestors, wrong ownership,
 broad directory/file permissions, hardlinks, non-regular files, unsafe sidecars,
-and an unrelated/changed database schema. It does not chmod or repair existing
-files, create missing parent directories, or migrate the earlier experimental
-unversioned registry. Do not replace an active registry to escape its holds.
+and an unrelated/changed database schema. A registry matching the exact phase-two
+v1 schema migrates transactionally to strict v2; every existing reservation stays
+reserved, a failed migration rolls back, and reopening v2 is a no-op. It does not
+chmod or repair existing files, create missing parent directories, or migrate the
+earlier experimental unversioned registry. Do not replace an active registry to
+escape its holds.
 
 The parent directory is pinned by an open directory descriptor; file creation
 uses that descriptor and `O_NOFOLLOW`. Parent/database identities and sidecar
@@ -118,8 +161,11 @@ export PYTHONPATH=tools/protocol4-wallet/src:tools/protocol4-wallet/tests:src:to
 
 Focused regressions cover epoch-bound rotation/replay, request and lane binding,
 real multi-process conflicting/idempotent reservations, rotation/signing ordering,
-unsafe storage, database error/rollback/commit behavior, clone identity, adapter
-lifecycle, pre-reservation review validation, fail-closed signer failure, recovery
-after wallet commit, and the explicit direct-approval bypass. Native wallet tests
-use disposable keys, the actual local P4 ledger, and synthetic committee headers;
-they are not a live engine, public network, or real-funds exercise.
+unsafe storage, exact v1 migration and rollback, database error/rollback/commit
+behavior, clone identity, adapter lifecycle, pre-reservation review validation,
+fail-closed signer failure, positive outcome replay, recovery after wallet commit,
+clone-absence quarantine, committed-elsewhere refusal, successor-device
+reconciliation, product request binding, and the explicit direct-approval bypass.
+Native wallet tests use disposable keys, the actual local P4 ledger, and synthetic
+committee headers; they are not a live engine, public network, or real-funds
+exercise.

@@ -265,9 +265,34 @@ class FencedApprovalIntegrationTests(unittest.TestCase):
                                 vault=self.root / "raven.pem", password=PASSWORD)
         self.fence.db.set_authorizer(None)
         self.assertEqual(self.reservations(), 1)
-        recovered = adapter.wallet.recover(approval["confirmation"],
-                                           payer=self.chain.payer, grant_id="raven")
+        self.assertEqual(
+            self.fence.inspect(self.wallet_id, approval["confirmation"])["state"],
+            "reserved",
+        )
+        recovered = adapter.wallet.recover(
+            approval["confirmation"], payer=self.chain.payer, grant_id="raven",
+        )
+        with patch("p4_wallet._load_vault", side_effect=AssertionError("must not resign")):
+            reconciled = adapter.reconcile(
+                approval["review"], approval["confirmation"],
+            )
+        self.assertEqual(reconciled["status"], "reconciled")
+        self.assertEqual(reconciled["transaction"], recovered)
         self.assertEqual(json.loads(recovered)["body"]["op"]["units"], 10)
+        self.assertEqual(
+            self.fence.inspect(self.wallet_id, approval["confirmation"])["state"],
+            "decision_committed",
+        )
+        self.assertEqual(
+            self.fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 1,
+        )
+        self.assertEqual(
+            adapter.reconcile(approval["review"], approval["confirmation"])["status"],
+            "already_reconciled",
+        )
+        self.assertEqual(
+            self.fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 1,
+        )
 
     def test_context_closes_wallet_and_borrows_shared_registry(self):
         path = self.clone("lifecycle")
@@ -304,6 +329,164 @@ class FencedApprovalIntegrationTests(unittest.TestCase):
                                     vault=self.root / "raven.pem", password=PASSWORD)
         self.assertEqual(result["status"], "signed_and_reserved")
         self.assertEqual(self.reservations(), 1)
+
+    def test_phase3_pre_fence_decision_recovers_without_creating_authority(self):
+        path = self.clone("pre-fence")
+        approval = self.review(path)
+        with self.wallet(path) as wallet:
+            direct = wallet.approve(
+                approval["review"], approval["confirmation"],
+                vault=self.root / "raven.pem", password=PASSWORD,
+            )
+        with patch("p4_wallet._load_vault", side_effect=AssertionError("must not resign")):
+            result = self.adapter(path).reconcile(
+                approval["review"], approval["confirmation"],
+                request_id="historical-request",
+            )
+        self.assertEqual(result["status"], "unfenced_decision")
+        self.assertFalse(result["registry_recorded"])
+        self.assertEqual(result["transaction"], canonical(direct["transaction"]))
+        self.assertIsNone(self.fence.inspect(self.wallet_id, "historical-request"))
+        self.assertEqual(
+            self.fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 0,
+        )
+
+    def test_phase3_absent_clone_is_unknown_and_lane_remains_consumed(self):
+        first = self.clone("unknown-first")
+        other = self.clone("unknown-other")
+        approval = self.review(first)
+        with self.assertRaises(ValueError):
+            self.adapter(first).approve(
+                approval["review"], approval["confirmation"],
+                vault=self.root / "raven.pem", password=b"wrong",
+                request_id="product-request",
+            )
+        result = self.adapter(other).reconcile(
+            approval["review"], approval["confirmation"],
+            request_id="product-request",
+        )
+        self.assertEqual(result["status"], "unknown_quarantined")
+        self.assertFalse(result["signing_performed"])
+        self.assertNotIn("transaction", result)
+        row = self.fence.inspect(self.wallet_id, "product-request")
+        self.assertEqual(row["state"], "reserved")
+        self.assertEqual(
+            self.fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 0,
+        )
+        with patch("p4_wallet._load_vault") as load:
+            with self.assertRaisesRegex(DeviceFenceError, "already reserved"):
+                self.adapter(other).approve(
+                    approval["review"], approval["confirmation"],
+                    vault=self.root / "raven.pem", password=PASSWORD,
+                    request_id="replacement-request",
+                )
+        load.assert_not_called()
+
+    def test_phase3_committed_elsewhere_never_fabricates_bytes(self):
+        committed = self.clone("committed")
+        empty = self.clone("empty")
+        approval = self.review(committed)
+        self.adapter(committed).approve(
+            approval["review"], approval["confirmation"],
+            vault=self.root / "raven.pem", password=PASSWORD,
+            request_id="shared-request",
+        )
+        result = self.adapter(empty).reconcile(
+            approval["review"], approval["confirmation"],
+            request_id="shared-request",
+        )
+        self.assertEqual(result["status"], "committed_elsewhere")
+        self.assertFalse(result["signing_performed"])
+        self.assertNotIn("transaction", result)
+        self.assertEqual(result["decision_id"], approval["confirmation"])
+        self.assertEqual(
+            self.fence.inspect(self.wallet_id, "shared-request")["state"],
+            "decision_committed",
+        )
+
+    def test_phase3_successor_reconciles_proven_old_device_decision(self):
+        path = self.clone("successor")
+        approval = self.review(path)
+        adapter = self.adapter(path)
+        def authorizer(action, name, *_):
+            if action == sqlite3.SQLITE_TRANSACTION and name == "COMMIT":
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+        reserve = self.fence.reserve
+        def deny_registry_commit(*args):
+            result = reserve(*args)
+            self.fence.db.set_authorizer(authorizer)
+            return result
+        with patch.object(self.fence, "reserve", side_effect=deny_registry_commit):
+            with self.assertRaisesRegex(DeviceFenceError, "transaction failed"):
+                adapter.approve(
+                    approval["review"], approval["confirmation"],
+                    vault=self.root / "raven.pem", password=PASSWORD,
+                    request_id="rotated-request",
+                )
+        self.fence.db.set_authorizer(None)
+        self.rotate()
+        successor = FencedApproval(
+            adapter.wallet, self.fence, "replacement", 1, self.new, owns_wallet=False,
+        )
+        self.addCleanup(successor.close)
+        with patch("p4_wallet._load_vault", side_effect=AssertionError("must not resign")):
+            result = successor.reconcile(
+                approval["review"], approval["confirmation"],
+                request_id="rotated-request",
+            )
+        self.assertEqual(result["status"], "reconciled")
+        event = self.fence.db.execute(
+            "SELECT actor,epoch FROM fence_events WHERE request=?",
+            ("rotated-request",),
+        ).fetchone()
+        self.assertEqual(event, ("replacement", 1))
+
+    def test_phase3_approve_records_positive_terminal_and_wire_hash(self):
+        path = self.clone("positive")
+        approval = self.review(path)
+        result = self.adapter(path).approve(approval["review"], approval["confirmation"],
+                                             vault=self.root / "raven.pem", password=PASSWORD)
+        row = self.fence.inspect(self.wallet_id, approval["confirmation"])
+        self.assertEqual(row["state"], "decision_committed")
+        self.assertEqual(row["decision_id"], approval["confirmation"])
+        self.assertEqual(row["wire_sha256"], result["wire_sha256"])
+        self.assertEqual(self.fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 1)
+
+    def test_phase3_outcome_replay_is_idempotent(self):
+        path = self.clone("replay")
+        approval = self.review(path)
+        result = self.adapter(path).approve(approval["review"], approval["confirmation"],
+                                             vault=self.root / "raven.pem", password=PASSWORD)
+        row = self.fence.inspect(self.wallet_id, approval["confirmation"])
+        msg = self.fence._outcome_message(self.wallet_id, "device", 0, approval["confirmation"],
+                                           row["digest"], approval["confirmation"], result["wire_sha256"])
+        replay = self.fence.record_decision_committed(self.wallet_id, "device", 0,
+                                                       approval["confirmation"], row["digest"],
+                                                       approval["confirmation"], result["wire_sha256"],
+                                                       self.device.sign(msg))
+        self.assertEqual(replay["status"], "already_committed")
+        self.assertEqual(self.fence.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 1)
+
+    def test_phase3_mismatched_outcome_refuses(self):
+        path = self.clone("mismatch")
+        approval = self.review(path)
+        self.adapter(path).approve(approval["review"], approval["confirmation"],
+                                   vault=self.root / "raven.pem", password=PASSWORD)
+        row = self.fence.inspect(self.wallet_id, approval["confirmation"])
+        with self.assertRaisesRegex(DeviceFenceError, "committed outcome differs"):
+            self.fence.record_decision_committed(self.wallet_id, "device", 0,
+                approval["confirmation"], row["digest"], approval["confirmation"], "0"*64,
+                self.device.sign(self.fence._outcome_message(self.wallet_id, "device", 0,
+                    approval["confirmation"], row["digest"], approval["confirmation"], "0"*64)))
+
+    def test_phase3_borrowed_wallet_remains_open(self):
+        path = self.clone("borrowed")
+        wallet = self.wallet(path)
+        adapter = FencedApproval(wallet, self.fence, "device", 0, self.device, owns_wallet=False)
+        adapter.close()
+        self.assertIsNotNone(wallet.db)
+        wallet.close()
 
 
 if __name__ == "__main__":

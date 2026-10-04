@@ -7,7 +7,11 @@ POSIX SQLite registry for cloned journals that explicitly share that registry.
 It binds a clone-stable wallet identity, active device key, monotonic device epoch
 and one reservation per payer/owner-or-grant/native-nonce lane. Reservation
 commits before vault access and device rotation is serialized through actual
-approval. See [the exact boundary and reproduction commands](../../docs/DEVICE_FENCE_RESERVATION.md).
+approval. A positive terminal outcome binds the exact native decision and wire
+hash; exact committed bytes can repair a lost registry outcome without re-signing.
+Absence in one clone never releases the reservation. `PlatformService` can adopt
+the adapter through an explicit borrowed-wallet factory while its default path
+stays unchanged. See [the exact boundary and reproduction commands](../../docs/DEVICE_FENCE_RESERVATION.md).
 
 This opt-in adapter is not used by direct `P4Wallet.approve`, existing CLIs, raw
 signers, separate registries or restored/rolled-back registries. It is local
@@ -21,7 +25,7 @@ Transfer and invoice review formats retain their original bytes. The new
 `p4_rotation_cli.py` interface is explicit; ordinary `approve` remains transfer-only.
 Custody archives remain recovery-only. The dated original transfer-wallet scope
 below describes that historical delivery. `SOURCE_MANIFEST.json` now inventories
-the current phase-two bytes; `DEPENDENCIES.json` retains the historical 29 September
+the current phase-three bytes; `DEPENDENCIES.json` retains the historical 29 September
 dependency seal. The historical `tools/verify.py` command below cannot qualify the
 evolved combined checkout. Use [current local qualification](../../docs/CURRENT_QUALIFICATION.md)
 for the combined source and the [focused device-fence checks](../../docs/DEVICE_FENCE_RESERVATION.md#reproduction)

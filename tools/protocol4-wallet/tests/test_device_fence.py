@@ -1,5 +1,6 @@
 """Local registry authority, storage, and real multi-process serialization."""
 from contextlib import closing
+import hashlib
 import multiprocessing
 import os
 from pathlib import Path
@@ -7,11 +8,12 @@ import queue
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from device_fence import (
-    DeviceFence, DeviceFenceError, MAX_INTEGER, authority_lane,
-    reservation_message, rotation_message,
+    APPLICATION_ID, SCHEMA_V1, DeviceFence, DeviceFenceError, MAX_INTEGER,
+    authority_lane, reservation_message, rotation_message,
 )
 
 
@@ -270,6 +272,94 @@ class DeviceFenceTests(unittest.TestCase):
         self.fence.db.set_authorizer(None)
         self.assertEqual(self.reserve()["status"], "reserved")
 
+    def make_v1(self, path):
+        body = self.body()
+        lane = authority_lane(body)
+        digest = hashlib.sha256(
+            reservation_message("p", "a", 0, lane, 0, "r", body),
+        ).hexdigest()
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(db.execute("PRAGMA journal_mode=WAL").fetchone()[0], "wal")
+            for statement in SCHEMA_V1:
+                db.execute(statement)
+            db.execute(f"PRAGMA application_id={APPLICATION_ID}")
+            db.execute("PRAGMA user_version=1")
+            db.execute("INSERT INTO wallets VALUES (?,?,?,?)", (
+                "p", 0, "a", self.key.public_key().public_bytes_raw(),
+            ))
+            db.execute("INSERT INTO devices VALUES (?,?,?,?)", (
+                "p", "a", self.key.public_key().public_bytes_raw(), None,
+            ))
+            db.execute("INSERT INTO reservations VALUES (?,?,?,?,?,?,?,?)", (
+                "p", lane, 0, "r", "a", 0, digest, "reserved",
+            ))
+            db.commit()
+        path.chmod(0o600)
+        return digest
+
+    def test_exact_v1_registry_migrates_once_without_releasing_rows(self):
+        path = self.root / "v1.sqlite"
+        digest = self.make_v1(path)
+        with DeviceFence(path) as migrated:
+            self.assertEqual(migrated.db.execute("PRAGMA user_version").fetchone()[0], 2)
+            row = migrated.inspect("p", "r")
+            self.assertEqual(row["digest"], digest)
+            self.assertEqual(row["state"], "reserved")
+            self.assertIsNone(row["decision_id"])
+            self.assertIsNone(row["wire_sha256"])
+            self.assertEqual(
+                migrated.db.execute("SELECT count(*) FROM fence_events").fetchone()[0], 0,
+            )
+        with DeviceFence(path) as reopened:
+            self.assertEqual(reopened.inspect("p", "r")["state"], "reserved")
+            self.assertEqual(
+                reopened.db.execute("SELECT count(*) FROM reservations").fetchone()[0], 1,
+            )
+
+    def test_altered_v1_registry_is_refused_without_migration(self):
+        path = self.root / "altered-v1.sqlite"
+        self.make_v1(path)
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("CREATE TABLE unexpected(value TEXT)")
+        with self.assertRaisesRegex(DeviceFenceError, "unrecognized registry"):
+            DeviceFence(path)
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(
+                tuple(row[1] for row in db.execute("PRAGMA table_info(reservations)")),
+                ("wallet", "lane", "nonce", "request", "device", "epoch", "digest", "state"),
+            )
+
+    def test_failed_v1_migration_rolls_back_exact_original_schema(self):
+        path = self.root / "failed-v1.sqlite"
+        digest = self.make_v1(path)
+        real_connect = sqlite3.connect
+
+        def connect(*args, **kwargs):
+            db = real_connect(*args, **kwargs)
+            def authorizer(action, name, *_):
+                if action == sqlite3.SQLITE_CREATE_TABLE and name == "fence_events":
+                    return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+            db.set_authorizer(authorizer)
+            return db
+
+        with patch("device_fence.sqlite3.connect", side_effect=connect):
+            with self.assertRaisesRegex(DeviceFenceError, "transaction failed"):
+                DeviceFence(path)
+        with closing(real_connect(path)) as db:
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 1)
+            objects = set(db.execute(
+                "SELECT type,name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+            ))
+            self.assertEqual(objects, {
+                ("table", "wallets"), ("table", "devices"), ("table", "reservations"),
+            })
+            self.assertEqual(
+                db.execute("SELECT digest,state FROM reservations").fetchone(),
+                (digest, "reserved"),
+            )
+
     def test_existing_unrelated_database_is_not_repaired(self):
         path = self.root / "unrelated.sqlite"
         with closing(sqlite3.connect(path)) as db:
@@ -311,6 +401,7 @@ class DeviceFenceTests(unittest.TestCase):
     def test_broad_parent_permissions_are_refused(self):
         parent = self.root / "public"
         parent.mkdir(mode=0o755)
+        parent.chmod(0o755)  # The qualifier intentionally runs under umask 077.
         with self.assertRaisesRegex(DeviceFenceError, "private owned"):
             DeviceFence(parent / "other.sqlite")
         self.assertFalse((parent / "other.sqlite").exists())
