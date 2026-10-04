@@ -1,5 +1,7 @@
 """Current checkout coverage must fail closed when its component map drifts."""
 from pathlib import Path
+import hashlib
+import importlib.metadata
 import json
 import tempfile
 import unittest
@@ -132,6 +134,23 @@ class CurrentCoverageTests(unittest.TestCase):
         self.assertTrue(all(x['status']=='unassessed' for x in scenarios))
 
 
+    def test_shielded_note_lab_is_covered_and_privacy_remains_unassessed(self):
+        result = coverage(self.root)
+        self.assertIn('shielded_note_lab', result['groups'])
+        self.assertEqual(result['groups']['shielded_note_lab'], ['tools/shielded-note-lab/tests/test_example.py'])
+        boundaries = result['privacy_boundaries']
+        self.assertTrue(boundaries)
+        self.assertTrue(all(x['status'] == 'unassessed' for x in boundaries))
+        self.assertNotIn('passed', [x['status'] for x in boundaries])
+
+    def test_ignored_python_bytecode_fails_before_worker_execution(self):
+        stale = self.root / 'tools/shielded-note-lab/src/__pycache__'
+        stale.mkdir(parents=True)
+        (stale / 'stale.pyc').write_bytes(b'ignored bytecode')
+        with self.assertRaisesRegex(ValueError, 'stale Python bytecode directory'):
+            current.refuse_python_bytecode(self.root)
+
+
 class CurrentJavascriptTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -255,16 +274,68 @@ class CurrentJavascriptTests(unittest.TestCase):
         # Replace process boundaries only; exercise the real report and final gate.
         (self.root / 'requirements.txt').write_text('')
         source = {**self.source, 'tracked_files': 1}
+        lab = self.root / 'tools/shielded-note-lab'
+        lab.mkdir(parents=True)
+        (lab / 'SOURCE_MANIFEST.json').write_text(json.dumps({'tests': ['test_note_lab.Example.test_real_case']}))
+        (lab / 'DEPENDENCIES.json').write_text('{}')
         scenarios = [{'path': p, 'status': 'unassessed',
                       'reason': 'requires separate scenario qualification'} for p in JS_SCENARIOS]
         engine_scenarios=[{'path':'scripts/run_protocol4_state_sync.py','profile':name,
             'status':'unassessed','reason':'requires separate real engine qualification'}
             for name in ('basic','final-apply-crash')]
         profile = {'javascript_groups': JS_UNITS, 'javascript_scenarios': scenarios,
-                   'python_engine_scenarios':engine_scenarios}
+                   'python_engine_scenarios':engine_scenarios,
+                   'privacy_boundaries': [{'area': area, 'status': 'unassessed'} for area in current.PRIVACY_BOUNDARIES]}
 
         def process(command, root, log, timeout):
             if command[0] == 'node': return self.process(command, root, log, timeout)
+            if command[1].endswith('tools/shielded-note-lab/tools/verify.py'):
+                log.write_bytes(b'owned mocked shielded verifier boundary\n')
+                if self.bad in ('missing', 'failed', 'incomplete'):
+                    return {'returncode': int(self.bad == 'failed'), 'timed_out': False,
+                            'log_truncated': False}
+                manifest_bytes = (self.root / 'tools/shielded-note-lab/SOURCE_MANIFEST.json').read_bytes()
+                dependency_bytes = (self.root / 'tools/shielded-note-lab/DEPENDENCIES.json').read_bytes()
+                test_log = 'tests=[] failures=[] errors=[] skips=[]'
+                receipt = {'format': 1, 'status': 'passed',
+                           'commit': ('f' * 40 if self.bad == 'mismatch' else source['commit']),
+                           'tree': ('e' * 40 if self.bad == 'mismatch' else source['tree']),
+                           'tests': sorted(json.loads(manifest_bytes)['tests']),
+                           'test_log': test_log,
+                           'test_log_sha256': hashlib.sha256(test_log.encode()).hexdigest(),
+                           'manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
+                           'source_id': hashlib.sha256(manifest_bytes + dependency_bytes).hexdigest(),
+                           'python': __import__('sys').version,
+                           'cryptography': importlib.metadata.version('cryptography'),
+                           'claims': {'production_privacy': self.bad == 'claims',
+                                      'zero_knowledge': False,
+                                      'consensus_integrated': False,
+                                      'public_network': False, 'real_funds': False},
+                           'network_policy': 'python-process-and-python-child-deny',
+                           'network_scope': ('Python socket and DNS APIs in verifier process and Python children; '
+                                             'non-Python child and direct os spawn/exec entrypoints refused'),
+                           'network_used': False, 'blocked_attempts': 1,
+                           'child_network_probe': 'blocked-before-child-user-network',
+                           'unassessed': ['independent cryptographic review',
+                                           'consensus integration', 'network anonymity',
+                                           'production custody', 'external audit']}
+                if self.bad == 'missing_evidence':
+                    del receipt['network_scope']
+                elif self.bad == 'bad_hash':
+                    receipt['manifest_sha256'] = '0' * 64
+                elif self.bad == 'inventory':
+                    receipt['tests'] = ['wrong.test_id']
+                elif self.bad == 'integer_claim':
+                    receipt['claims']['production_privacy'] = 0
+                elif self.bad == 'extra_field':
+                    receipt['extra'] = True
+                elif self.bad == 'bool_format':
+                    receipt['format'] = True
+                body = json.dumps(receipt)
+                if self.bad == 'duplicate_key':
+                    body = body[:-1] + ', "status": "failed"}'
+                Path(command[command.index('--report') + 1]).write_text(body)
+                return {'returncode': 0, 'timed_out': False, 'log_truncated': False}
             group = command[command.index('--worker') + 1]
             child = {'group': group, 'source_id': command[command.index('--source-id') + 1],
                      'run_id': command[command.index('--run-id') + 1],
@@ -275,7 +346,9 @@ class CurrentJavascriptTests(unittest.TestCase):
             log.write_bytes(b'owned mocked Python process boundary\n')
             return {'returncode': 0, 'timed_out': False, 'log_truncated': False}
 
-        for mode in (None, 'failed', 'missing', 'incomplete'):
+        for mode in (None, 'failed', 'missing', 'incomplete', 'mismatch', 'claims',
+                     'missing_evidence', 'bad_hash', 'inventory', 'integer_claim',
+                     'extra_field', 'bool_format', 'duplicate_key'):
             with self.subTest(wallet_result=mode):
                 self.bad = mode
                 output = Path(self.temp.name) / ('run-' + str(mode))
@@ -287,12 +360,19 @@ class CurrentJavascriptTests(unittest.TestCase):
                      patch('builtins.print'):
                     code = current.run(output, 30)
                 result = json.loads((output / 'result.json').read_bytes())
+                if mode is None:
+                    self.assertTrue(result['shielded_note_lab_verifier']['passed'],
+                                    result['shielded_note_lab_verifier'])
                 self.assertEqual(code, 0 if mode is None else 1)
                 self.assertEqual(result['local_checks'], 'passed' if mode is None else 'failed')
                 self.assertEqual(result['release_status'], 'blocked')
                 self.assertFalse(result['public_network_ready'])
                 self.assertEqual(result['scenario_qualification'], scenarios+engine_scenarios)
                 self.assertTrue(all(x['status']=='unassessed' for x in result['scenario_qualification']))
+                boundaries = result['coverage']['privacy_boundaries']
+                self.assertEqual([x['area'] for x in boundaries], list(current.PRIVACY_BOUNDARIES))
+                self.assertTrue(all(x['status'] == 'unassessed' for x in boundaries))
+                self.assertNotIn('passed', [x['status'] for x in boundaries])
                 self.assertEqual(len(result['javascript']['groups']), 5)
                 for record in result['javascript']['groups']:
                     self.assertEqual(record['run_id'], result['run_id'])

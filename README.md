@@ -21,13 +21,24 @@ obligations through failure, obey current revocation, and disclose only the evid
 needed for a selected purchase. Read the [direction, decisive proof and explicit
 reconsideration gates](docs/PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md), then the
 [executable shared-parent attack model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md).
-The [shielded privacy foundation](docs/SHIELDED_PRIVACY_FOUNDATION.md) defines
-the smallest coherent experimental note transition and the security gates that
-must precede any on-chain privacy claim.
+The [shielded privacy foundation](docs/SHIELDED_PRIVACY_FOUNDATION.md) describes
+the isolated transparent-witness note transition now present in source and the
+security gates that must precede any on-chain privacy claim.
 
 This direction does not describe present on-chain privacy. Today's ledger remains
 transparent, and the independent Layer 1 must still prove that it provides customer
 guarantees that a confidential application on existing settlement rails cannot.
+
+The new [shielded-note lab](tools/shielded-note-lab/README.md) is an isolated
+research component under qualification against its
+[design specification](docs/superpowers/specs/2026-10-04-shielded-note-lab-design.md).
+It uses synthetic keys and values to examine note commitments, nullifiers,
+authenticated membership, spending authorization, integer conservation, exact
+replay, failure recovery and selected-output disclosure. Making those rules
+executable exposes semantic mistakes before a future circuit has to encode them.
+No proof system has been selected. The lab provides no zero-knowledge privacy,
+production readiness, public deployment or real-funds support; the live ledger
+remains public and no wallet, browser or consensus caller uses the lab.
 
 ## Durable invoice payer
 
@@ -75,6 +86,7 @@ See [durable alpha](docs/DURABLE_ALPHA.md) and the
 |---|---|---|
 | Agent spending | Recipient, lifetime and account limits; grants share a parent budget and one financial journal. | [Wallet and budget model](docs/STATE_WALLET.md) |
 | Shared-parent attack model | Two copied journals race one parent fragment; exactly one fee-inclusive successor commits, stale authority fails and the losing obligation remains pending. Transparent semantics only. | [Private authority model](docs/PRIVATE_AUTHORITY_ATTACK_MODEL.md) |
+| Shielded-note transition lab | Isolated transparent-witness source under qualification for local note-spend, replay, recovery and disclosure semantics; no proof system or live integration. | [Component and boundaries](tools/shielded-note-lab/README.md) |
 | Authenticated obligation reconciliation | The supported root wallet shares exact receipt and post-expiry absence classification with a compact Protocol 3 audit seam. The compact audit does not mutate wallet holds. | [Authenticated reconciliation](docs/AUTHENTICATED_RECONCILIATION.md) |
 | Opt-in cloned-journal fencing | A shared owner-only POSIX registry gives explicit `FencedApproval` callers one active device epoch and one reservation per payer/role/nonce. Direct approval and separate registries bypass it. | [Device fence](docs/DEVICE_FENCE_RESERVATION.md) |
 | Real-engine state sync | Both registered P4 profiles passed the external controller and independent semantic validator for one exact source tree on one loopback host. | [Phase-two engine evidence](docs/PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md) |

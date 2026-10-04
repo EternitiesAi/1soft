@@ -1,6 +1,7 @@
 # Private payments architecture — design version 0.1
 
-30 September 2026. Baseline: native/local developer release
+30 September 2026 design basis; updated 4 October 2026 for the isolated note lab.
+Baseline: native/local developer release
 `d14165df5476a617bb3048e61bb80b9767722eac`. This note selects a **next design
 spike**, not a new consensus version, live-chain migration, implemented shielded
 protocol or independently reviewed security boundary.
@@ -24,8 +25,27 @@ all remain correct. A transparent executable model proves semantics, not privacy
 | --- | --- | --- |
 | P1/P2/P3/P4 native state, signatures, AppHash, budgets and execution | Existing compatibility surfaces | Transparent ledger. No bytes or monetary rules are changed by the invoice module |
 | Encrypted invoice content | `1soft/private-invoice/v1`, local module | Description/contact/content confidentiality under an explicit trusted caller key; public request context remains visible |
-| This architecture | Design 0.1 | Proposed proof obligations and acceptance gates; no circuits, proving system, private state or on-chain disclosure proof implemented |
+| Isolated shielded-note transition lab | [Transparent-witness component](../tools/shielded-note-lab/README.md), source present and under qualification | Local synthetic note-spend semantics, with no live caller, privacy proof or consensus integration |
+| This architecture | Design 0.1 | Proposed proof obligations and acceptance gates; no circuits, proving system, production private state or on-chain disclosure proof implemented |
 | Future native private successor | Protocol number/genesis/circuit versions unassigned | Requires its own exact domains, fresh-genesis or expressly reviewed migration plan, source qualification and external review |
+
+The lab is the next executable step specified in the
+[shielded privacy foundation](SHIELDED_PRIVACY_FOUNDATION.md) and
+[4 October design](superpowers/specs/2026-10-04-shielded-note-lab-design.md).
+Its qualification target includes genesis-bound commitments, authenticated note
+membership, note-secret nullifiers, exact spending-key authorization, bounded
+integer conservation, atomic refusal, original-receipt replay/recovery and
+transaction-scoped selected-output disclosure. A transparent checker sees the
+witness. SHA-256 and Ed25519 here model binding and authorization; they do not
+create zero knowledge or select the future proof stack.
+
+This component lets the project find broken spending and failure semantics before
+committing them to a circuit or a consensus version. It remains separate from the
+shared-parent attack model: note conservation does not qualify private overlapping
+budgets, current revocation or unresolved wallet obligations. The lab provides no
+zero-knowledge privacy, production readiness, public deployment or real-funds
+support. No proof system has been selected, and no live wallet, browser, RPC or
+validator integration is added.
 
 The authoritative present behavior is described by
 [the local release](LOCAL_DEVELOPER_RELEASE.md),
@@ -309,11 +329,18 @@ clipboard/history or voluntarily disclosed plaintext. Python erasure is unqualif
 
 ## Migration and next-spike acceptance
 
-The next spike is a source-pinned design and adversarial transition model, not a
-deployment. Its completion condition is a defensible proof-obligation map for
-one native transfer, two overlapping grants, revocation, duplicate/concurrent
-state consumption, unknown submission, restart and one scoped receipt. A model
-using transparent witnesses must be labeled a model; it is not a privacy proof.
+The source-pinned design now has two separate transparent semantic components:
+the shared-parent authority attack model and the isolated note-transition lab.
+The latter is under qualification; its exact source, fixed vectors, refusal,
+replay, export/reopen, lost-return recovery and scoped disclosure must pass before
+it informs a native privacy proposal. Competing spends in independent cloned lab
+states are a required boundary demonstration, not global double-spend protection.
+
+The wider completion condition remains a defensible proof-obligation map for one
+native transfer, two overlapping grants, revocation, duplicate/concurrent state
+consumption, unknown submission, restart and one scoped receipt. The current note
+lab does not select a proof system or satisfy that complete private-authority
+integration gate. A model using transparent witnesses is not a privacy proof.
 
 | Gate | Required deliverable before promotion |
 | --- | --- |
