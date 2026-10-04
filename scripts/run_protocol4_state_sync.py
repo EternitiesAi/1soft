@@ -358,12 +358,22 @@ def record_failure(report,exc,stage):
 def run(engine,private_output,public_output,expected_sha256=ENGINE_SHA256,profile='basic'):
     require(os.name=='posix' and profile in ('basic','final-apply-crash'),'POSIX and known P4 profile required')
     private,public_out=output_paths(private_output,public_output);os.umask(0o077)
-    source=source_identity(ROOT)
     preflight=engine_preflight(engine,expected_sha256)
+    try:
+        source=source_identity(ROOT)
+    except ValueError as exc:
+        # A missing or mismatched external engine cannot execute any scenario.
+        # Preserve that unassessed result for callers running from a development
+        # checkout, but retain the clean-tree release gate whenever execution
+        # could proceed.
+        if preflight['status']=='ready':
+            raise
+        source={'status':'unassessed','reason':'source identity unavailable: '+str(exc)}
     private.mkdir(parents=True,mode=0o700);directory(private);public_out.mkdir(parents=True,mode=0o700)
     run_id=uuid.uuid4().hex;binary=str(Path(engine).absolute())
     report={'schema':'1soft-protocol4-state-sync-v1','status':'unassessed','profile':profile,
-        'run_id':run_id,'source':source,'source_dirty_before':False,'source_dirty_after':None,
+        'run_id':run_id,'source':source,
+        'source_dirty_before':source.get('status')=='unassessed','source_dirty_after':None,
         'public_network':False,'real_funds':False,'checks':[],'processes':[],'logs':[],
         'proof_origin':'target checkpoint plus source signed block history',
         'target_standalone_genesis_history_read':'unassessed',**preflight}
