@@ -56,9 +56,6 @@ impl PublicStatement {
         if valid_from >= valid_until {
             return Err(RelationError::ValidityInterval);
         }
-        if bool::from(self.0[9].is_zero()) {
-            return Err(RelationError::Nullifier);
-        }
         if bool::from(self.0[10].is_zero())
             || bool::from(self.0[11].is_zero())
             || self.0[10] == self.0[11]
@@ -148,6 +145,21 @@ impl Assignment {
     pub fn refresh_authorization(&mut self) {
         self.public.0[13] = authorization_digest(&self.public);
     }
+
+    pub fn rebuild_derived(&mut self) -> Result<(), RelationError> {
+        let input = input_commitment(self);
+        self.public.0[8] = root_from_path(
+            input,
+            usize::from(self.witness.input_position),
+            self.witness.authentication_path,
+        )
+        .map_err(|_| RelationError::AnchorRoot)?;
+        self.public.0[9] = nullifier(self, input);
+        self.public.0[10] = output_commitment(self, 0);
+        self.public.0[11] = output_commitment(self, 1);
+        self.refresh_authorization();
+        validate_native(self)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -221,9 +233,9 @@ pub fn nullifier(assignment: &Assignment, input: F) -> F {
         assignment.public.0[0],
         assignment.public.0[1],
         assignment.public.0[2],
+        assignment.public.0[3],
         assignment.public.0[4],
         assignment.public.0[7],
-        assignment.public.0[3],
         assignment.witness.spend_secret,
         assignment.witness.note_secret,
         input,
@@ -308,7 +320,7 @@ pub fn validate_native(assignment: &Assignment) -> Result<(), RelationError> {
     }
 
     let expected_nullifier = nullifier(assignment, input);
-    if bool::from(expected_nullifier.is_zero()) || expected_nullifier != assignment.public.0[9] {
+    if expected_nullifier != assignment.public.0[9] {
         return Err(RelationError::Nullifier);
     }
 
