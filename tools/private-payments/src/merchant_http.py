@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from p4_evidence import hash_text, integer, need
 from p4_receipt_capsule import MAX_CAPSULE_BYTES, parse_capsule
 from merchant_book import MerchantBook, MAX_QUOTES, MAX_RESOURCE_BYTES
+from merchant_alpha import AlphaMerchantBook, parse_packet, MAX_RECEIPT_BYTES
 from payment_x402 import MAX_SIGNATURE_HEADER, payment_header, parse_payment_required
 
 MAX_HEADER_COUNT = 64
@@ -146,8 +147,8 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
             return True
 
         def _book(self, book):
-            need(type(book) is MerchantBook, 'trusted merchant book required')
             fixed = self._selected
+            need(type(book) is fixed['book_type'], 'original exact merchant book type required')
             need((book.path, book.policy_id, book.policy['genesis_sha256']) == fixed['book_context'],
                  'merchant book factory changed original context')
             selected = book.selected(fixed['quote_id'])
@@ -178,7 +179,7 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
             if type(length_text) is not str or re.fullmatch(r'[1-9][0-9]{0,7}', length_text) is None:
                 self._reply(400, ERROR_BODY); return
             length = int(length_text)
-            if length > MAX_CAPSULE_BYTES:
+            if length > self._selected['max_packet_bytes']:
                 self._reply(413, ERROR_BODY); return
             try:
                 signature = payment_header(rows, 'PAYMENT-SIGNATURE')
@@ -186,7 +187,7 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
                 need(len(raw) == length, 'incomplete bounded capsule body')
                 # Strict canonical shape/duplicates/depth are checked before
                 # opening the merchant book; actual replay happens in fulfill.
-                parse_capsule(raw)
+                self._selected['parse_packet'](raw)
                 with book_factory() as book:
                     self._book(book)
                     result = book.fulfill(self._selected['quote_id'], signature, raw)
@@ -233,12 +234,13 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
             need(len(set(selected_quote_ids)) == len(selected_quote_ids), 'duplicate fixed quote ID')
             routes = {}
             with book_factory() as book:
-                need(type(book) is MerchantBook, 'trusted merchant book factory required')
+                need(type(book) in (MerchantBook, AlphaMerchantBook), 'explicit trusted merchant book factory required')
                 for selected_quote_id in selected_quote_ids:
                     selected = book.selected(selected_quote_id)
                     expectation = selected['expectation']
                     need(expectation.merchant_origin == self.origin, 'retained quote does not use this exact loopback origin')
-                    checked = parse_payment_required(selected['required_header'], expectation, now_ns=book.clock())
+                    checked = parse_payment_required(selected['required_header'], expectation,
+                        now_ns=selected['created_ns'] if type(book) is AlphaMerchantBook else book.clock())
                     parsed = urlsplit(expectation.resource_url)
                     path = parsed.path + ('?' + parsed.query if parsed.query else '')
                     need(expectation.resource_url == self.origin + path,
@@ -247,6 +249,8 @@ def server(book_factory, *, session_token, port=0, quote_id=None):
                     routes[path] = MappingProxyType({'quote_id': selected_quote_id, 'path': path, 'expectation': expectation,
                         'required_header': selected['required_header'], 'resource_sha256': selected['resource_sha256'],
                         'mime': checked['offer']['resource'].get('mimeType', 'application/octet-stream'),
+                        'book_type': type(book), 'max_packet_bytes': MAX_RECEIPT_BYTES if type(book) is AlphaMerchantBook else MAX_CAPSULE_BYTES,
+                        'parse_packet': parse_packet if type(book) is AlphaMerchantBook else parse_capsule,
                         'book_context': (book.path, book.policy_id, book.policy['genesis_sha256'])})
             self._quotes = MappingProxyType(routes)
 

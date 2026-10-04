@@ -8,7 +8,7 @@ sys.dont_write_bytecode = True
 os.umask(0o077)
 ROOT = Path(__file__).resolve().parents[3]
 for path in ('src', 'scripts', 'tools/validator-transition/src', 'tools/protocol4-client/src',
-             'tools/protocol4-wallet/src', 'tools/protocol4-delivery/src',
+             'tools/protocol4-wallet/src', 'tools/protocol4-delivery/src', 'tools/protocol4-custody/src',
              'tools/protocol4-explorer/src', 'tools/protocol4-receipts/src',
              'tools/local-platform/src', 'tools/private-payments/src'):
     sys.path.insert(0, str(ROOT/path))

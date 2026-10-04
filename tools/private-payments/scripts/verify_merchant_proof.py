@@ -33,12 +33,17 @@ def main(argv=None):
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--as-of-ns',type=int,required=True,
                    help='Independently selected historical verification time; never taken from the bundle.')
+    p.add_argument('--profile',choices=('legacy','alpha'),default='legacy',help='Explicit trusted proof profile; no automatic format fallback.')
     args = p.parse_args(argv)
     expectation = load_json(read_private(args.expectation,8192), max_bytes=8192)
     exact(expectation, EXPECTATION_FIELDS, 'independent expectation')
     assignment = load_json(read_private(args.assignment,8192), max_bytes=8192)
     exact(assignment, {'quote_sha256','request_id','recipient','payer','wire_sha256'},'independent assignment')
-    report = verify_merchant_proof(read_private(args.proof,MAX_PROOF_BYTES),
+    verifier=verify_merchant_proof;maximum=MAX_PROOF_BYTES
+    if args.profile=='alpha':
+        from merchant_alpha import verify_proof,MAX_PROOF_BYTES as ALPHA_MAX
+        verifier=verify_proof;maximum=ALPHA_MAX
+    report = verifier(read_private(args.proof,maximum),
         genesis_bytes=read_private(args.genesis), policy=load_json(read_private(args.policy,4096),max_bytes=4096),
         expectation=NativePaymentExpectation(**expectation), assignment=TrustedMerchantAssignment(**assignment),
         now_ns=args.as_of_ns)
