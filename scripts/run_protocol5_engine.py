@@ -7,7 +7,6 @@ import base64
 import binascii
 import concurrent.futures
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -16,7 +15,6 @@ from pathlib import Path
 import signal
 import socket
 import sqlite3
-import struct
 import subprocess
 import sys
 import tempfile
@@ -26,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from protocol5_encoding import (
     canonical_json, decode_canonical_json, derive_genesis_field, field_hex,
-    field_bytes, genesis_document, PALLAS_BASE_MODULUS, Transaction,
+    genesis_document, Transaction,
 )
 from protocol5_abci_wire import Request, Response, read_frame, write_frame
 from protocol5_certificate import (
@@ -43,154 +41,10 @@ INPUT_NAMES = (
     "toolchain", "policy", "genesis",
 )
 MAX_LOG_BYTES = 1_048_576
-CLIENT_MAGIC = b"1SFTCLI1"
-CLIENT_GENESIS_MAGIC = b"1SFTGEN1"
-PROVER_MAGIC = b"1SFTPRV1"
-
-
-@dataclass(frozen=True)
-class Note:
-    expiry: int
-    value: int
-    owner_spend_secret: bytes
-    note_secret: bytes
-    blinding: bytes
-
-    def encode(self) -> bytes:
-        if (type(self.expiry) is not int or type(self.value) is not int
-                or not 1 <= self.expiry < 2**64 or not 1 <= self.value < 2**64):
-            raise ValueError("invalid development note amount or expiry")
-        fields = (self.owner_spend_secret, self.note_secret, self.blinding)
-        if not all(type(item) is bytes and len(item) == 32
-                   and 0 < int.from_bytes(item, "little") < PALLAS_BASE_MODULUS
-                   for item in fields):
-            raise ValueError("invalid development note secret")
-        return struct.pack("<QQ", self.expiry, self.value) + b"".join(fields)
-
-
-def _random_field() -> bytes:
-    while True:
-        value = os.urandom(32)
-        if 0 < int.from_bytes(value, "little") < PALLAS_BASE_MODULUS:
-            return value
-
-
-def development_note(expiry: int, value: int) -> Note:
-    return Note(expiry, value, _random_field(), _random_field(), _random_field())
-
-
-class DevelopmentController:
-    """Controller-only Rust client/prover adapter; secrets use stdin only."""
-
-    def __init__(self, client: Path, prover: Path, genesis_prefix: dict,
-                 receipts: list[dict] | None = None):
-        self.client = client
-        self.prover = prover
-        self.prefix = genesis_prefix
-        self.receipts = receipts if receipts is not None else []
-
-    def _run(self, role: str, binary: Path, request: bytearray,
-             *, expected_length: int | None = None,
-             maximum_length: int = 131_072) -> bytes:
-        process = subprocess.Popen(
-            [str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
-        receipt = {
-            "role": role, "node": None, "pid": process.pid,
-            "start_ticks": _start_ticks(process.pid),
-            "executable_sha256": _sha(binary),
-        }
-        self.receipts.append(receipt)
-        try:
-            output, error = process.communicate(bytes(request), timeout=120)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            output, error = process.communicate(timeout=10)
-            raise RuntimeError(role + " exceeded its watchdog")
-        finally:
-            request[:] = b"\0" * len(request)
-        receipt["exit_code"] = process.returncode
-        receipt["stdout_sha256"] = hashlib.sha256(output).hexdigest()
-        receipt["stderr_sha256"] = hashlib.sha256(error).hexdigest()
-        if process.returncode != 0 or error:
-            raise RuntimeError(role + " failed closed")
-        if len(output) > maximum_length:
-            raise RuntimeError(role + " output exceeded bound")
-        if expected_length is not None and len(output) != expected_length:
-            raise RuntimeError(role + " output length differs")
-        return output
-
-    def _domain_fields(self) -> tuple[bytes, ...]:
-        return (
-            field_bytes(self.prefix["genesis_field"]),
-            field_bytes(self.prefix["asset_field"]),
-            field_bytes(self.prefix["context_field"]),
-            self.prefix["authority_epoch"].to_bytes(32, "little"),
-            field_bytes(self.prefix["policy_field"]),
-        )
-
-    def commitments(self, notes: list[Note]) -> tuple[list[str], str]:
-        if type(notes) is not list or not 1 <= len(notes) <= 16:
-            raise ValueError("development genesis note count differs")
-        request = bytearray(
-            CLIENT_MAGIC + struct.pack("<HH", 1, 1)
-            + b"".join(self._domain_fields()) + struct.pack("<H", len(notes))
-            + b"".join(note.encode() for note in notes))
-        output = self._run(
-            "development-client-genesis", self.client, request,
-            expected_length=12 + 32 * len(notes) + 32, maximum_length=556)
-        if output[:8] != CLIENT_GENESIS_MAGIC:
-            raise RuntimeError("development client genesis magic differs")
-        version, count = struct.unpack_from("<HH", output, 8)
-        if version != 1 or count != len(notes):
-            raise RuntimeError("development client genesis header differs")
-        values = [output[12 + 32 * index:44 + 32 * index]
-                  for index in range(count)]
-        root = output[-32:]
-        if not all(0 < int.from_bytes(item, "little") < PALLAS_BASE_MODULUS
-                   for item in values + [root]) or len(set(values)) != len(values):
-            raise RuntimeError("development client returned invalid commitments")
-        return [item.hex() for item in values], root.hex()
-
-    def spend_request(self, genesis_raw: bytes, commitments: list[str],
-                      input_position: int, input_note: Note,
-                      output_notes: tuple[Note, Note], *,
-                      valid_from: int, valid_until: int) -> bytes:
-        genesis = genesis_document(genesis_raw)
-        if (type(commitments) is not list or not 1 <= len(commitments) <= 14
-                or type(input_position) is not int
-                or not 0 <= input_position < len(commitments)
-                or type(output_notes) is not tuple or len(output_notes) != 2):
-            raise ValueError("invalid development spend request")
-        fields = self._domain_fields() + (
-            valid_from.to_bytes(32, "little"),
-            valid_until.to_bytes(32, "little"),
-            genesis.value["fee"].to_bytes(32, "little"),
-        )
-        request = bytearray(
-            CLIENT_MAGIC + struct.pack("<HH", 1, 2)
-            + genesis.sha256 + genesis.deployment.identity
-            + b"".join(fields) + struct.pack("<H", len(commitments))
-            + b"".join(field_bytes(item) for item in commitments)
-            + struct.pack("<H", input_position) + input_note.encode()
-            + b"".join(note.encode() for note in output_notes))
-        return self._run(
-            "development-client-spend", self.client, request,
-            expected_length=1010, maximum_length=1010)
-
-    def prove(self, genesis_raw: bytes, prover_request: bytes) -> bytes:
-        if (type(prover_request) is not bytes or len(prover_request) != 1010
-                or prover_request[:8] != PROVER_MAGIC):
-            raise ValueError("invalid development prover request")
-        genesis = genesis_document(genesis_raw)
-        request = bytearray(prover_request)
-        transaction = self._run(
-            "development-prover", self.prover, request,
-            expected_length=534 + genesis.profile.proof_length,
-            maximum_length=genesis.value["limits"]["max_tx_bytes"])
-        Transaction.decode(transaction, genesis)
-        return transaction
-
+from protocol5_controller import (
+    CLIENT_GENESIS_MAGIC, CLIENT_MAGIC, CLIENT_OWNER_MAGIC, PROVER_MAGIC,
+    DevelopmentController, Note, RecipientOutput, development_note,
+)
 
 def fresh_genesis_prefix(template_raw: bytes, chain_id: str,
                          engine_validators: list[dict]) -> dict:
