@@ -293,6 +293,13 @@ class AlphaMerchantBook:
     def selected(self,qid):
         with self.atomic(write=False):
             _,rows=self._catalog(self._now());need(qid in rows,'merchant quote unavailable');return self._display(rows[qid])
+    def payment_binding(self,qid):
+        """Read-only original paid identity; no packet, key or spending authority."""
+        with self.atomic(write=False):
+            _,rows=self._catalog(self._now());need(qid in rows,'merchant quote unavailable')
+            p=rows[qid]['payment'];need(p is not None,'explicit independently paid enrollment required')
+            return {k:p[k] for k in ('payer','wire_sha256','capsule_sha256','reference_id',
+                'signer_public_key','native_txid','enrolled_ns','fulfilled_ns')}
     def entries(self):
         with self.atomic(write=False):
             _,rows=self._catalog(self._now());return [self._display(r) for r in rows.values()]

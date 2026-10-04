@@ -47,12 +47,15 @@ EXCLUDED = {'tools/wallet-account/tests/test_account_catchup.py':
 JAVASCRIPT_GROUPS = {'reference': 'reference/kernel.test.mjs',
                      'wallet': 'tools/local-platform/tests/wallet.test.cjs',
                      'history_backup': 'tools/local-platform/tests/backup_history.test.cjs',
-                     'alpha_history': 'tools/local-platform/tests/alpha_history.test.cjs'}
+                     'alpha_history': 'tools/local-platform/tests/alpha_history.test.cjs',
+                     'merchant_resource': 'tools/local-platform/tests/merchant_resource.test.cjs'}
 JAVASCRIPT_SCENARIOS = (
     'tools/local-platform/tests/browser_service.test.cjs',
     'tools/local-platform/tests/browser_workflow.test.cjs',
+    'tools/local-platform/tests/merchant_resource_browser.test.cjs',
     'tools/private-payments/tests/browser_comet.test.cjs',
     'tools/private-payments/tests/alpha_invoice_browser.test.cjs',
+    'tools/private-payments/tests/alpha_resource_browser.test.cjs',
 )
 
 PYTHON_ENGINE_SCENARIOS = tuple(dict(

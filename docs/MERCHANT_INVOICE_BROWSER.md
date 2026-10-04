@@ -5,6 +5,9 @@ payment desk to the guarded loopback wallet. It is limited to a configured,
 already initialized **v3 invoice-capable development workspace**. DEV units have
 no monetary value. The application, signature domain, genesis capability,
 financial journal, receipt format and validator engine remain unchanged.
+The explicit durable invoice alpha is also supported. It may enable the separate
+[browser purchase bridge](BROWSER_MERCHANT_DELIVERY.md) from an existing protected
+merchant session; the default view has no fulfillment capability.
 
 ## Follow one invoice
 

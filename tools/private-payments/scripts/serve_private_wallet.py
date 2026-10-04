@@ -31,6 +31,8 @@ def parser():
     p=private_cli.PrivateParser(description=__doc__)
     for field in ('workspace','engine','invoices'):p.add_argument('--'+field,type=private_cli.path_argument,required=True)
     p.add_argument('--port',type=int,default=0)
+    p.add_argument('--merchant-session',type=private_cli.path_argument,
+        help='Existing owner-private alpha merchant session; enrollment remains operator-only')
     return p
 
 
@@ -40,11 +42,18 @@ def main(argv=None):
     network=network_for_workspace(args.workspace,args.engine)
     try:
         ready_for_browser(network)
+        fulfillment=None
+        if args.merchant_session is not None:
+            from merchant_alpha_ops import AlphaMerchantOps
+            from merchant_browser_delivery import AlphaMerchantBridge
+            merchant=AlphaMerchantOps(network)
+            fulfillment=AlphaMerchantBridge(args.merchant_session,
+                lambda:merchant.book(read_only=True),merchant.genesis,network.policy())
         @contextmanager
         def service():
             with network.service() as platform, open_invoice_storage(args.invoices,
                     network.config['genesis_sha256'],clock=network.clock) as invoices:
-                yield MerchantBrowserService(desk_for_platform(platform,invoices))
+                yield MerchantBrowserService(desk_for_platform(platform,invoices),fulfillment=fulfillment)
         with service() as svc:svc.state()  # Validate retained correlation before listening.
         stopped=threading.Event()
         signal.signal(signal.SIGINT,lambda *_:stopped.set())
@@ -54,6 +63,7 @@ def main(argv=None):
             print(encode(dict(status='committed_merchant_wallet_running',
                 url=f'http://127.0.0.1:{web.server_port}/',genesis_sha256=network.config['genesis_sha256'],
                 network_lifecycle_performed=False,invoice_data_decrypted=False,real_funds_supported=False,
+                merchant_fulfillment_available=fulfillment is not None,
                 shutdown='Ctrl+C closes only this HTTP listener; the separate network owner keeps its validators')).decode(),flush=True)
             while not stopped.is_set():web.handle_request()
         print(encode(dict(status='owned_http_listener_closed',network_lifecycle_performed=False,

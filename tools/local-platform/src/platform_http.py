@@ -1,5 +1,6 @@
 """Bounded loopback browser interface. The trusted local host remains the custody boundary."""
 import hmac
+import hashlib
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import re
@@ -8,10 +9,12 @@ import sqlite3
 
 from block_application import encode
 from commit_verifier import load_json
-from p4_evidence import integer, need
+from p4_evidence import hash_text, integer, need
 from payment_requests import new_request, encode_request
 
 MAX_BODY=65536
+MAX_MERCHANT_RESOURCE=65536
+MAX_MERCHANT_PROOF=90*1024*1024
 WEB=Path(__file__).resolve().parents[1]/'web'
 HASH=r'[0-9a-f]{64}'
 POST_FIELDS={
@@ -26,6 +29,8 @@ POST_FIELDS={
     '/api/reconcile':{'request_id','expected_revision'},
     '/api/refresh':{'expected_tip'},'/api/sync':{'expected_revision'},
     '/api/backup-history':{'passphrase','repeat_passphrase','scope_confirmed'},
+    '/api/merchant-review':{'request_id'},
+    '/api/merchant-retrieve':{'request_id','review_json','confirmation'},
 }
 CSP="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'"
 
@@ -82,7 +87,7 @@ def server(service_factory,*,port=0):
         def log_message(self,*_):pass
         def setup(self):
             super().setup();self.connection.settimeout(10)
-        def reply_headers(self,code,size,mime='application/json',filename=None,*,backup_format=None):
+        def reply_headers(self,code,size,mime='application/json',filename=None,*,backup_format=None,purchase=None,proof_sha256=None):
             self.send_response(code);self.send_header('Content-Type',mime)
             self.send_header('Content-Length',str(size));self.send_header('Cache-Control','no-store')
             self.send_header('Content-Security-Policy',CSP)
@@ -91,6 +96,14 @@ def server(service_factory,*,port=0):
             self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
             if filename:self.send_header('Content-Disposition','attachment; filename="'+filename+'"')
             if backup_format:self.send_header('X-1Soft-Backup-Format',backup_format)
+            if purchase:
+                for key in ('request_id','quote_sha256','resource_sha256','wire_sha256','capsule_sha256','native_txid'):
+                    hash_text(purchase[key]);self.send_header('X-1soft-'+key.replace('_','-'),purchase[key])
+                integer(purchase['fulfilled_ns'],1,2**63-1)
+                self.send_header('X-1soft-Fulfilled-Ns',str(purchase['fulfilled_ns']))
+            if proof_sha256:
+                hash_text(proof_sha256);self.send_header('X-1soft-Proof-Sha256',proof_sha256)
+                self.send_header('X-1soft-Proof-Format','alpha-v1')
             self.end_headers()
         def reply(self,code,raw,mime='application/json',filename=None):
             self.reply_headers(code,len(raw),mime,filename);self.wfile.write(raw)
@@ -113,6 +126,22 @@ def server(service_factory,*,port=0):
                 need(type(raw) is bytes and 0<len(raw)<=remaining,'history output truncated')
                 self.wfile.write(raw);remaining-=len(raw)
             self.wfile.flush()
+        def merchant_reply(self,item,rid,*,proof=False):
+            hash_text(rid)
+            if proof:
+                raw=item['raw'];pins={**item['report'],'fulfilled_ns':item['fulfilled_ns']}
+                bound=MAX_MERCHANT_PROOF;filename=f'1soft-merchant-proof-{rid}.json'
+            else:
+                raw=item['resource'];pins=item;bound=MAX_MERCHANT_RESOURCE;filename=f'1soft-purchase-{rid}.bin'
+                need(hashlib.sha256(raw).hexdigest()==pins['resource_sha256'],'merchant resource digest differs')
+            need(type(raw) is bytes and 0<len(raw)<=bound and pins['request_id']==rid,'bounded correlated merchant output required')
+            for key in ('request_id','quote_sha256','resource_sha256','wire_sha256','capsule_sha256','native_txid'):hash_text(pins[key])
+            integer(pins['fulfilled_ns'],1,2**63-1)
+            self.binary_started=True
+            self.reply_headers(200,len(raw),'application/octet-stream',filename,purchase=pins,
+                proof_sha256=hashlib.sha256(raw).hexdigest() if proof else None)
+            for start in range(0,len(raw),65536):self.wfile.write(raw[start:start+65536])
+            self.wfile.flush()
         def error(self,code,message):
             self.reply(code,encode({'error':message,'message':
                 'Action refused or unavailable. Inspect the saved request before repeating an action; original signatures, attempts and obligations are retained.'}))
@@ -127,6 +156,7 @@ def server(service_factory,*,port=0):
                 values=self.headers.get_all('X-1soft-CSRF',[])
                 need(len(values)==1 and hmac.compare_digest(values[0],token),'CSRF confirmation refused')
         def do_GET(self):
+            self.binary_started=False
             try:self.guard()
             except (ValueError,TypeError):self.error(403,'origin_or_session_refused');return
             path=self.path
@@ -151,9 +181,20 @@ def server(service_factory,*,port=0):
                     rid,cid=m.groups()
                     with service_factory() as svc:raw=svc.capsule(rid,cid)
                     self.reply(200,raw,filename=f'1soft-capsule-{cid}.json');return
+                m=re.fullmatch('/api/merchant-proof/('+HASH+')',path)
+                if m:
+                    rid=m.group(1)
+                    with service_factory() as svc:
+                        need(callable(getattr(svc,'merchant_proof',None)),'merchant fulfillment context required')
+                        item=svc.merchant_proof(rid)
+                    self.merchant_reply(item,rid,proof=True);return
                 self.error(404,'route_unavailable')
-            except (ValueError,KeyError,TypeError,OSError,sqlite3.DatabaseError):self.error(400,'request_refused')
-            except Exception:self.error(500,'operation_unresolved')
+            except (ValueError,KeyError,TypeError,OSError,sqlite3.DatabaseError):
+                if self.binary_started:self.close_connection=True
+                else:self.error(400,'request_refused')
+            except Exception:
+                if self.binary_started:self.close_connection=True
+                else:self.error(500,'operation_unresolved')
         def do_POST(self):
             self.binary_started=False
             try:self.guard(post=True)
@@ -213,6 +254,15 @@ def server(service_factory,*,port=0):
                     elif self.path=='/api/reconcile':result=svc.reconcile(q['request_id'],expected_revision=q['expected_revision'])
                     elif self.path=='/api/refresh':result=svc.refresh(expected_tip=q['expected_tip'])
                     elif self.path=='/api/sync':result=svc.sync(expected_revision=q['expected_revision'])
+                    elif self.path=='/api/merchant-review':
+                        need(callable(getattr(svc,'resource_review',None)),'merchant fulfillment context required')
+                        item=svc.resource_review(q['request_id'])
+                        result=dict(request_id=q['request_id'],review_json=encode(item['review']).decode('utf-8'),
+                                    confirmation=item['confirmation'],summary=item['summary'])
+                    elif self.path=='/api/merchant-retrieve':
+                        need(callable(getattr(svc,'retrieve_purchase',None)),'merchant fulfillment context required')
+                        result=svc.retrieve_purchase(q['request_id'],canonical_review(q['review_json']),q['confirmation'])
+                        self.merchant_reply(result,q['request_id']);return
                 self.reply(200,encode(result))
             except (ValueError,KeyError,TypeError,OSError,sqlite3.DatabaseError):
                 if self.binary_started:self.close_connection=True
