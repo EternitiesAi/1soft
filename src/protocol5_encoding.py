@@ -305,6 +305,14 @@ def comet_validator_set(rows: list[dict]) -> ValidatorSet:
     return ValidatorSet.parse(normalized)
 
 
+def derive_genesis_field(value: dict) -> bytes:
+    _need(type(value) is dict, "genesis field projection must be an object")
+    projection = dict(value)
+    projection.pop("genesis_field", None)
+    projection.pop("initial_commitments", None)
+    return h2f(b"genesis", canonical_json(projection))
+
+
 def genesis_document(raw: bytes) -> GenesisDocument:
     value = _closed(decode_canonical_json(raw), GENESIS_KEYS, "Protocol 5 genesis")
     chain_id = value["chain_id"]
@@ -371,9 +379,7 @@ def genesis_document(raw: bytes) -> GenesisDocument:
     _need(limits["snapshot_chunk_bytes"] * limits["max_snapshot_chunks"]
           >= limits["max_snapshot_bytes"],
           "snapshot chunks cannot carry selected snapshot bound")
-    projection = dict(value)
-    projection.pop("genesis_field")
-    expected_genesis_field = h2f(b"genesis", canonical_json(projection))
+    expected_genesis_field = derive_genesis_field(value)
     _need(field_bytes(value["genesis_field"]) == expected_genesis_field,
           "derived genesis field differs")
     return GenesisDocument(raw, value, profile, deployment, hashlib.sha256(raw).digest())

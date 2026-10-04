@@ -85,11 +85,23 @@ class Protocol5EncodingTests(unittest.TestCase):
                 with self.assertRaises(EncodingError):
                     genesis_document(canonical_json(genesis))
 
+    def test_genesis_field_precedes_commitments_but_final_hash_binds_them(self):
+        first = make_genesis()
+        second = make_genesis(initial_commitments=list(reversed(
+            first["initial_commitments"])))
+        parsed_first = genesis_document(canonical_json(first))
+        parsed_second = genesis_document(canonical_json(second))
+        self.assertEqual(first["genesis_field"], second["genesis_field"])
+        self.assertNotEqual(parsed_first.sha256, parsed_second.sha256)
+        changed_fee = make_genesis(fee=6)
+        self.assertNotEqual(first["genesis_field"], changed_fee["genesis_field"])
+
     def test_chain_id_matches_pinned_engine_ascii_boundary(self):
         accepted = make_genesis(chain_id="a" * 50)
         accepted["genesis_field"] = __import__("protocol5_encoding").field_hex(
             __import__("protocol5_encoding").h2f(b"genesis", canonical_json(
-                {k: v for k, v in accepted.items() if k != "genesis_field"})))
+                {k: v for k, v in accepted.items()
+                 if k not in ("genesis_field", "initial_commitments")})))
         genesis_document(canonical_json(accepted))
         for chain_id in ("a" * 51, "chain-\N{SNOWMAN}"):
             with self.subTest(chain_id=chain_id):

@@ -74,6 +74,7 @@ def make_genesis(**changes):
     value.update(changes)
     projection = dict(value)
     projection.pop("genesis_field", None)
+    projection.pop("initial_commitments", None)
     value["genesis_field"] = field_hex(h2f(b"genesis", canonical_json(projection)))
     return value
 

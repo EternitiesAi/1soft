@@ -39,7 +39,8 @@ class Protocol5CertificateTests(unittest.TestCase):
         value = make_genesis(validators=rows)
         value["genesis_field"] = field_hex(h2f(
             b"genesis",
-            canonical_json({k: v for k, v in value.items() if k != "genesis_field"}),
+            canonical_json({k: v for k, v in value.items()
+                            if k not in ("genesis_field", "initial_commitments")}),
         ))
         raw = canonical_json(value)
         engine = {

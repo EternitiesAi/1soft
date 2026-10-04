@@ -115,7 +115,8 @@ class Protocol5StateTests(unittest.TestCase):
         genesis_value["limits"]["max_accepted_transactions"] = 1
         genesis_value["genesis_field"] = field_hex(h2f(
             b"genesis",
-            canonical_json({k: v for k, v in genesis_value.items() if k != "genesis_field"}),
+            canonical_json({k: v for k, v in genesis_value.items()
+                            if k not in ("genesis_field", "initial_commitments")}),
         ))
         genesis = genesis_document(canonical_json(genesis_value))
         state = initial_state(genesis, self.worker)
