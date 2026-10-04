@@ -750,6 +750,26 @@ def _process_probe_at_held_height(
     return result, checkpoint
 
 
+def _check_tx_at_held_state(
+        network: Protocol5Network,
+        transactions: list[bytes]) -> tuple[list[int], dict, dict]:
+    if (type(transactions) is not list or not transactions
+            or any(type(item) is not bytes or not item for item in transactions)):
+        raise ValueError("invalid Protocol 5 direct CheckTx probes")
+    checkpoint = network.hold_sources_without_quorum()
+    try:
+        before = network.direct_state(0)
+        if before != checkpoint:
+            raise RuntimeError("held Protocol 5 checkpoint changed before CheckTx")
+        codes = [network.direct_check(0, item) for item in transactions]
+        after = network.direct_state(0)
+    finally:
+        for index in (2, 3):
+            if index not in network.engines:
+                network.start_engine(index)
+    return codes, before, after
+
+
 def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
                              report: dict) -> None:
     network = Protocol5Network(paths, output, report, include_target=False)
@@ -946,12 +966,14 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         tampered_root = bytearray(Transaction.decode(unknown, genesis).public_fields[8])
         tampered_root[0] ^= 1
         tampered = _field_mutation(unknown, 8, bytes(tampered_root))
-        before_hash = states[0]["app_hash"]
+        refusal_codes, before_check, after_check = _check_tx_at_held_state(
+            network, [unknown, tampered])
         _check(report, "unknown-root-refusal",
-               network.direct_check(0, unknown) == 4
-               and network.direct_check(0, tampered) == 4
-               and network.state(0)["app_hash"] == before_hash,
-               {"unknown_code": 4, "tampered_code": 4})
+               refusal_codes == [4, 4] and after_check == before_check,
+               {"unknown_code": refusal_codes[0],
+                "tampered_code": refusal_codes[1],
+                "held_height": before_check["height"],
+                "held_app_hash": before_check["app_hash"]})
 
         recovery_outputs = _make_outputs(notes[4], genesis.value["fee"])
         recovery_transaction = controller.prove(

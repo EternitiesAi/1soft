@@ -15,7 +15,8 @@ from protocol5_fixture import make_genesis
 from run_protocol5_engine import (
     CLIENT_MAGIC, CLIENT_GENESIS_MAGIC, PROVER_MAGIC, DevelopmentController,
     ENGINE_SHA256, Note, Protocol5Network, _app_start_timeout, _backup_sqlite,
-    _prepare_conflict_below_quorum, _process_probe_at_held_height,
+    _check_tx_at_held_state, _prepare_conflict_below_quorum,
+    _process_probe_at_held_height,
     finalize_fresh_genesis, fresh_genesis_prefix, p5_app_command, preflight,
 )
 
@@ -136,6 +137,42 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertEqual(checkpoint["height"], 19)
         self.assertIn(("process", 20, b"V" * 32), events)
+        self.assertEqual(set(network.engines), {0, 1, 2, 3})
+
+    def test_direct_check_probes_compare_one_held_state_and_resume_quorum(self):
+        network = object.__new__(Protocol5Network)
+        events = []
+        network.engines = {index: object() for index in range(4)}
+        held = {"height": 104, "app_hash": "11" * 32,
+                "state": {"accepted_transaction_count": 5}}
+
+        def hold():
+            events.append("held")
+            network.engines.pop(2)
+            network.engines.pop(3)
+            return dict(held)
+
+        network.hold_sources_without_quorum = hold
+        network.direct_state = (
+            lambda index: events.append(("state", index)) or dict(held))
+        network.direct_check = (
+            lambda index, transaction:
+            events.append(("check", index, transaction)) or 4)
+        network.start_engine = (
+            lambda index:
+            events.append(("start", index)) or network.engines.setdefault(index, object()))
+
+        codes, before, after = _check_tx_at_held_state(
+            network, [b"unknown", b"tampered"])
+
+        self.assertEqual(codes, [4, 4])
+        self.assertEqual(before, held)
+        self.assertEqual(after, held)
+        self.assertEqual(events, [
+            "held", ("state", 0), ("check", 0, b"unknown"),
+            ("check", 0, b"tampered"), ("state", 0),
+            ("start", 2), ("start", 3),
+        ])
         self.assertEqual(set(network.engines), {0, 1, 2, 3})
 
     def test_no_quorum_staging_waits_for_both_live_mempools(self):
