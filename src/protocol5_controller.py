@@ -20,12 +20,14 @@ from protocol5_encoding import (
 CLIENT_MAGIC = b"1SFTCLI1"
 CLIENT_GENESIS_MAGIC = b"1SFTGEN1"
 CLIENT_OWNER_MAGIC = b"1SFTKEY1"
+CLIENT_NULLIFIER_MAGIC = b"1SFTNUL1"
 PROVER_MAGIC = b"1SFTPRV1"
 CLIENT_VERSION = 1
 GENESIS_OPCODE = 1
 SPEND_OPCODE = 2
 DERIVE_OWNER_KEY_OPCODE = 3
 SPEND_TO_RECIPIENT_KEYS_OPCODE = 4
+DERIVE_NOTE_NULLIFIER_OPCODE = 5
 MAX_CLIENT_REQUEST_BYTES = 1966
 PROVER_REQUEST_BYTES = 1010
 
@@ -181,6 +183,32 @@ class DevelopmentController:
         if version != CLIENT_VERSION:
             raise RuntimeError("development client owner-key version differs")
         return _field(output[10:42], "derived owner key")
+
+    def derive_note_nullifier(
+            self, input_commitment: bytes, input_position: int,
+            spend_secret: bytes, note_secret: bytes) -> bytes:
+        if type(input_position) is not int or not 0 <= input_position < 16:
+            raise ValueError("invalid note position")
+        commitment = _field(input_commitment, "input commitment")
+        spend = _field(spend_secret, "owner spend secret")
+        note = _field(note_secret, "note secret")
+        request = bytearray(
+            CLIENT_MAGIC
+            + struct.pack("<HH", CLIENT_VERSION, DERIVE_NOTE_NULLIFIER_OPCODE)
+            + b"".join(self._domain_fields())
+            + struct.pack("<H", input_position)
+            + commitment + spend + note
+        )
+        output = self._run(
+            "development-client-note-nullifier", self.client, request,
+            expected_length=42, maximum_length=42,
+        )
+        if output[:8] != CLIENT_NULLIFIER_MAGIC:
+            raise RuntimeError("development client note-nullifier magic differs")
+        version = struct.unpack_from("<H", output, 8)[0]
+        if version != CLIENT_VERSION:
+            raise RuntimeError("development client note-nullifier version differs")
+        return _field(output[10:42], "derived note nullifier")
 
     def commitments(self, notes: list[SecretNote]) -> tuple[list[str], str]:
         if type(notes) is not list or not 1 <= len(notes) <= 16:

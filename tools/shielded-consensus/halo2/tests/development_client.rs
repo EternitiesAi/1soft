@@ -12,7 +12,8 @@ use sha2::{Digest, Sha256};
 use shielded_consensus_halo2::{
     development_client::{
         DevelopmentClientRequestV1, GenesisCommitmentsV1, NoteDefinitionV1, NoteDomainV1,
-        OwnerKeyV1, RecipientNoteDefinitionV1, SpendHeaderV1, MAX_CLIENT_REQUEST_BYTES,
+        NoteNullifierV1, OwnerKeyV1, RecipientNoteDefinitionV1, SpendHeaderV1,
+        MAX_CLIENT_REQUEST_BYTES,
     },
     encoding::{EncodingError, ProverRequestV1, TransactionV1},
     field::{encode_field, F},
@@ -759,5 +760,193 @@ fn new_opcodes_reject_zero_noncanonical_trailing_and_overbound_input() {
     assert_eq!(
         DevelopmentClientRequestV1::decode(&overbound),
         Err(EncodingError::LimitExceeded)
+    );
+}
+
+#[test]
+fn derive_note_nullifier_uses_frozen_relation_without_spend_shape() {
+    let client = env!("CARGO_BIN_EXE_shielded-development-client");
+    let vectors = wallet_vectors();
+    let input_position = u16::try_from(
+        vectors
+            .pointer("/derive_note_nullifier/input_position")
+            .and_then(Value::as_u64)
+            .expect("input position vector"),
+    )
+    .unwrap();
+    let input_commitment: [u8; 32] =
+        vector_hex(&vectors, "/derive_note_nullifier/input_commitment_hex")
+            .try_into()
+            .unwrap();
+    let spend_secret: [u8; 32] = vector_hex(&vectors, "/derive_note_nullifier/spend_secret_hex")
+        .try_into()
+        .unwrap();
+    let note_secret: [u8; 32] = vector_hex(&vectors, "/derive_note_nullifier/note_secret_hex")
+        .try_into()
+        .unwrap();
+    let frozen_nullifier: [u8; 32] = vector_hex(&vectors, "/derive_note_nullifier/nullifier_hex")
+        .try_into()
+        .unwrap();
+    let request = DevelopmentClientRequestV1::DeriveNoteNullifier {
+        domain: sample_domain(),
+        input_position,
+        input_commitment,
+        spend_secret,
+        note_secret,
+    };
+
+    let encoded = request.encode().expect("encode opcode 5");
+    assert_eq!(
+        encoded.len(),
+        vector_usize(&vectors, "/derive_note_nullifier/request_length")
+    );
+    assert_eq!(&encoded[..12], b"1SFTCLI1\x01\x00\x05\x00");
+    assert_eq!(
+        sha256_hex(&encoded),
+        vectors
+            .pointer("/derive_note_nullifier/request_sha256")
+            .unwrap()
+            .as_str()
+            .unwrap()
+    );
+    assert_eq!(
+        DevelopmentClientRequestV1::decode(&encoded).unwrap(),
+        request
+    );
+
+    let direct = request
+        .derive()
+        .expect("derive note nullifier")
+        .encode()
+        .expect("encode note nullifier");
+    assert_eq!(
+        direct.len(),
+        vector_usize(&vectors, "/derive_note_nullifier/response_length")
+    );
+    assert_eq!(&direct[..10], b"1SFTNUL1\x01\x00");
+    assert_eq!(
+        sha256_hex(&direct),
+        vectors
+            .pointer("/derive_note_nullifier/response_sha256")
+            .unwrap()
+            .as_str()
+            .unwrap()
+    );
+    assert_eq!(
+        NoteNullifierV1::decode(&direct).unwrap(),
+        NoteNullifierV1 {
+            nullifier: frozen_nullifier
+        }
+    );
+
+    let process = invoke(client, &encoded);
+    assert!(
+        process.status.success(),
+        "{}",
+        String::from_utf8_lossy(&process.stderr)
+    );
+    assert!(process.stderr.is_empty());
+    assert_eq!(process.stdout, direct);
+}
+
+#[test]
+fn derive_note_nullifier_rejects_bad_fields_position_and_framing() {
+    let vectors = wallet_vectors();
+    let input_commitment: [u8; 32] =
+        vector_hex(&vectors, "/derive_note_nullifier/input_commitment_hex")
+            .try_into()
+            .unwrap();
+    let spend_secret = field(22);
+    let note_secret = field(23);
+    let valid = DevelopmentClientRequestV1::DeriveNoteNullifier {
+        domain: sample_domain(),
+        input_position: 15,
+        input_commitment,
+        spend_secret,
+        note_secret,
+    };
+    let valid_wire = valid.encode().expect("encode position 15");
+    assert_eq!(
+        DevelopmentClientRequestV1::decode(&valid_wire).unwrap(),
+        valid
+    );
+    let position_15_output = valid
+        .derive()
+        .expect("derive position 15")
+        .encode()
+        .unwrap();
+    assert!(NoteNullifierV1::decode(&position_15_output).is_ok());
+
+    let position_16 = DevelopmentClientRequestV1::DeriveNoteNullifier {
+        domain: sample_domain(),
+        input_position: 16,
+        input_commitment,
+        spend_secret,
+        note_secret,
+    };
+    assert_eq!(position_16.encode(), Err(EncodingError::LimitExceeded));
+    let mut position_16_wire = valid_wire.clone();
+    position_16_wire[172..174].copy_from_slice(&16u16.to_le_bytes());
+    assert_eq!(
+        DevelopmentClientRequestV1::decode(&position_16_wire),
+        Err(EncodingError::LimitExceeded)
+    );
+
+    for offset in [174usize, 206, 238] {
+        let mut zero = valid_wire.clone();
+        zero[offset..offset + 32].copy_from_slice(&field(0));
+        assert_eq!(
+            DevelopmentClientRequestV1::decode(&zero),
+            Err(EncodingError::InvalidValue)
+        );
+        let mut noncanonical = valid_wire.clone();
+        noncanonical[offset..offset + 32].copy_from_slice(&[0xff; 32]);
+        assert_eq!(
+            DevelopmentClientRequestV1::decode(&noncanonical),
+            Err(EncodingError::InvalidField)
+        );
+    }
+
+    let mut trailing = valid_wire;
+    trailing.push(0);
+    assert_eq!(
+        DevelopmentClientRequestV1::decode(&trailing),
+        Err(EncodingError::TrailingBytes)
+    );
+
+    assert_eq!(
+        NoteNullifierV1 {
+            nullifier: field(0)
+        }
+        .encode(),
+        Err(EncodingError::InvalidValue)
+    );
+    assert_eq!(
+        NoteNullifierV1 {
+            nullifier: [0xff; 32]
+        }
+        .encode(),
+        Err(EncodingError::InvalidField)
+    );
+    let mut zero_response = b"1SFTNUL1\x01\x00".to_vec();
+    zero_response.extend_from_slice(&field(0));
+    assert_eq!(
+        NoteNullifierV1::decode(&zero_response),
+        Err(EncodingError::InvalidValue)
+    );
+    let mut noncanonical_response = b"1SFTNUL1\x01\x00".to_vec();
+    noncanonical_response.extend_from_slice(&[0xff; 32]);
+    assert_eq!(
+        NoteNullifierV1::decode(&noncanonical_response),
+        Err(EncodingError::InvalidField)
+    );
+    let nullifier: [u8; 32] = vector_hex(&vectors, "/derive_note_nullifier/nullifier_hex")
+        .try_into()
+        .unwrap();
+    let mut trailing_response = NoteNullifierV1 { nullifier }.encode().unwrap();
+    trailing_response.push(0);
+    assert_eq!(
+        NoteNullifierV1::decode(&trailing_response),
+        Err(EncodingError::TrailingBytes)
     );
 }

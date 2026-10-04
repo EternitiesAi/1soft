@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 from pathlib import Path
 import struct
 import unittest
 
 from protocol5_controller import (
-    CLIENT_GENESIS_MAGIC, CLIENT_MAGIC, CLIENT_OWNER_MAGIC, PROVER_MAGIC,
-    DevelopmentController, RecipientOutput, SecretNote,
+    CLIENT_GENESIS_MAGIC, CLIENT_MAGIC, CLIENT_NULLIFIER_MAGIC,
+    CLIENT_OWNER_MAGIC, PROVER_MAGIC, DevelopmentController, RecipientOutput,
+    SecretNote,
 )
 from protocol5_encoding import genesis_document
 from protocol5_fixture import make_genesis
@@ -25,6 +28,8 @@ class CapturingController(DevelopmentController):
         request[:] = b"\0" * len(request)
         if role == "development-client-owner-key":
             return CLIENT_OWNER_MAGIC + struct.pack("<H", 1) + (17).to_bytes(32, "little")
+        if role == "development-client-note-nullifier":
+            return CLIENT_NULLIFIER_MAGIC + struct.pack("<H", 1) + (19).to_bytes(32, "little")
         if role == "development-client-genesis":
             count = struct.unpack_from("<H", raw, 172)[0]
             values = [(index + 11).to_bytes(32, "little") for index in range(count)]
@@ -58,6 +63,40 @@ class Protocol5ControllerTests(unittest.TestCase):
         self.assertEqual(len(raw), 44)
         self.assertEqual(owner, (17).to_bytes(32, "little"))
         self.assertEqual(options, {"expected_length": 42, "maximum_length": 42})
+
+    def test_note_nullifier_wire_is_exact_and_stdin_only(self):
+        commitment = (41).to_bytes(32, "little")
+        spend_secret = (43).to_bytes(32, "little")
+        note_secret = (47).to_bytes(32, "little")
+        nullifier = self.controller.derive_note_nullifier(
+            commitment, 15, spend_secret, note_secret)
+        role, raw, options = self.controller.captured[-1]
+        self.assertEqual(role, "development-client-note-nullifier")
+        self.assertEqual(
+            raw,
+            CLIENT_MAGIC + struct.pack("<HH", 1, 5)
+            + b"".join(self.controller._domain_fields())
+            + struct.pack("<H", 15)
+            + commitment + spend_secret + note_secret,
+        )
+        self.assertEqual(len(raw), 270)
+        self.assertEqual(nullifier, (19).to_bytes(32, "little"))
+        self.assertEqual(options, {"expected_length": 42, "maximum_length": 42})
+
+    def test_note_nullifier_invalid_fields_and_positions_fail_before_subprocess(self):
+        valid = (7).to_bytes(32, "little")
+        before = len(self.controller.captured)
+        for position in (-1, 16, True, 1.0):
+            with self.subTest(position=position), self.assertRaises(ValueError):
+                self.controller.derive_note_nullifier(valid, position, valid, valid)
+        for index in range(3):
+            for bad in (b"", b"\0" * 32, b"\xff" * 32, bytearray(32)):
+                fields = [valid, valid, valid]
+                fields[index] = bad
+                with self.subTest(index=index, value=repr(bad)), self.assertRaises(ValueError):
+                    self.controller.derive_note_nullifier(
+                        fields[0], 0, fields[1], fields[2])
+        self.assertEqual(len(self.controller.captured), before)
 
     def test_public_recipient_wire_is_exact_and_stdin_only(self):
         commitments, _ = self.controller.commitments([note(10, 3), note(20, 6)])
@@ -113,7 +152,22 @@ class Protocol5ControllerTests(unittest.TestCase):
         "exact Protocol 5 controller binaries not supplied",
     )
     def test_actual_binaries_build_public_recipient_transaction(self):
-        prefix = make_genesis()
+        profile = (
+            Path(__file__).parents[1]
+            / "tools/shielded-consensus/profile/profile-descriptor-v1.bin"
+        ).read_bytes()
+        profile_id = hashlib.sha256(
+            b"1soft/shielded-profile/v1\0" + profile).digest()
+        fixture_binding = base64.b64decode(make_genesis()["deployment_binding"])
+        binding = fixture_binding[:12] + profile_id + fixture_binding[44:]
+        deployment_id = hashlib.sha256(
+            b"1soft/shielded-deployment/v1\0" + binding).hexdigest()
+        prefix = make_genesis(
+            profile_descriptor=base64.b64encode(profile).decode("ascii"),
+            profile_id=profile_id.hex(),
+            deployment_binding=base64.b64encode(binding).decode("ascii"),
+            deployment_id=deployment_id,
+        )
         prefix["initial_commitments"] = []
         controller = DevelopmentController(
             Path(os.environ["ONE_P5_CLIENT"]),
@@ -135,6 +189,11 @@ class Protocol5ControllerTests(unittest.TestCase):
             raw_genesis, commitments, 0, input_note, outputs,
             valid_from=1, valid_until=20,
         )
+        nullifier = controller.derive_note_nullifier(
+            bytes.fromhex(commitments[0]), 0,
+            input_note.owner_spend_secret, input_note.note_secret,
+        )
+        self.assertEqual(nullifier, prover_request[370:402])
         transaction = controller.prove(raw_genesis, prover_request)
         decoded = genesis_document(raw_genesis)
         self.assertEqual(len(transaction), 534 + decoded.profile.proof_length)

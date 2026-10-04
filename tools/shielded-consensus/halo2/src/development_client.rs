@@ -7,8 +7,8 @@ use crate::{
     encoding::{Digest32, EncodingError, ProverRequestV1, WitnessV1},
     field::{decode_field, encode_field, FieldBytes, F},
     relation::{
-        field_to_u64, input_commitment, note_commitment, spend_key, Assignment, PublicStatement,
-        SpendWitness,
+        field_to_u64, input_commitment, note_commitment, nullifier, spend_key, Assignment,
+        PublicStatement, SpendWitness,
     },
     tree::{authentication_path, tree_root},
 };
@@ -16,11 +16,13 @@ use crate::{
 const CLIENT_MAGIC: [u8; 8] = *b"1SFTCLI1";
 const GENESIS_OUTPUT_MAGIC: [u8; 8] = *b"1SFTGEN1";
 const OWNER_KEY_OUTPUT_MAGIC: [u8; 8] = *b"1SFTKEY1";
+const NOTE_NULLIFIER_OUTPUT_MAGIC: [u8; 8] = *b"1SFTNUL1";
 const CLIENT_VERSION: u16 = 1;
 const GENESIS_OPCODE: u16 = 1;
 const SPEND_OPCODE: u16 = 2;
 const DERIVE_OWNER_KEY_OPCODE: u16 = 3;
 const SPEND_TO_RECIPIENT_KEYS_OPCODE: u16 = 4;
+const DERIVE_NOTE_NULLIFIER_OPCODE: u16 = 5;
 pub const MAX_CLIENT_REQUEST_BYTES: usize = 1966;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -85,6 +87,13 @@ pub enum DevelopmentClientRequestV1 {
         input_note: NoteDefinitionV1,
         outputs: [RecipientNoteDefinitionV1; 2],
     },
+    DeriveNoteNullifier {
+        domain: NoteDomainV1,
+        input_position: u16,
+        input_commitment: FieldBytes,
+        spend_secret: FieldBytes,
+        note_secret: FieldBytes,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,10 +108,16 @@ pub struct OwnerKeyV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NoteNullifierV1 {
+    pub nullifier: FieldBytes,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DevelopmentClientOutputV1 {
     Genesis(GenesisCommitmentsV1),
     ProverRequest(ProverRequestV1),
     OwnerKey(OwnerKeyV1),
+    NoteNullifier(NoteNullifierV1),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -180,6 +195,14 @@ fn push_u64(output: &mut Vec<u8>, value: u64) {
 }
 fn push_field(output: &mut Vec<u8>, value: FieldBytes) -> Result<(), EncodingError> {
     decode_field(value).map_err(|_| EncodingError::InvalidField)?;
+    output.extend_from_slice(&value);
+    Ok(())
+}
+fn push_nonzero_field(output: &mut Vec<u8>, value: FieldBytes) -> Result<(), EncodingError> {
+    let decoded = decode_field(value).map_err(|_| EncodingError::InvalidField)?;
+    if bool::from(decoded.is_zero()) {
+        return Err(EncodingError::InvalidValue);
+    }
     output.extend_from_slice(&value);
     Ok(())
 }
@@ -484,6 +507,23 @@ impl DevelopmentClientRequestV1 {
                     note.encode_into(&mut output)?;
                 }
             }
+            Self::DeriveNoteNullifier {
+                domain,
+                input_position,
+                input_commitment,
+                spend_secret,
+                note_secret,
+            } => {
+                if usize::from(*input_position) >= CAPACITY {
+                    return Err(EncodingError::LimitExceeded);
+                }
+                push_u16(&mut output, DERIVE_NOTE_NULLIFIER_OPCODE);
+                domain.encode_into(&mut output)?;
+                push_u16(&mut output, *input_position);
+                for value in [*input_commitment, *spend_secret, *note_secret] {
+                    push_nonzero_field(&mut output, value)?;
+                }
+            }
         }
         if output.len() > MAX_CLIENT_REQUEST_BYTES {
             return Err(EncodingError::LimitExceeded);
@@ -586,6 +626,32 @@ impl DevelopmentClientRequestV1 {
                     input_position,
                     input_note,
                     outputs,
+                }
+            }
+            DERIVE_NOTE_NULLIFIER_OPCODE => {
+                let domain = NoteDomainV1::decode_from(&mut reader)?;
+                let input_position = reader.u16()?;
+                if usize::from(input_position) >= CAPACITY {
+                    return Err(EncodingError::LimitExceeded);
+                }
+                let input_commitment = reader.field()?;
+                let spend_secret = reader.field()?;
+                let note_secret = reader.field()?;
+                for value in [input_commitment, spend_secret, note_secret] {
+                    if bool::from(
+                        decode_field(value)
+                            .map_err(|_| EncodingError::InvalidField)?
+                            .is_zero(),
+                    ) {
+                        return Err(EncodingError::InvalidValue);
+                    }
+                }
+                Self::DeriveNoteNullifier {
+                    domain,
+                    input_position,
+                    input_commitment,
+                    spend_secret,
+                    note_secret,
                 }
             }
             _ => return Err(EncodingError::InvalidValue),
@@ -712,6 +778,53 @@ impl DevelopmentClientRequestV1 {
                     ],
                 )
             }
+            Self::DeriveNoteNullifier {
+                domain,
+                input_position,
+                input_commitment,
+                spend_secret,
+                note_secret,
+            } => {
+                if usize::from(*input_position) >= CAPACITY {
+                    return Err(ClientError::InvalidRequest);
+                }
+                let input =
+                    decode_field(*input_commitment).map_err(|_| ClientError::InvalidRequest)?;
+                let spend = decode_field(*spend_secret).map_err(|_| ClientError::InvalidRequest)?;
+                let note = decode_field(*note_secret).map_err(|_| ClientError::InvalidRequest)?;
+                if [input, spend, note]
+                    .into_iter()
+                    .any(|value| bool::from(value.is_zero()))
+                {
+                    return Err(ClientError::InvalidRequest);
+                }
+                // `nullifier` reads only the supplied domain, position, secrets, and input.
+                // The remaining witness fields are never validated and never enter its hash.
+                let assignment = Assignment {
+                    public: domain.public_statement()?,
+                    witness: SpendWitness {
+                        input_position: *input_position,
+                        input_value: 0,
+                        input_expiry: 0,
+                        input_blinding: F::ZERO,
+                        spend_secret: spend,
+                        note_secret: note,
+                        authentication_path: [F::ZERO; crate::constants::DEPTH],
+                        output_values: [0; 2],
+                        output_expiries: [0; 2],
+                        output_recipient_keys: [F::ZERO; 2],
+                        output_note_secrets: [F::ZERO; 2],
+                        output_blindings: [F::ZERO; 2],
+                    },
+                };
+                let derived = nullifier(&assignment, input);
+                if bool::from(derived.is_zero()) {
+                    return Err(ClientError::InvalidRequest);
+                }
+                Ok(DevelopmentClientOutputV1::NoteNullifier(NoteNullifierV1 {
+                    nullifier: encode_field(derived),
+                }))
+            }
         }
     }
 }
@@ -787,12 +900,47 @@ impl OwnerKeyV1 {
     }
 }
 
+impl NoteNullifierV1 {
+    pub fn encode(&self) -> Result<Vec<u8>, EncodingError> {
+        let nullifier = decode_field(self.nullifier).map_err(|_| EncodingError::InvalidField)?;
+        if bool::from(nullifier.is_zero()) {
+            return Err(EncodingError::InvalidValue);
+        }
+        let mut output = Vec::with_capacity(42);
+        output.extend_from_slice(&NOTE_NULLIFIER_OUTPUT_MAGIC);
+        push_u16(&mut output, CLIENT_VERSION);
+        output.extend_from_slice(&self.nullifier);
+        Ok(output)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, EncodingError> {
+        let mut reader = Reader::new(bytes);
+        if reader.array::<8>()? != NOTE_NULLIFIER_OUTPUT_MAGIC {
+            return Err(EncodingError::WrongMagic);
+        }
+        if reader.u16()? != CLIENT_VERSION {
+            return Err(EncodingError::WrongVersion);
+        }
+        let nullifier = reader.field()?;
+        if bool::from(
+            decode_field(nullifier)
+                .map_err(|_| EncodingError::InvalidField)?
+                .is_zero(),
+        ) {
+            return Err(EncodingError::InvalidValue);
+        }
+        reader.finish()?;
+        Ok(Self { nullifier })
+    }
+}
+
 impl DevelopmentClientOutputV1 {
     pub fn encode(&self) -> Result<Vec<u8>, EncodingError> {
         match self {
             Self::Genesis(value) => value.encode(),
             Self::ProverRequest(value) => value.encode(),
             Self::OwnerKey(value) => value.encode(),
+            Self::NoteNullifier(value) => value.encode(),
         }
     }
 }
