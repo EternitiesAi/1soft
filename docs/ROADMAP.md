@@ -16,7 +16,7 @@ Updated 4 October 2026. Acceptance gates, not launch promises or dates. “Imple
 | Authenticated compact state/proofs | Implemented development path | Continue scale, pruning and adversarial proof testing. |
 | Bounded ABCI state sync | Both registered P4 profiles passed for [one exact source tree](PROTOCOL4_REAL_ENGINE_SECURITY_PHASE2.md) with pinned CometBFT | Re-run after relevant source changes, then repeat across independent machines. |
 | Crash/recovery and application checkpoints | Implemented development tooling | Coordinate validator consensus DB/signing-state recovery; power-loss and operator drills remain. |
-| Shielded transaction laboratory | [Isolated transparent-witness source](../tools/shielded-note-lab/README.md) present and under qualification; no proving implementation selected | Complete exact-source qualification and review of the [note-transition specification](superpowers/specs/2026-10-04-shielded-note-lab-design.md), including authorization, conservation, replay, refused-state invariance, export/reopen, competing cloned states and scoped disclosure. A privacy successor still needs a complete proof stack, malformed-proof tests and independent cryptographic review before consensus integration. |
+| Shielded transaction laboratory | [Isolated transparent-witness source](../tools/shielded-note-lab/README.md) present and under qualification; privacy-proof benchmark source under qualification with gnark v0.16.3/gnark-crypto v0.21.0 Groth16/BN254/Poseidon2 as an experimental first candidate | Complete exact-source qualification and review of the [note-transition specification](superpowers/specs/2026-10-04-shielded-note-lab-design.md) and [proof benchmark](../tools/privacy-proof-benchmark/README.md), including authorization, conservation, replay, refused-state invariance, export/reopen, competing cloned states, scoped disclosure and listed rejection cases. The candidate uses an ephemeral setup and is not a production proof-system selection or production privacy, consensus integration, network anonymity, custody, independent review, public-network readiness or real-funds safety. |
 | Real network fault/security tests | Partial one-host evidence | Multi-host partitions, restarts, hostile peers, resource exhaustion and incident drills. |
 | Final engine/protocol decision | CometBFT 0.38.25 pinned for current development | Upgrade/licensing/security lifecycle and validator-set evolution policy. |
 | Snapshot pruning/history policy | Not complete; sequential read replay and complete bounded backup/read-store formats implemented | Bound long-term receipt growth and define retained history/snapshot availability. Faster historical reads and smaller physical proof/backup files do not extend logical history or constitute pruning. See [read-proof storage](READ_PROOF_STORAGE.md). |
@@ -27,8 +27,13 @@ Updated 4 October 2026. Acceptance gates, not launch promises or dates. “Imple
 
 The shielded-note lab is a local semantic qualification gate. It provides no
 zero-knowledge privacy, production readiness, public deployment or real-funds
-support, and it does not select a proof system. One shared lab state can serialize
+support, and it does not select a production proof system. One shared lab state can serialize
 spends; independent cloned states have no common consensus authority. Its results
 do not qualify private shared budgets or global double-spend prevention.
+
+The privacy-proof benchmark is a separate offline exact-source qualification
+surface for a synthetic one-input/two-output relation. Its ephemeral setup and
+listed rejection cases remain experimental evidence; source under qualification
+does not establish a successful benchmark receipt or any production boundary.
 
 The native coin and any future redeemable dollar instrument make different economic promises. No public supply, value, returns, reserve backing, banking relationship or partnership is implied. The static website remains separate from node/validator infrastructure.

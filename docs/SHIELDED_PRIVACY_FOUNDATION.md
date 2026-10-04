@@ -40,9 +40,22 @@ oracle for shared-parent budgets, revocation and unresolved obligations; this
 note lab does not implement those private authority successors.
 
 The lab provides no zero-knowledge privacy, anonymity, production readiness,
-public deployment or real-funds support. No proof system has been selected.
+public deployment or real-funds support. No production proof system has been selected
+for the chain.
 Source presence and local test success do not establish independent review,
 consensus integration or a private ledger.
+
+## Experimental proof benchmark
+
+The separate [privacy-proof benchmark](../tools/privacy-proof-benchmark/README.md)
+is an experimental first benchmark candidate using gnark v0.16.3,
+gnark-crypto v0.21.0, Groth16 over BN254 and Poseidon2. It exercises a synthetic
+one-input/two-output relation with ephemeral setup and offline exact-source
+verification, including the listed rejection cases. Its status remains source
+under qualification unless a successful exact receipt exists. It is not a
+production proof-system selection, production privacy, consensus integration,
+network anonymity, custody, independent review, public-network readiness or
+real-funds safety.
 
 ## Requirements for a privacy successor
 

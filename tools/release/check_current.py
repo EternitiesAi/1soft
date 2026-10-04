@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.metadata
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,7 @@ COMPONENTS = (
     'protocol4-receipts', 'protocol4-recovery', 'protocol4-wallet',
     'receipt-archive', 'release', 'validator-registry', 'validator-transition',
     'wallet-account', 'wallet-delivery', 'shielded-note-lab',
+    'privacy-proof-benchmark',
 )
 COMMON = (['tools/validator-transition/src', 'src', 'tests', 'scripts', 'tools/release']
           + [f'tools/{name}/src' for name in COMPONENTS]
@@ -46,6 +48,10 @@ GROUPS['release'] = ('tools/release/tests', 'test_*.py',
 GROUPS['shielded_note_lab'] = (
     'tools/shielded-note-lab/tests', 'test_*.py',
     ['tools/shielded-note-lab/src', 'tools/shielded-note-lab/tests'],
+)
+GROUPS['privacy_proof_benchmark'] = (
+    'tools/privacy-proof-benchmark/tests', 'test_*.py',
+    ['tools/privacy-proof-benchmark/src', 'tools/privacy-proof-benchmark/tests'],
 )
 EXCLUDED = {'tools/wallet-account/tests/test_account_catchup.py':
             'optional unpublished wallet_catchup core is absent from this checkout'}
@@ -283,6 +289,131 @@ def shielded_note_verification(root, output, source, timeout):
     return record
 
 
+def privacy_proof_verification(root, output, source, timeout):
+    report_path = output / 'privacy-proof-benchmark-verifier.json'
+    log_path = output / 'privacy-proof-benchmark-verifier.log'
+    process = base.run_process(
+        [sys.executable, str(root / 'tools/privacy-proof-benchmark/tools/verify.py'),
+         '--report', str(report_path), '--timeout', str(timeout)],
+        root, log_path, timeout + 30)
+    record = {'name': 'privacy_proof_benchmark_verifier', 'passed': False,
+              'report': report_path.name, 'log': log_path.name, **process}
+
+    def evidence_file(name, expected, sha256, size):
+        if (type(name) is not str or name != expected or Path(name).name != name
+                or type(sha256) is not str or not re.fullmatch(r'[0-9a-f]{64}', sha256)
+                or type(size) is not int or size < 0):
+            return False
+        path = output / name
+        return (path.is_file() and not path.is_symlink()
+                and path.stat().st_size == size
+                and base.digest(path.read_bytes()) == sha256)
+
+    try:
+        receipt_bytes = report_path.read_bytes()
+        receipt = load_unique_json_bytes(receipt_bytes)
+        component = root / 'tools/privacy-proof-benchmark'
+        manifest_bytes = (component / 'SOURCE_MANIFEST.json').read_bytes()
+        dependency_bytes = (component / 'DEPENDENCIES.json').read_bytes()
+        manifest = load_unique_json_bytes(manifest_bytes)
+        expected_fields = {'format', 'status', 'commit', 'tree', 'manifest_sha256',
+                           'source_id', 'circuit_source_digest', 'python', 'go',
+                           'python_tests', 'go_tests', 'logs', 'backend_receipt',
+                           'network_policy', 'network_used', 'claims', 'unassessed'}
+        expected_manifest_fields = {'format', 'package', 'files', 'python_tests',
+                                    'go_tests', 'circuit_files'}
+        base.require(set(manifest) == expected_manifest_fields,
+                     'invalid privacy proof manifest fields')
+        circuit_hash = hashlib.sha256()
+        for relative in manifest['circuit_files']:
+            data = (component / relative).read_bytes()
+            circuit_hash.update(relative.encode('utf-8'))
+            circuit_hash.update(b'\0')
+            circuit_hash.update(str(len(data)).encode('ascii'))
+            circuit_hash.update(b'\0')
+            circuit_hash.update(data)
+        expected_circuit_digest = circuit_hash.hexdigest()
+
+        module_path = component / 'src/privacy_proof_benchmark.py'
+        spec = importlib.util.spec_from_file_location(
+            '_one_soft_privacy_proof_benchmark', module_path)
+        base.require(spec is not None and spec.loader is not None,
+                     'privacy proof contract loader unavailable')
+        contract = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(contract)
+
+        logs = receipt.get('logs')
+        base.require(type(logs) is dict and set(logs) == {
+            'python', 'go_test', 'go_build', 'benchmark'}, 'invalid proof logs')
+        python_log = logs['python']
+        base.require(type(python_log) is dict
+                     and set(python_log) == {'path', 'sha256', 'bytes'},
+                     'invalid Python proof log')
+        evidence_ok = evidence_file(
+            python_log['path'], 'privacy-proof-benchmark-verifier.python.log',
+            python_log['sha256'], python_log['bytes'])
+        process_log_fields = {'returncode', 'seconds_ns', 'log',
+                              'log_sha256', 'log_bytes'}
+        expected_log_names = {
+            'go_test': 'privacy-proof-benchmark-verifier.go-test.log',
+            'go_build': 'privacy-proof-benchmark-verifier.go-build.log',
+            'benchmark': 'privacy-proof-benchmark-verifier.benchmark.log',
+        }
+        for name, expected_name in expected_log_names.items():
+            value = logs[name]
+            evidence_ok = evidence_ok and (
+                type(value) is dict and set(value) == process_log_fields
+                and type(value['returncode']) is int and value['returncode'] == 0
+                and type(value['seconds_ns']) is int and value['seconds_ns'] > 0
+                and evidence_file(value['log'], expected_name,
+                                  value['log_sha256'], value['log_bytes']))
+
+        backend_record = receipt.get('backend_receipt')
+        base.require(type(backend_record) is dict
+                     and set(backend_record) == {'path', 'sha256', 'bytes', 'value'},
+                     'invalid backend receipt binding')
+        evidence_ok = evidence_ok and evidence_file(
+            backend_record['path'], 'privacy-proof-benchmark-verifier.backend.json',
+            backend_record['sha256'], backend_record['bytes'])
+        backend_value = contract.validate_backend_receipt(
+            backend_record['value'], expected_commit=source['commit'],
+            expected_tree=source['tree'],
+            expected_circuit_digest=expected_circuit_digest)
+        backend_bytes = (output / backend_record['path']).read_bytes()
+        evidence_ok = evidence_ok and (
+            contract.load_unique_json_bytes(backend_bytes) == backend_value)
+
+        claims = receipt.get('claims')
+        record['report_sha256'] = base.digest(receipt_bytes)
+        record['receipt'] = {key: receipt.get(key) for key in expected_fields}
+        record['passed'] = (
+            set(receipt) == expected_fields
+            and process['returncode'] == 0 and not process['timed_out']
+            and not process['log_truncated']
+            and type(receipt.get('format')) is int and receipt['format'] == 1
+            and receipt.get('status') == 'passed'
+            and receipt.get('commit') == source['commit']
+            and receipt.get('tree') == source['tree']
+            and receipt.get('manifest_sha256') == hashlib.sha256(manifest_bytes).hexdigest()
+            and receipt.get('source_id') == hashlib.sha256(
+                manifest_bytes + dependency_bytes).hexdigest()
+            and receipt.get('circuit_source_digest') == expected_circuit_digest
+            and receipt.get('python') == sys.version
+            and type(receipt.get('go')) is str and receipt['go'].startswith('go version go')
+            and receipt.get('python_tests') == manifest['python_tests']
+            and receipt.get('go_tests') == manifest['go_tests']
+            and evidence_ok
+            and receipt.get('network_policy') == 'linux-user-and-network-namespace'
+            and receipt.get('network_used') is False
+            and type(claims) is dict and claims == contract.EXPECTED_CLAIMS
+            and all(type(value) is bool and value is False for value in claims.values())
+            and receipt.get('unassessed') == list(contract.EXPECTED_UNASSESSED))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        record['error_type'] = type(exc).__name__
+    base.store_json(output / 'privacy-proof-benchmark-verifier-result.json', record)
+    return record
+
+
 def run(output, timeout=600):
     base.require(os.name == 'posix', 'current checker requires POSIX process isolation')
     base.require(type(timeout) is int and 30 <= timeout <= 1800, 'invalid per-group timeout')
@@ -334,11 +465,14 @@ def run(output, timeout=600):
         report['javascript'] = javascript_checks(root, output, source, run_id, timeout)
         report['shielded_note_lab_verifier'] = shielded_note_verification(
             root, output, source, timeout)
+        report['privacy_proof_benchmark_verifier'] = privacy_proof_verification(
+            root, output, source, timeout)
         base.require(base.source_identity(root) == source, 'source changed during local checks')
         report['source_unchanged'] = True
         passed = (all(group['passed'] for group in report['groups'])
                   and report['javascript']['passed']
-                  and report['shielded_note_lab_verifier']['passed'])
+                  and report['shielded_note_lab_verifier']['passed']
+                  and report['privacy_proof_benchmark_verifier']['passed'])
         report.update(base.release_status(passed))
     except BaseException as exc:
         report['error_type'] = type(exc).__name__

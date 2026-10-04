@@ -21,10 +21,18 @@ installed prerequisites without executing the engine or qualifying the source.
 See the [first-run guide](LOCAL_DEMO_GUIDE.md).
 
 The command binds every tracked byte and mode to the current commit/tree before
-and after execution. Native tests and all 16 component directories run in separate
+and after execution. Native tests and all 17 component directories run in separate
 interpreters, preserving component-specific imports. Empty, missing, duplicated or
 uncovered Python groups refuse qualification. The optional unpublished account
 catch-up test is explicitly excluded; it is not counted as passing.
+
+The isolated privacy-proof benchmark is a separate source qualification surface.
+It requires pre-cached Go modules and local Go >=1.25.7, then performs offline
+exact-source verification of its experimental gnark v0.16.3/gnark-crypto v0.21.0
+Groth16/BN254/Poseidon2 candidate, synthetic one-input/two-output relation,
+ephemeral setup and listed rejection cases. Unless a successful exact receipt is
+present, its status is source under qualification; local tests alone do not make
+the benchmark a pass.
 
 Key-free JavaScript unit suites run separately from browser scenarios. Browser
 rendering, authenticated service workflows and actual merchant consensus require
