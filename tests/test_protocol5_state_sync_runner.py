@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from protocol5_encoding import canonical_json
 from protocol5_state_sync import HASH_DOMAIN
 from run_protocol5_state_sync import (
     _prepare_snapshot_provider, _repack_snapshot, _restore_source_peers,
-    _semantic_payload_variants, preflight_state_sync,
+    _semantic_payload_variants, _snapshot_engine_ready, preflight_state_sync,
 )
 
 class Protocol5StateSyncRunnerTests(unittest.TestCase):
@@ -107,6 +108,53 @@ class Protocol5StateSyncRunnerTests(unittest.TestCase):
                     if peer != index:
                         self.assertIn(
                             f"node-{peer}@127.0.0.1:2700{peer}", config)
+
+    def test_marker_only_completion_uses_engine_phase_not_blockstore_height(self):
+        with tempfile.TemporaryDirectory() as td:
+            events = Path(td) / "events.jsonl"
+            prefix = [
+                {"kind": "offer_snapshot", "height": 9, "result": 1},
+                {"kind": "after_snapshot_commit", "height": 9},
+            ]
+            recovery = [
+                {"kind": "offer_snapshot", "height": 9, "chunks": 5,
+                 "pid": 100, "start_ticks": 200, "result": 1},
+                {"kind": "after_snapshot_commit", "height": 9,
+                 "pid": 100, "start_ticks": 200},
+                {"kind": "apply_snapshot_chunk", "height": 9,
+                 "pid": 100, "start_ticks": 200, "index": 4, "result": 1},
+            ]
+            events.write_text("".join(
+                json.dumps(row) + "\n" for row in prefix + recovery))
+
+            class Process:
+                @staticmethod
+                def poll():
+                    return None
+
+            state = {"height": 9, "app_hash": "11" * 32}
+            network = type("Network", (), {
+                "engines": {4: Process()},
+                "http": [0, 1, 2, 3, 29004],
+                "direct_state": lambda self, index: state,
+            })()
+            status = {
+                "sync_info": {
+                    "catching_up": False,
+                    "latest_block_height": "0",
+                },
+            }
+            with patch("run_protocol5_state_sync.rpc", return_value=status):
+                self.assertEqual(
+                    _snapshot_engine_ready(
+                        network, 4, 9, events, len(prefix)),
+                    state)
+                events.write_text("".join(
+                    json.dumps(row) + "\n"
+                    for row in prefix + recovery[:-1]))
+                self.assertIsNone(
+                    _snapshot_engine_ready(
+                        network, 4, 9, events, len(prefix)))
 
     def test_semantic_payload_mutations_are_repacked_coherently(self):
         transaction = b"T" * 100

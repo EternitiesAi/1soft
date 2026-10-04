@@ -137,6 +137,62 @@ def _snapshot_payload(
     return decode_canonical_json(raw, max_bytes=metadata["payload_bytes"])
 
 
+def _state_sync_events(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    try:
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return []
+
+
+def _snapshot_engine_ready(
+        network: Protocol5Network, target: int, snapshot_height: int,
+        events: Path, event_offset: int) -> dict | None:
+    process = network.engines.get(target)
+    if process is None or process.poll() is not None:
+        raise RuntimeError("Protocol 5 state-sync engine stopped unexpectedly")
+    status = rpc(network.http[target], "status")["sync_info"]
+    if status.get("catching_up") is not False:
+        return None
+    state = network.direct_state(target)
+    if state.get("height") != snapshot_height:
+        return None
+    rows = _state_sync_events(events)
+    if type(event_offset) is not int or event_offset < 0 or len(rows) < event_offset:
+        raise RuntimeError("invalid Protocol 5 state-sync event offset")
+    recent = rows[event_offset:]
+    for offer_index, event in enumerate(recent):
+        chunks = event.get("chunks")
+        identity = (event.get("pid"), event.get("start_ticks"))
+        if not (event.get("kind") == "offer_snapshot"
+                and event.get("height") == snapshot_height
+                and event.get("result") == OFFER_ACCEPT
+                and type(chunks) is int and chunks > 0
+                and all(type(item) is int and item > 0 for item in identity)):
+            continue
+        for commit_index in range(offer_index + 1, len(recent)):
+            commit = recent[commit_index]
+            if not (commit.get("kind") == "after_snapshot_commit"
+                    and commit.get("height") == snapshot_height
+                    and (commit.get("pid"), commit.get("start_ticks"))
+                        == identity):
+                continue
+            if any(
+                    completed.get("kind") == "apply_snapshot_chunk"
+                    and completed.get("height") == snapshot_height
+                    and completed.get("index") == chunks - 1
+                    and completed.get("result") == APPLY_ACCEPT
+                    and (completed.get("pid"), completed.get("start_ticks"))
+                        == identity
+                    for completed in recent[commit_index + 1:]):
+                return state
+    return None
+
+
 def _different_digest(value: str) -> str:
     if (type(value) is not str or len(value) != 64
             or any(ch not in "0123456789abcdef" for ch in value)):
@@ -366,18 +422,21 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
             "run_token": token, "run_token_sha256": token_sha,
             "crash_phase": "observe", "event_log": events,
         })
+        recovery_event_offset = len(_state_sync_events(events))
         network.start_engine(4)
-        wait_until(lambda: network.height(4) >= snapshot_height, 180)
-        observed = [json.loads(line) for line in events.read_text().splitlines()]
+        target = wait_until(
+            lambda: _snapshot_engine_ready(
+                network, 4, snapshot_height, events, recovery_event_offset),
+            180)
+        observed = _state_sync_events(events)
         offers = [row for row in observed
                   if row["kind"] == "offer_snapshot" and row["result"] == OFFER_ACCEPT]
         if len(offers) < 2:
             raise AssertionError("CometBFT did not re-offer after lost final Apply reply")
 
-        if network.height(4) != snapshot_height:
+        if target["height"] != snapshot_height:
             raise AssertionError("state-sync target exceeded frozen snapshot")
         network.stop_engine(4)
-        target = network.direct_state(4)
         _check(report, "trusted-apphash-replay",
                source_checkpoint == target
                and target["state"]["current_root"] == current_root,
@@ -616,9 +675,13 @@ def run_state_sync_scenarios(paths: dict[str, Path], output: Path,
             "statesync.trust_height": trust_height,
             "statesync.trust_hash": trust_hash,
         }), encoding="utf-8")
+        recovery_event_offset = len(_state_sync_events(events))
         network.start_engine(4)
-        wait_until(lambda: network.height(4) >= newest["height"], 180)
-        if network.height(4) != newest["height"]:
+        recovered = wait_until(
+            lambda: _snapshot_engine_ready(
+                network, 4, newest["height"], events, recovery_event_offset),
+            180)
+        if recovered["height"] != newest["height"]:
             raise AssertionError("same-height marker recovery advanced unexpectedly")
         _restore_source_peers(network)
         post_outputs = _make_outputs(notes[1], genesis.value["fee"])
