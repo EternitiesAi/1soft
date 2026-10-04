@@ -4,6 +4,7 @@ Updated 2 October 2026. Acceptance gates, not launch promises or dates. “Imple
 
 | Milestone | Current state | Required evidence / next action |
 |---|---|---|
+| Private economic authority product direction | Selected for evaluation; [scope and falsification gates](PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md) | Run the two-grant adversarial transition model and separate demand test. Direction selection does not implement privacy or establish product-market fit. |
 | Native monetary rules and atomic block commit | Implemented development model | Continue invariants, crash/fault tests and independent review. |
 | Native accounts, key rotation and scoped grants | Implemented | Production custody/recovery design and independent review remain. |
 | Protocol-3 shared agent budgets | Implemented and exercised on local validators | Preserve one canonical signing/reservation path; cross-device coordination remains open. |

@@ -12,6 +12,19 @@ chosen public supply or audited production wallet. The application uses pinned
 CometBFT 0.38.25 for local validator consensus. Independent operators, external
 security review, production custody and economic design remain release gates.
 
+## Selected product direction
+
+1soft is being evaluated as **private programmable money and durable economic
+authority for people and persistent agents**. The first wedge is a private mission
+treasury in which several agents share one aggregate allowance, retain unresolved
+obligations through failure, obey current revocation, and disclose only the evidence
+needed for a selected purchase. Read the [direction, decisive proof and explicit
+reconsideration gates](docs/PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md).
+
+This direction does not describe present on-chain privacy. Today's ledger remains
+transparent, and the independent Layer 1 must still prove that it provides customer
+guarantees that a confidential application on existing settlement rails cannot.
+
 ## Durable invoice payer
 
 A fresh invoice-capable durable alpha combines committed invoice review and the
