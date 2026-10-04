@@ -233,11 +233,11 @@ WitnessV1 is accepted only by the development prover:
 - 32-byte output note secret 0 and note secret 1;
 - 32-byte output blinding 0 and blinding 1.
 
-Every 32-byte witness field is a canonical Pallas field element. Position must be below sixteen. The document is fixed length and rejects trailing bytes. Witness bytes are never accepted by ABCI, persisted in the application database, emitted in logs or receipts, included in snapshots, or sent to the verifier-only worker. Validator processes cannot invoke the development prover.
+Every 32-byte witness field is a canonical Pallas field element. Position must be below sixteen. The document is exactly 480 bytes and rejects trailing bytes. Witness bytes are never accepted by ABCI, persisted in the application database, emitted in logs or receipts, included in snapshots, or sent to the verifier-only worker. Validator processes cannot invoke the development prover.
 
 ## Verifier worker and failure semantics
 
-The Rust verifier runs as one long-lived child per application process over inherited stdin/stdout. It loads and constructs the pinned parameters and verifying key, closes every file descriptor except the framed input and output, applies no_new_privs, installs the pinned Linux seccomp policy denying file-open, socket, connection, listener, accept, and process-execution syscalls, and performs post-sandbox probes. Startup fails unless a seeded-file open and socket creation both return the expected denial and stdout has emitted only complete protocol frames. The deployment binding commits the exact sandbox policy. Non-Linux or unenforced execution is outside this chain profile.
+The Rust verifier runs as one long-lived single-threaded child per application process over inherited stdin/stdout. It is built without Halo2 multicore or prover features. It loads and constructs the pinned parameters and verifying key, closes every file descriptor except the framed input and output, applies no_new_privs, installs the pinned x86_64 Linux seccomp policy denying open/openat/openat2/creat, socket/connect/bind/listen/accept/accept4, execve/execveat, fork/vfork/clone/clone3, and io_uring_setup, and performs post-sandbox probes. Startup fails unless a seeded-file open and socket creation both return the expected denial and stdout has emitted only complete protocol frames. The deployment binding commits the exact sandbox policy. Non-Linux or unenforced execution is outside this chain profile.
 
 Each frame begins with a u32 byte length that excludes the prefix and is bounded by the profile hard ceiling.
 
