@@ -38,16 +38,105 @@ def _copy(value):
     return decode_canonical_json(canonical_json(value))
 
 
+SCHEMA_SQL = {
+    "committed": """CREATE TABLE committed (
+                id INTEGER PRIMARY KEY CHECK(id=1),
+                genesis BLOB NOT NULL,
+                height INTEGER NOT NULL,
+                app_hash TEXT NOT NULL,
+                state BLOB NOT NULL
+              )""",
+    "blocks": """CREATE TABLE blocks (
+                height INTEGER PRIMARY KEY,
+                block_hash TEXT NOT NULL,
+                request_sha256 TEXT NOT NULL,
+                txs BLOB NOT NULL,
+                result BLOB NOT NULL,
+                response BLOB NOT NULL
+              )""",
+    "history": """CREATE TABLE history (
+                height INTEGER PRIMARY KEY,
+                txs BLOB NOT NULL
+              )""",
+    "snapshot_marker": """CREATE TABLE snapshot_marker (
+                id INTEGER PRIMARY KEY CHECK(id=1),
+                genesis_sha256 TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                deployment_id TEXT NOT NULL,
+                height INTEGER NOT NULL,
+                app_hash TEXT NOT NULL,
+                payload_sha256 TEXT NOT NULL
+              )""",
+}
+
+SCHEMA_INFO = {
+    "committed": (
+        ("id", "INTEGER", 0, 1), ("genesis", "BLOB", 1, 0),
+        ("height", "INTEGER", 1, 0), ("app_hash", "TEXT", 1, 0),
+        ("state", "BLOB", 1, 0),
+    ),
+    "blocks": (
+        ("height", "INTEGER", 0, 1), ("block_hash", "TEXT", 1, 0),
+        ("request_sha256", "TEXT", 1, 0), ("txs", "BLOB", 1, 0),
+        ("result", "BLOB", 1, 0), ("response", "BLOB", 1, 0),
+    ),
+    "history": (
+        ("height", "INTEGER", 0, 1), ("txs", "BLOB", 1, 0),
+    ),
+    "snapshot_marker": (
+        ("id", "INTEGER", 0, 1), ("genesis_sha256", "TEXT", 1, 0),
+        ("profile_id", "TEXT", 1, 0), ("deployment_id", "TEXT", 1, 0),
+        ("height", "INTEGER", 1, 0), ("app_hash", "TEXT", 1, 0),
+        ("payload_sha256", "TEXT", 1, 0),
+    ),
+}
+
+
+def _normalized_sql(sql: str) -> str:
+    return " ".join(sql.split())
+
+
 def _safe_store_path(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    for candidate in (path, Path(str(path) + "-wal"), Path(str(path) + "-shm")):
-        if candidate.is_symlink():
-            raise Protocol5Error("unsafe Protocol 5 storage symlink")
-        if candidate.exists():
-            mode = candidate.stat()
-            _need(stat.S_ISREG(mode.st_mode), "unsafe Protocol 5 storage object")
-            _need(mode.st_uid in (0, os.getuid()), "unsafe Protocol 5 storage owner")
-            _need(not mode.st_mode & 0o022, "unsafe Protocol 5 storage mode")
+    parent = path.parent.lstat()
+    _need(stat.S_ISDIR(parent.st_mode), "unsafe Protocol 5 storage parent")
+    _need(parent.st_uid == os.getuid(), "unsafe Protocol 5 storage parent owner")
+    _need(not parent.st_mode & 0o022, "unsafe Protocol 5 storage parent mode")
+    candidates = (
+        path, Path(str(path) + "-wal"), Path(str(path) + "-shm"),
+        path.with_name(path.name + ".lock"),
+    )
+    for candidate in candidates:
+        try:
+            mode = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        _need(not stat.S_ISLNK(mode.st_mode),
+              "unsafe Protocol 5 storage symlink")
+        _need(stat.S_ISREG(mode.st_mode), "unsafe Protocol 5 storage object")
+        _need(mode.st_uid == os.getuid(), "unsafe Protocol 5 storage owner")
+        _need(not mode.st_mode & 0o022, "unsafe Protocol 5 storage mode")
+
+
+def _audit_schema(db: sqlite3.Connection, *, allow_empty: bool = False) -> bool:
+    rows = db.execute(
+        "SELECT type,name,sql FROM sqlite_master "
+        "WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").fetchall()
+    if allow_empty and not rows:
+        return False
+    expected_names = [("table", name) for name in sorted(SCHEMA_SQL)]
+    _need([(row[0], row[1]) for row in rows] == expected_names,
+          "Protocol 5 database schema objects differ")
+    for object_type, table, sql in rows:
+        _need(object_type == "table" and type(sql) is str
+              and _normalized_sql(sql) == _normalized_sql(SCHEMA_SQL[table]),
+              "Protocol 5 database table definition differs")
+        observed = tuple(
+            (row[1], row[2].upper(), row[3], row[5])
+            for row in db.execute("PRAGMA table_info(" + table + ")").fetchall())
+        _need(observed == SCHEMA_INFO[table],
+              "Protocol 5 database column semantics differ")
+    return True
 
 
 def _votes(rows: list[dict], validator_set, height: int) -> list[dict]:
@@ -98,41 +187,24 @@ class Protocol5Application:
             p = Path(path)
             _safe_store_path(p)
             self.store_lock = StoreLock(p.with_name(p.name + ".lock"))
+            os.chmod(p.with_name(p.name + ".lock"), 0o600)
         try:
             self.db = sqlite3.connect(
                 db_path, isolation_level=None, timeout=10, check_same_thread=False)
+            existing_schema = _audit_schema(self.db, allow_empty=True)
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.execute("PRAGMA synchronous=FULL")
-            self.db.executescript("""
-              CREATE TABLE IF NOT EXISTS committed (
-                id INTEGER PRIMARY KEY CHECK(id=1),
-                genesis BLOB NOT NULL,
-                height INTEGER NOT NULL,
-                app_hash TEXT NOT NULL,
-                state BLOB NOT NULL
-              );
-              CREATE TABLE IF NOT EXISTS blocks (
-                height INTEGER PRIMARY KEY,
-                block_hash TEXT NOT NULL,
-                request_sha256 TEXT NOT NULL,
-                txs BLOB NOT NULL,
-                result BLOB NOT NULL,
-                response BLOB NOT NULL
-              );
-              CREATE TABLE IF NOT EXISTS history (
-                height INTEGER PRIMARY KEY,
-                txs BLOB NOT NULL
-              );
-              CREATE TABLE IF NOT EXISTS snapshot_marker (
-                id INTEGER PRIMARY KEY CHECK(id=1),
-                genesis_sha256 TEXT NOT NULL,
-                profile_id TEXT NOT NULL,
-                deployment_id TEXT NOT NULL,
-                height INTEGER NOT NULL,
-                app_hash TEXT NOT NULL,
-                payload_sha256 TEXT NOT NULL
-              );
-            """)
+            if not existing_schema:
+                self.db.executescript(";\n".join(SCHEMA_SQL.values()) + ";")
+            _audit_schema(self.db)
+            if db_path != ":memory:":
+                _safe_store_path(Path(path))
+                for candidate in (
+                        Path(path), Path(str(path) + "-wal"),
+                        Path(str(path) + "-shm"),
+                        Path(path).with_name(Path(path).name + ".lock")):
+                    if candidate.exists():
+                        os.chmod(candidate, 0o600)
             row = self.db.execute(
                 "SELECT genesis,height,app_hash,state FROM committed WHERE id=1"
             ).fetchone()
@@ -387,10 +459,11 @@ class Protocol5Application:
             }
             return _copy(retained), response
 
-    def commit(self, *, fault: str = "") -> dict:
+    def _commit_test_hook(self, phase: str) -> None:
+        """Private seam overridden only by the run-token-gated test server."""
+
+    def commit(self) -> dict:
         with self.lock:
-            _need(fault in ("", "after_state", "after_result", "before_commit"),
-                  "unknown Protocol 5 fault hook")
             if self.pending is None:
                 return self.info()
             assert self.genesis is not None
@@ -404,8 +477,7 @@ class Protocol5Application:
                     "UPDATE committed SET height=?,app_hash=?,state=? WHERE id=1",
                     (result_value["height"], result_value["app_hash"],
                      canonical_json(state)))
-                if fault == "after_state":
-                    raise RuntimeError("injected Protocol 5 fault after state")
+                self._commit_test_hook("after_state")
                 self.db.execute(
                     "INSERT INTO blocks VALUES (?,?,?,?,?,?)",
                     (result_value["height"], pending["block_hash"],
@@ -415,15 +487,14 @@ class Protocol5Application:
                     "INSERT INTO history VALUES (?,?)",
                     (result_value["height"], canonical_json(pending["txs"])))
                 self.db.execute("DELETE FROM snapshot_marker")
-                if fault == "after_result":
-                    raise RuntimeError("injected Protocol 5 fault after result")
-                if fault == "before_commit":
-                    raise RuntimeError("injected Protocol 5 fault before commit")
+                self._commit_test_hook("after_result")
+                self._commit_test_hook("before_commit")
                 self.db.execute("COMMIT")
             except BaseException:
                 if self.db.in_transaction:
                     self.db.execute("ROLLBACK")
                 raise
+            self._commit_test_hook("after_commit")
             self.state = state
             self.height = result_value["height"]
             self.app_hash = result_value["app_hash"]

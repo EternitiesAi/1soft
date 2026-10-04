@@ -196,10 +196,12 @@ def audit_state(genesis: GenesisDocument, state: dict, height: int, worker) -> N
                       "receipt order differs")
                 receipt_index += 1
     _need(receipt_index == len(receipts), "receipt count differs")
-    _need(state["history_transaction_count"] == count
+    _need(type(state["history_transaction_count"]) is int
+          and state["history_transaction_count"] == count
           and count <= genesis.value["limits"]["max_history_transactions"],
           "history transaction count differs")
-    _need(state["history_transaction_bytes"] == raw_bytes
+    _need(type(state["history_transaction_bytes"]) is int
+          and state["history_transaction_bytes"] == raw_bytes
           and raw_bytes <= genesis.value["limits"]["max_history_tx_bytes"],
           "history transaction bytes differ")
     for receipt in receipts:
@@ -214,9 +216,32 @@ def audit_state(genesis: GenesisDocument, state: dict, height: int, worker) -> N
         _need(receipt["profile_id"] == state["profile_id"]
               and receipt["deployment_id"] == state["deployment_id"],
               "receipt identity differs")
+        _need(type(receipt["txid"]) is str and len(receipt["txid"]) == 64
+              and all(ch in "0123456789abcdef" for ch in receipt["txid"])
+              and receipt["txid"] != "00" * 32,
+              "receipt transaction identity differs")
+        _need(type(receipt["height"]) is int and 1 <= receipt["height"] <= height
+              and type(receipt["tx_index"]) is int and receipt["tx_index"] >= 0,
+              "receipt execution position differs")
+        _need(type(receipt["output_position_0"]) is int
+              and type(receipt["output_position_1"]) is int
+              and receipt["output_position_0"] >= len(
+                  genesis.value["initial_commitments"])
+              and receipt["output_position_1"] == receipt["output_position_0"] + 1
+              and receipt["output_position_1"] < 16,
+              "receipt output positions differ")
+        _need(type(receipt["fee"]) is int
+              and receipt["fee"] == genesis.value["fee"],
+              "receipt fee differs")
         for name in ("anchor_root", "tree_root_before", "tree_root_after", "nullifier",
                      "output_commitment_0", "output_commitment_1"):
             field_bytes(receipt[name])
+    for root_entry, receipt in zip(roots[1:], receipts):
+        _need(root_entry["height"] == receipt["height"]
+              and root_entry["tx_index"] == receipt["tx_index"]
+              and root_entry["txid"] == receipt["txid"]
+              and root_entry["root"] == receipt["tree_root_after"],
+              "root history and receipt order differ")
 
 
 def _identity_matches(genesis: GenesisDocument, tx: Transaction) -> bool:

@@ -12,14 +12,25 @@ from protocol5_encoding import canonical_json, comet_validator_set, genesis_docu
 from protocol5_fixture import make_genesis
 from test_protocol5_state import FixtureWorker, tx_for
 
+class FaultApplication(Protocol5Application):
+    def __init__(self, *args, fault_phase, **kwargs):
+        self.fault_phase = fault_phase
+        super().__init__(*args, **kwargs)
+
+    def _commit_test_hook(self, phase):
+        if phase == self.fault_phase:
+            raise RuntimeError("injected test-only commit fault")
+
 class Protocol5ApplicationTests(unittest.TestCase):
     def setUp(self):
         self.raw_genesis = canonical_json(make_genesis())
         self.genesis = genesis_document(self.raw_genesis)
         self.validators = list(reversed(self.genesis.value["validators"]))
 
-    def _initialized(self, path=":memory:"):
-        app = Protocol5Application(path, FixtureWorker(), expected_genesis=self.raw_genesis)
+    def _initialized(self, path=":memory:", *, application=Protocol5Application,
+                     **kwargs):
+        app = application(
+            path, FixtureWorker(), expected_genesis=self.raw_genesis, **kwargs)
         app.init_chain(
             self.genesis.value["chain_id"], self.raw_genesis, self.validators, 1)
         return app
@@ -61,7 +72,8 @@ class Protocol5ApplicationTests(unittest.TestCase):
     def test_commit_fault_rolls_back_all_tables(self):
         with tempfile.TemporaryDirectory() as td:
             db = Path(td) / "p5.sqlite"
-            app = self._initialized(db)
+            app = self._initialized(
+                db, application=FaultApplication, fault_phase="after_state")
             anchor = bytes.fromhex(app.state["current_root"])
             wire = tx_for(self.genesis.value, anchor, b"a")
             validator_hash = bytes.fromhex(comet_validator_set(
@@ -69,7 +81,7 @@ class Protocol5ApplicationTests(unittest.TestCase):
             app.finalize_block(
                 [wire], 1, b"B" * 32, validator_hash, [], b"request")
             with self.assertRaises(RuntimeError):
-                app.commit(fault="after_state")
+                app.commit()
             self.assertEqual(app.height, 0)
             self.assertIsNotNone(app.pending)
             self.assertEqual(app.db.execute("SELECT count(*) FROM blocks").fetchone()[0], 0)
@@ -91,6 +103,12 @@ class Protocol5ApplicationTests(unittest.TestCase):
             with self.assertRaises(Protocol5Error):
                 Protocol5Application(
                     db, FixtureWorker(), expected_genesis=self.raw_genesis)
+
+    def test_production_commit_exposes_no_fault_argument(self):
+        app = self._initialized()
+        with self.assertRaises(TypeError):
+            app.commit(fault="after_state")
+        app.close()
 
     def test_finalize_checks_next_validators_hash_at_height_one_before_execution(self):
         app = self._initialized()

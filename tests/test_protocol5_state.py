@@ -13,7 +13,7 @@ from protocol5_fixture import make_genesis, make_public_fields, make_tx
 from protocol5_state import (
     CODE_ANCHOR, CODE_CAPACITY, CODE_MALFORMED, CODE_NULLIFIER,
     CODE_OUTPUT, HistoryLimitError, application_hash, execute_block,
-    initial_state, replay_state,
+    audit_state, initial_state, replay_state,
 )
 from protocol5_worker import AppendResult, INVALID_PROOF, INVALID_STATEMENT, OK
 
@@ -153,6 +153,19 @@ class Protocol5StateTests(unittest.TestCase):
         changed["receipts"][0]["fee"] += 1
         with self.assertRaises(Exception):
             replay_state(self.genesis, changed, 1, self.worker)
+
+    def test_state_audit_rejects_boolean_counters_and_receipt_positions(self):
+        anchor = bytes.fromhex(self.state["current_root"])
+        wire = tx_for(self.genesis.value, anchor, b"a")
+        committed, _ = execute_block(self.genesis, self.state, [wire], 1, self.worker)
+        for mutate in (
+            lambda value: value.__setitem__("history_transaction_count", True),
+            lambda value: value["receipts"][0].__setitem__("output_position_0", False),
+        ):
+            changed = copy.deepcopy(committed)
+            mutate(changed)
+            with self.assertRaises(Exception):
+                audit_state(self.genesis, changed, 1, self.worker)
 
     def test_closed_result_codes_follow_consensus_precedence(self):
         anchor = bytes.fromhex(self.state["current_root"])
