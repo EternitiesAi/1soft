@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 1.97.1; `halo2_proofs` 0.4.0 with default features disabled; `pasta_curves` 0.6.0; `rand` 0.10.0; raw x86_64 Linux seccomp via `libc` 0.2.189; Python 3.12 standard library and SQLite; CometBFT 0.38.25; ABCI v0.38.25 protobuf.
 
-**Spec:** `docs/superpowers/specs/2026-10-04-shielded-consensus-admission-design.md` at compatibility-amendment commit `60b2457`.
+**Spec:** `docs/superpowers/specs/2026-10-04-shielded-consensus-admission-design.md` at relation-formula amendment commit `d8441b1`.
 
 ## Global Constraints
 
@@ -66,7 +66,7 @@
   ```bash
   CARGO_NET_OFFLINE=true RUSTUP_TOOLCHAIN=1.97.1 CARGO_TARGET_DIR=/home/xnuonux/1soft-phase7-cargo-target cargo test --locked --offline --no-default-features --manifest-path tools/shielded-consensus/halo2/Cargo.toml --test tree_vectors empty_and_append_roots_match_frozen_vectors -- --exact
   ```
-- [ ] Implement Poseidon domains 100, 101, 102, 103, 105, and 106; the depth-4 capacity-16 tree; exact two-output append; and the fourteen-field native relation.
+- [ ] Implement the spec's exact ordered Poseidon formulas for domains 100, 103, 105, and 106; domains 101/102 for the tree; the depth-4 capacity-16 tree; exact two-output append; and the fourteen-field native relation. Do not add a separate nonzero-nullifier constraint.
 - [ ] GREEN: run both native test binaries and preservation checks.
 - [ ] Commit `feat(shielded-consensus): implement native relation and note tree`.
 
