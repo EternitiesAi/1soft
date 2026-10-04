@@ -442,6 +442,9 @@ class Protocol5WalletRunnerTests(unittest.TestCase):
     def test_expiry_scenario_reserves_real_proof_time_then_stays_finite(self):
         module = runner()
         self.assertEqual(module.qualification_expiry_until(512, 109), 173)
+        self.assertGreaterEqual(
+            module.EXPIRY_WAIT_SECONDS,
+            module.EXPIRY_WINDOW_BLOCKS * 4)
         for maximum, current in ((172, 109), (512, -1), (True, 0), (512, False)):
             with self.subTest(maximum=maximum, current=current), \
                     self.assertRaises(ValueError):

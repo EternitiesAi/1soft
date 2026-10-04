@@ -53,6 +53,8 @@ SCHEMA = "1soft-protocol5-wallet-preflight-v1"
 SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}\Z")
 CRYPTO_COMMANDS = {"init", "status", "sync", "import-note", "approve",
                    "export-capsule", "delivery-reconcile"}
+EXPIRY_WINDOW_BLOCKS = 64
+EXPIRY_WAIT_SECONDS = 300
 
 def _sha(path: Path) -> str:
     with path.open("rb") as handle:
@@ -166,12 +168,11 @@ def same_nullifier_conflict(original: tuple[bytes, ...],
 def qualification_expiry_until(maximum_height: int,
                                current_height: int) -> int:
     """Reserve enough blocks for a real proof before crossing expiry."""
-    margin = 64
     if (type(maximum_height) is not int or type(current_height) is not int
             or current_height < 0
-            or current_height + margin > maximum_height):
+            or current_height + EXPIRY_WINDOW_BLOCKS > maximum_height):
         raise ValueError("qualification expiry window is unavailable")
-    return current_height + margin
+    return current_height + EXPIRY_WINDOW_BLOCKS
 
 def capsule_mutations(raw: bytes) -> dict[str, bytes]:
     original = decode_canonical_json(raw)
@@ -1725,7 +1726,7 @@ def run_wallet_scenarios(paths: dict, output: Path, report: dict,
             wait_until(
                 lambda: all(
                     network.state(index)["height"] >= expiry_until - 1
-                    for index in range(4)), 120)
+                    for index in range(4)), EXPIRY_WAIT_SECONDS)
         finally:
             network.set_empty_blocks(False)
         wait_until(
