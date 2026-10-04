@@ -48,10 +48,11 @@ consensus integration or a private ledger.
 ## Experimental proof benchmark
 
 The separate [privacy-proof benchmark](../tools/privacy-proof-benchmark/README.md)
-is an experimental first benchmark candidate using gnark v0.16.3,
-gnark-crypto v0.21.0, Groth16 over BN254 and Poseidon2. It exercises a synthetic
-one-input/two-output relation with ephemeral setup and offline exact-source
-verification, including the listed rejection cases. Its status remains source
+has two experimental profiles for one synthetic one-input/two-output relation:
+gnark v0.16.3 with gnark-crypto v0.21.0, Groth16 over BN254, Poseidon2 and
+ephemeral setup; and Zcash Halo2 0.4.0 with Pasta IPA, Poseidon P128Pow5T3 and
+deterministic public parameters. Each has an offline exact-source verifier and
+the listed rejection cases. Its status remains source
 under qualification unless a successful exact receipt exists. It is not a
 production proof-system selection, production privacy, consensus integration,
 network anonymity, custody, independent review, public-network readiness or

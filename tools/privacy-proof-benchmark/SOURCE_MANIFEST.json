@@ -3,24 +3,34 @@
   "package": "privacy-proof-benchmark",
   "files": [
     {
+      "path": "COMPARISON.md",
+      "bytes": 1418,
+      "sha256": "45e9660138d1174af8e36e0fcaf2f58d54e393a112d35eb1c0b9cfcb921952bc"
+    },
+    {
       "path": "DEPENDENCIES.json",
       "bytes": 6982,
       "sha256": "98196f7b90cf4878a42f7afe0db9d21899570030107a4b460195f9831550acbd"
     },
     {
+      "path": "DEPENDENCIES_HALO2.json",
+      "bytes": 29197,
+      "sha256": "3688bd9f1d043a89412fd1f48c8d0db9d5746d9536117ed00f6bde3494e1c9ef"
+    },
+    {
       "path": "README.md",
-      "bytes": 2701,
-      "sha256": "babc7595c52bc6ba82e2c4b4dd5bc77118d83ca28d26aa28a2a08ff4d767f59a"
+      "bytes": 4628,
+      "sha256": "1c0c3646f8b31b908958287c1110d5c23efd33cb1a75020ead0cf7219bbc5fe8"
     },
     {
       "path": "STACK_SELECTION.md",
-      "bytes": 5172,
-      "sha256": "d1368ce5c2239d935ba9d50031a965cdd45681427487e28ad7e3c339058d540c"
+      "bytes": 6025,
+      "sha256": "b9c742c1aa72f879606b8e45fe3d358e4dff91ba09936b87957affe4fbbadadc"
     },
     {
       "path": "VERIFICATION.md",
-      "bytes": 2780,
-      "sha256": "ee88fa0be2ac599eb569bcaf8091701e259511441ed785a968819b5645df288d"
+      "bytes": 3857,
+      "sha256": "e2fe4e4981933bacdedc3c537a921cdd7d2c7da2ab5ac86e61ff96520b184bb8"
     },
     {
       "path": "go/benchmark.go",
@@ -78,22 +88,73 @@
       "sha256": "985cbfad0bee8ffa1bd3d695014bf2c44cb86922971e3bf45732d2a0b01dc738"
     },
     {
+      "path": "halo2/Cargo.lock",
+      "bytes": 16733,
+      "sha256": "e13b550f37f0d4ed92833eea27906ebcb5b1572c077bd63234e1299cd1af7c23"
+    },
+    {
+      "path": "halo2/Cargo.toml",
+      "bytes": 570,
+      "sha256": "8661af0539e1ebfc57772fdf874d50044622e441fa650337068d7c89e541020c"
+    },
+    {
+      "path": "halo2/src/circuit.rs",
+      "bytes": 30102,
+      "sha256": "cb2bb0e7a7619ced4ddffbb7b2e7b2bb731b802c97975d75c225296f318dd819"
+    },
+    {
+      "path": "halo2/src/fixture.rs",
+      "bytes": 9593,
+      "sha256": "a593ea1417e7e9a68bac28b285ef0f2dadabb2d55b60b40700036e2296c47b4e"
+    },
+    {
+      "path": "halo2/src/lib.rs",
+      "bytes": 249,
+      "sha256": "4bc865be3dddd5dbf03c62ac2dc985f882b83ca18b8cdc95644b5b97bbd516c9"
+    },
+    {
+      "path": "halo2/src/main.rs",
+      "bytes": 3111,
+      "sha256": "5dba5642d96987079bec427ad66bfd0d44ccbb3b9c6bb647bd063414cc57d689"
+    },
+    {
+      "path": "halo2/src/receipt.rs",
+      "bytes": 2882,
+      "sha256": "7984c75d12d7e7b616b66a3e64eb547f9e962ff300d10925c7d415cc75b18b77"
+    },
+    {
+      "path": "halo2/src/runtime.rs",
+      "bytes": 13013,
+      "sha256": "0af47d1be24e96be56c57f9e161af15c672766f524645cdfadd4f16b8c7e8983"
+    },
+    {
       "path": "src/privacy_proof_benchmark.py",
-      "bytes": 8839,
-      "sha256": "337a223d6c09053f605c175fded0ad6c061397559300e22481410aaf8670e8bd"
+      "bytes": 16493,
+      "sha256": "b538a359f4d96cde0bd83e4cf22e83cf10c861067383e2946d69c0e0a5ab5757"
     },
     {
       "path": "tests/test_privacy_proof_benchmark.py",
-      "bytes": 8361,
-      "sha256": "59761a7e0e8c3c4ab73ccce8e8899bcda6b981dff27c4b25a9c321547f6643ea"
+      "bytes": 14695,
+      "sha256": "4f245e85807daffc583159a9343a3804d54e9b8a5c14b8548d6b66150ce57c1c"
     },
     {
       "path": "tools/verify.py",
-      "bytes": 17196,
-      "sha256": "de7b3d0d0a25cf45c1adbda18c25d809c445eb1bf246f51f9b6909659d67ce2e"
+      "bytes": 18259,
+      "sha256": "f033ba3c5ea46b8ed6b4cef9cced2cc511b55fc82638ff55c884f8086a8d1984"
+    },
+    {
+      "path": "tools/verify_halo2.py",
+      "bytes": 11271,
+      "sha256": "6cff53652174f32609909b8bce934a1a106b38487d0512d5060a4d4dd359c985"
     }
   ],
   "python_tests": [
+    "test_privacy_proof_benchmark.Halo2ReceiptContractTests.test_exact_actual_halo2_receipt_passes",
+    "test_privacy_proof_benchmark.Halo2ReceiptContractTests.test_halo2_cases_nonclaims_and_parameter_semantics_cannot_be_promoted",
+    "test_privacy_proof_benchmark.Halo2ReceiptContractTests.test_halo2_measurements_artifacts_and_key_limits_are_closed",
+    "test_privacy_proof_benchmark.Halo2ReceiptContractTests.test_halo2_stack_source_and_domain_are_pinned",
+    "test_privacy_proof_benchmark.Halo2ReceiptContractTests.test_halo2_unassessed_and_private_retention_are_exact",
+    "test_privacy_proof_benchmark.Halo2ReceiptContractTests.test_halo2_validator_does_not_mutate_caller_receipt",
     "test_privacy_proof_benchmark.ReceiptContractTests.test_exact_actual_backend_receipt_passes",
     "test_privacy_proof_benchmark.ReceiptContractTests.test_measurements_and_artifact_bindings_require_positive_integers",
     "test_privacy_proof_benchmark.ReceiptContractTests.test_nonclaims_and_ephemeral_setup_cannot_be_promoted",
@@ -117,7 +178,20 @@
     "TestPublicWitnessOrder",
     "TestBenchmarkReceiptAndAdversarialCases"
   ],
+  "rust_tests": [
+    "circuit::tests::all_constraint_mutations_are_rejected",
+    "circuit::tests::duplicate_output_opening_is_rejected",
+    "circuit::tests::native_poseidon_fixture_matches_circuit",
+    "circuit::tests::output_opening_can_become_input",
+    "circuit::tests::public_instance_order_is_frozen",
+    "circuit::tests::wrong_spend_secret_is_rejected",
+    "runtime::tests::source_identity_validation_is_closed"
+  ],
   "circuit_files": [
     "go/benchmark.go"
+  ],
+  "halo2_circuit_files": [
+    "halo2/src/circuit.rs",
+    "halo2/src/fixture.rs"
   ]
 }

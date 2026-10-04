@@ -278,3 +278,217 @@ def validate_backend_receipt(
         _fail("unassessed boundary differs")
 
     return receipt
+
+
+EXPECTED_HALO2_UNASSESSED = (
+    "global nullifier uniqueness and consensus ordering",
+    "production parameter and verifying-key governance",
+    "independent cryptographic review",
+    "wallet scanning and recovery",
+    "network anonymity and metadata resistance",
+    "production custody and side-channel resistance",
+    "public-network and real-funds safety",
+)
+
+
+def validate_halo2_backend_receipt(
+    receipt,
+    *,
+    expected_commit,
+    expected_tree,
+    expected_circuit_digest,
+):
+    """Validate exact Halo2/Pasta benchmark evidence and return an isolated copy."""
+    receipt = copy.deepcopy(receipt)
+    _exact_dict(receipt, TOP_FIELDS, "Halo2 receipt")
+    _exact_value(receipt["format"], 1, "Halo2 format")
+    _exact_value(receipt["status"], "passed", "Halo2 status")
+    _exact_value(receipt["actual_backend_run"], True, "Halo2 actual backend run")
+
+    backend = _exact_dict(
+        receipt["backend"],
+        {
+            "id",
+            "halo2_proofs",
+            "halo2_gadgets",
+            "halo2_poseidon",
+            "pasta_curves",
+            "field",
+            "commitment_curve",
+            "proof_system",
+            "hash",
+            "transcript",
+            "license",
+        },
+        "Halo2 backend",
+    )
+    expected_backend = {
+        "id": "zcash-halo2-pasta-ipa",
+        "halo2_proofs": "0.4.0",
+        "halo2_gadgets": "0.6.0",
+        "halo2_poseidon": "0.2.0",
+        "pasta_curves": "0.6.0",
+        "field": "Pallas base field",
+        "commitment_curve": "Vesta",
+        "proof_system": "Halo2 PLONKish IPA",
+        "hash": "Poseidon P128Pow5T3",
+        "transcript": "Blake2b",
+        "license": "MIT OR Apache-2.0",
+    }
+    if backend != expected_backend:
+        _fail("Halo2 backend identity differs from pinned candidate")
+
+    circuit = _exact_dict(
+        receipt["circuit"],
+        {
+            "id",
+            "source_digest",
+            "k",
+            "domain_rows",
+            "estimated_proof_bytes",
+            "depth",
+            "inputs",
+            "outputs",
+            "value_bits",
+            "public_inputs",
+            "private_inputs_retained",
+        },
+        "Halo2 circuit",
+    )
+    _exact_value(
+        circuit["id"],
+        "1soft/privacy-proof-benchmark/halo2-pasta/v1",
+        "Halo2 circuit id",
+    )
+    _hex(circuit["source_digest"], HEX64, "Halo2 circuit source digest")
+    _hex(expected_circuit_digest, HEX64, "expected Halo2 circuit source digest")
+    if circuit["source_digest"] != expected_circuit_digest:
+        _fail("Halo2 circuit source digest differs")
+    k = _integer(circuit["k"], "Halo2 circuit k", minimum=8)
+    if k > 24:
+        _fail("invalid Halo2 circuit k")
+    _exact_value(circuit["domain_rows"], 1 << k, "Halo2 domain rows")
+    _integer(circuit["estimated_proof_bytes"], "Halo2 estimated proof bytes")
+    for field, expected in (
+        ("depth", 4),
+        ("inputs", 1),
+        ("outputs", 2),
+        ("value_bits", 64),
+    ):
+        _exact_value(circuit[field], expected, "Halo2 circuit " + field)
+    if circuit["public_inputs"] != list(EXPECTED_PUBLIC_INPUTS):
+        _fail("Halo2 public input inventory differs")
+    _exact_value(
+        circuit["private_inputs_retained"], False, "Halo2 private input retention"
+    )
+
+    source = _exact_dict(receipt["source"], {"commit", "tree"}, "Halo2 source")
+    for field, expected in (("commit", expected_commit), ("tree", expected_tree)):
+        _hex(source[field], HEX40, "Halo2 source " + field)
+        _hex(expected, HEX40, "expected Halo2 source " + field)
+        if source[field] != expected:
+            _fail("Halo2 source " + field + " differs")
+
+    parameters = _exact_dict(
+        receipt["parameters"],
+        {
+            "kind",
+            "ceremony",
+            "reusable",
+            "production",
+            "parameters_sha256",
+            "parameters_bytes",
+            "verifying_key_binding",
+            "verifying_key_sha256",
+            "verifying_key_bytes",
+            "proving_key_serialization_assessed",
+            "proving_key_serialization_reason",
+        },
+        "Halo2 parameters",
+    )
+    _exact_value(
+        parameters["kind"],
+        "deterministic-public-halo2-ipa-parameters",
+        "Halo2 parameter kind",
+    )
+    _exact_value(parameters["ceremony"], False, "Halo2 ceremony")
+    _exact_value(parameters["reusable"], True, "Halo2 parameter reusability")
+    _exact_value(parameters["production"], False, "Halo2 parameter production status")
+    _hex(parameters["parameters_sha256"], HEX64, "Halo2 parameter digest")
+    _integer(parameters["parameters_bytes"], "Halo2 parameter bytes")
+    _exact_value(
+        parameters["verifying_key_binding"],
+        "halo2-proofs-0.4.0-pinned-debug-nonportable",
+        "Halo2 verifying-key binding",
+    )
+    _hex(parameters["verifying_key_sha256"], HEX64, "Halo2 verifying-key digest")
+    _integer(parameters["verifying_key_bytes"], "Halo2 verifying-key bytes")
+    _exact_value(
+        parameters["proving_key_serialization_assessed"],
+        False,
+        "Halo2 proving-key serialization status",
+    )
+    _exact_value(
+        parameters["proving_key_serialization_reason"],
+        "halo2_proofs 0.4.0 public API exposes no proving-key serialization",
+        "Halo2 proving-key serialization reason",
+    )
+
+    artifacts = _exact_dict(
+        receipt["artifacts"],
+        {
+            "proof_sha256",
+            "proof_bytes",
+            "public_instances_sha256",
+            "public_instances_bytes",
+        },
+        "Halo2 artifacts",
+    )
+    for field in ("proof_sha256", "public_instances_sha256"):
+        _hex(artifacts[field], HEX64, "Halo2 " + field)
+    for field in ("proof_bytes", "public_instances_bytes"):
+        _integer(artifacts[field], "Halo2 " + field)
+
+    metrics = _exact_dict(
+        receipt["metrics"],
+        {
+            "parameters_ns",
+            "keygen_vk_ns",
+            "keygen_pk_ns",
+            "iterations",
+            "prove_ns",
+            "verify_ns",
+        },
+        "Halo2 metrics",
+    )
+    for field in ("parameters_ns", "keygen_vk_ns", "keygen_pk_ns"):
+        _integer(metrics[field], "Halo2 " + field)
+    iterations = _integer(metrics["iterations"], "Halo2 iterations")
+    if iterations > 10:
+        _fail("invalid Halo2 iteration count")
+    for field in ("prove_ns", "verify_ns"):
+        values = metrics[field]
+        if type(values) is not list or len(values) != iterations:
+            _fail("invalid Halo2 " + field + " inventory")
+        for value in values:
+            _integer(value, "Halo2 " + field + " duration")
+
+    cases = receipt["cases"]
+    if type(cases) is not list or len(cases) != len(EXPECTED_CASES):
+        _fail("invalid Halo2 case inventory")
+    observed_ids = []
+    for case, (case_id, expected) in zip(cases, EXPECTED_CASES.items()):
+        _exact_dict(case, {"id", "expected", "observed"}, "Halo2 case")
+        _exact_value(case["id"], case_id, "Halo2 case id")
+        _exact_value(case["expected"], expected, "Halo2 case expected result")
+        _exact_value(case["observed"], expected, "Halo2 case observed result")
+        observed_ids.append(case["id"])
+    if len(set(observed_ids)) != len(observed_ids):
+        _fail("duplicate Halo2 case identity")
+
+    claims = _exact_dict(receipt["claims"], EXPECTED_CLAIMS, "Halo2 claims")
+    for field, expected in EXPECTED_CLAIMS.items():
+        _exact_value(claims[field], expected, "Halo2 claim " + field)
+    if receipt["unassessed"] != list(EXPECTED_HALO2_UNASSESSED):
+        _fail("Halo2 unassessed boundary differs")
+    return receipt

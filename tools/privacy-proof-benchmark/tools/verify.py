@@ -35,6 +35,7 @@ from privacy_proof_benchmark import (  # noqa: E402
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 TEST_ID = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\Z")
+RUST_TEST_ID = re.compile(r"[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+\Z")
 NETWORK_POLICY = "linux-user-and-network-namespace"
 NAMESPACE_MARKER = "ONE_SOFT_PRIVACY_PROOF_OFFLINE"
 PARENT_NET_NAMESPACE = "ONE_SOFT_PRIVACY_PROOF_PARENT_NET_NAMESPACE"
@@ -85,6 +86,8 @@ def source_identity():
     tree = checked_git("rev-parse", "HEAD^{tree}").strip()
     if not HEX40.fullmatch(commit) or not HEX40.fullmatch(tree):
         fail("invalid Git identity")
+    if checked_git("rev-parse", "--is-shallow-repository").strip() != "false":
+        fail("shallow repository refused")
     if checked_git("status", "--porcelain=v1", "--untracked-files=all"):
         fail("repository is not clean")
     return {"commit": commit, "tree": tree}
@@ -105,7 +108,16 @@ def _safe_relative(value):
 
 
 def validate_manifest(manifest):
-    fields = {"format", "package", "files", "python_tests", "go_tests", "circuit_files"}
+    fields = {
+        "format",
+        "package",
+        "files",
+        "python_tests",
+        "go_tests",
+        "rust_tests",
+        "circuit_files",
+        "halo2_circuit_files",
+    }
     if (
         type(manifest) is not dict
         or set(manifest) != fields
@@ -146,6 +158,7 @@ def validate_manifest(manifest):
 
     python_tests = manifest["python_tests"]
     go_tests = manifest["go_tests"]
+    rust_tests = manifest["rust_tests"]
     if (
         type(python_tests) is not list
         or not python_tests
@@ -155,8 +168,13 @@ def validate_manifest(manifest):
         or not go_tests
         or len(set(go_tests)) != len(go_tests)
         or any(type(item) is not str or not item.startswith("Test") for item in go_tests)
+        or type(rust_tests) is not list
+        or not rust_tests
+        or len(set(rust_tests)) != len(rust_tests)
+        or any(type(item) is not str or not RUST_TEST_ID.fullmatch(item) for item in rust_tests)
     ):
         fail("invalid test inventory")
+
     circuit_files = manifest["circuit_files"]
     if (
         type(circuit_files) is not list
@@ -171,7 +189,22 @@ def validate_manifest(manifest):
             for item in circuit_files
         )
     ):
-        fail("invalid circuit source inventory")
+        fail("invalid Groth16 circuit source inventory")
+
+    halo2_circuit_files = manifest["halo2_circuit_files"]
+    if (
+        type(halo2_circuit_files) is not list
+        or not halo2_circuit_files
+        or halo2_circuit_files != sorted(set(halo2_circuit_files))
+        or any(
+            not _safe_relative(item)
+            or not item.startswith("halo2/src/")
+            or not item.endswith(".rs")
+            or item not in seen
+            for item in halo2_circuit_files
+        )
+    ):
+        fail("invalid Halo2 circuit source inventory")
     return manifest
 
 

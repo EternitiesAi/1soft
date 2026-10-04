@@ -41,8 +41,18 @@ resolved by Go modules and is not vendored in this repository. Exact module sums
 source pins and inspected license hashes are recorded under
 `tools/privacy-proof-benchmark`.
 
-Groth16, BN254, Poseidon2, Merkle membership proofs, nullifiers and range checks
-are established cryptographic techniques and are not represented as proprietary
-inventions. The local ephemeral setup and passing synthetic proof do not inherit
-upstream audits, establish a production ceremony, or certify privacy, consensus,
-custody, anonymity, public-network behavior or real-funds safety.
+The second profile uses `halo2_proofs` v0.4.0, `halo2_gadgets` v0.6.0,
+`halo2_poseidon` v0.2.0 and `pasta_curves` v0.6.0 under their declared
+MIT or Apache-2.0 terms, plus a locked Rust dependency graph under each crate's
+own terms. Crate source is resolved through Cargo and is not vendored here.
+`tools/privacy-proof-benchmark/DEPENDENCIES_HALO2.json` records exact crate
+checksums and declared license expressions; that inventory is not legal
+clearance, a source audit or a security certification.
+
+Groth16, BN254, Halo2 PLONKish proofs, Pasta IPA commitments, Poseidon,
+Poseidon2, Merkle membership proofs, nullifiers and range checks are established
+cryptographic techniques and are not represented as proprietary inventions.
+Neither the local ephemeral Groth16 setup nor the deterministic public Halo2
+parameters and passing synthetic proofs inherit upstream audits or certify
+privacy, consensus, custody, anonymity, public-network behavior or real-funds
+safety.

@@ -27,10 +27,12 @@ uncovered Python groups refuse qualification. The optional unpublished account
 catch-up test is explicitly excluded; it is not counted as passing.
 
 The isolated privacy-proof benchmark is a separate source qualification surface.
-It requires pre-cached Go modules and local Go >=1.25.7, then performs offline
-exact-source verification of its experimental gnark v0.16.3/gnark-crypto v0.21.0
-Groth16/BN254/Poseidon2 candidate, synthetic one-input/two-output relation,
-ephemeral setup and listed rejection cases. Unless a successful exact receipt is
+It requires pre-cached Go modules and Cargo crates, local Go >=1.25.7 and stable
+Rust >=1.88, then independently verifies two experimental profiles for one
+synthetic one-input/two-output relation: gnark v0.16.3/gnark-crypto v0.21.0
+Groth16/BN254/Poseidon2 with ephemeral setup, and Halo2/Pasta IPA with
+deterministic public parameters. Both require the listed rejection cases. Unless
+a successful exact receipt is
 present, its status is source under qualification; local tests alone do not make
 the benchmark a pass.
 

@@ -4,6 +4,7 @@ import hashlib
 import importlib.metadata
 import json
 import tempfile
+import shutil
 import unittest
 from unittest.mock import patch
 
@@ -362,6 +363,8 @@ class CurrentJavascriptTests(unittest.TestCase):
                      patch.object(current.base, 'run_process', side_effect=process), \
                      patch.object(current, 'privacy_proof_verification',
                                   return_value={'passed': True}), \
+                     patch.object(current, 'privacy_proof_halo2_verification',
+                                  return_value={'passed': True}), \
                      patch('builtins.print'):
                     code = current.run(output, 30)
                 result = json.loads((output / 'result.json').read_bytes())
@@ -404,6 +407,8 @@ class CurrentPrivacyProofVerifierTests(unittest.TestCase):
             'python_tests': self.python_tests,
             'go_tests': self.go_tests,
             'circuit_files': ['go/benchmark.go'],
+            'rust_tests': [],
+            'halo2_circuit_files': [],
         }
         self.manifest_path = self.component / 'SOURCE_MANIFEST.json'
         self.manifest_path.write_text(json.dumps(self.manifest))
@@ -531,3 +536,113 @@ class CurrentPrivacyProofVerifierTests(unittest.TestCase):
         for mode in modes:
             with self.subTest(mode=mode):
                 self.assertFalse(self.check(mode)['passed'])
+
+
+class CurrentHalo2VerifierBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'source'; self.output = Path(self.temp.name) / 'evidence'
+        component = self.root / 'tools/privacy-proof-benchmark'; (component / 'src').mkdir(parents=True)
+        (component / 'halo2/src').mkdir(parents=True)
+        self.manifest = {'format': 2, 'package': 'privacy-proof-benchmark', 'files': [],
+                         'python_tests': [], 'go_tests': [], 'rust_tests': ['fixture.test'],
+                         'circuit_files': [], 'halo2_circuit_files': ['halo2/src/circuit.rs']}
+        (component / 'SOURCE_MANIFEST.json').write_text(json.dumps(self.manifest, sort_keys=True))
+        (component / 'DEPENDENCIES_HALO2.json').write_text('{}')
+        (component / 'halo2/src/circuit.rs').write_text('circuit fixture\n')
+        shutil.copyfile(Path(__file__).parents[3] / 'tools/privacy-proof-benchmark/src/privacy_proof_benchmark.py',
+                        component / 'src/privacy_proof_benchmark.py')
+        self.source = {'commit': 'a' * 40, 'tree': 'b' * 40, 'source_id': 'c' * 64}
+
+    def fixture(self, output):
+        component = self.root / 'tools/privacy-proof-benchmark'
+        manifest_bytes = (component / 'SOURCE_MANIFEST.json').read_bytes()
+        dependency_bytes = (component / 'DEPENDENCIES_HALO2.json').read_bytes()
+        digest = hashlib.sha256()
+        digest.update(b'halo2/src/circuit.rs'); digest.update(b'\0')
+        data = (component / 'halo2/src/circuit.rs').read_bytes()
+        digest.update(str(len(data)).encode()); digest.update(b'\0'); digest.update(data)
+        public_inputs = ['version', 'genesis', 'asset', 'context', 'epoch', 'height', 'expiry', 'policy',
+                         'root', 'nullifier', 'output_commitment_0', 'output_commitment_1', 'fee',
+                         'authorization_digest']
+        cases = [('valid-proof', 'accept'), ('mutated-proof', 'reject'), ('changed-public-input', 'reject'),
+                 ('wrong-verifying-key', 'reject'), ('invalid-membership', 'reject'), ('invalid-nullifier', 'reject'),
+                 ('invalid-output-commitment', 'reject'), ('invalid-fee-conservation', 'reject'),
+                 ('out-of-range-value', 'reject'), ('changed-authorization-digest', 'reject')]
+        report = {'format': 1, 'status': 'passed', 'actual_backend_run': True,
+                  'backend': {'id': 'zcash-halo2-pasta-ipa', 'halo2_proofs': '0.4.0', 'halo2_gadgets': '0.6.0',
+                              'halo2_poseidon': '0.2.0', 'pasta_curves': '0.6.0', 'field': 'Pallas base field',
+                              'commitment_curve': 'Vesta', 'proof_system': 'Halo2 PLONKish IPA',
+                              'hash': 'Poseidon P128Pow5T3', 'transcript': 'Blake2b', 'license': 'MIT OR Apache-2.0'},
+                  'circuit': {'id': '1soft/privacy-proof-benchmark/halo2-pasta/v1', 'source_digest': digest.hexdigest(),
+                              'k': 13, 'domain_rows': 8192, 'estimated_proof_bytes': 3168, 'depth': 4,
+                              'inputs': 1, 'outputs': 2, 'value_bits': 64, 'public_inputs': public_inputs,
+                              'private_inputs_retained': False},
+                  'source': {'commit': self.source['commit'], 'tree': self.source['tree']},
+                  'parameters': {'kind': 'deterministic-public-halo2-ipa-parameters', 'ceremony': False,
+                                 'reusable': True, 'production': False, 'parameters_sha256': '1' * 64,
+                                 'parameters_bytes': 524356, 'verifying_key_binding': 'halo2-proofs-0.4.0-pinned-debug-nonportable',
+                                 'verifying_key_sha256': '2' * 64, 'verifying_key_bytes': 26882,
+                                 'proving_key_serialization_assessed': False,
+                                 'proving_key_serialization_reason': 'halo2_proofs 0.4.0 public API exposes no proving-key serialization'},
+                  'artifacts': {'proof_sha256': '3' * 64, 'proof_bytes': 3136,
+                                'public_instances_sha256': '4' * 64, 'public_instances_bytes': 448},
+                  'metrics': {'parameters_ns': 1, 'keygen_vk_ns': 1, 'keygen_pk_ns': 1,
+                              'iterations': 1, 'prove_ns': [1], 'verify_ns': [1]},
+                  'cases': [{'id': key, 'expected': value, 'observed': value} for key, value in cases],
+                  'claims': {'production_privacy': False, 'consensus_integrated': False, 'network_anonymity': False,
+                             'production_custody': False, 'real_funds': False, 'independent_review': False},
+                  'unassessed': ['global nullifier uniqueness and consensus ordering', 'production parameter and verifying-key governance',
+                                 'independent cryptographic review', 'wallet scanning and recovery',
+                                 'network anonymity and metadata resistance', 'production custody and side-channel resistance',
+                                 'public-network and real-funds safety']}
+        backend_value = json.loads(json.dumps(report))
+        backend_path = output / 'privacy-proof-benchmark-halo2-verifier.backend.json'
+        backend_path.write_text(json.dumps(backend_value, sort_keys=True))
+        logs = {}
+        for name, suffix in (('python', 'python'), ('rust_test', 'rust-test'), ('rust_build', 'rust-build'), ('benchmark', 'benchmark')):
+            path = output / f'privacy-proof-benchmark-halo2-verifier.{suffix}.log'
+            path.write_bytes((name + ' fixture\n').encode())
+            if name == 'python':
+                logs[name] = {'path': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'bytes': path.stat().st_size}
+            else:
+                logs[name] = {'returncode': 0, 'seconds_ns': 1, 'log': path.name,
+                              'log_sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'log_bytes': path.stat().st_size}
+        report['backend_receipt'] = {'path': backend_path.name, 'sha256': hashlib.sha256(backend_path.read_bytes()).hexdigest(),
+                                     'bytes': backend_path.stat().st_size, 'value': backend_value}
+        report.update({'format': 1, 'status': 'passed', 'commit': self.source['commit'], 'tree': self.source['tree'],
+                       'manifest_sha256': hashlib.sha256(manifest_bytes).hexdigest(),
+                       'source_id': hashlib.sha256(manifest_bytes + dependency_bytes).hexdigest(),
+                       'circuit_source_digest': digest.hexdigest(), 'python': __import__('sys').version,
+                       'rustc': 'rustc 1.97.1 (abcdef123 2026-09-30)', 'cargo': 'cargo 1.97.1 (abcdef123 2026-09-30)', 'python_tests': [], 'rust_tests': ['fixture.test'],
+                       'logs': logs, 'network_policy': 'linux-user-and-network-namespace', 'network_used': False,
+                       'claims': {k: False for k in ('production_privacy','consensus_integrated','network_anonymity','production_custody','real_funds','independent_review')},
+                       'unassessed': ['global nullifier uniqueness and consensus ordering','production parameter and verifying-key governance','independent cryptographic review','wallet scanning and recovery','network anonymity and metadata resistance','production custody and side-channel resistance','public-network and real-funds safety']})
+        report = {key: report[key] for key in ('format', 'status', 'commit', 'tree', 'manifest_sha256', 'source_id',
+                                               'circuit_source_digest', 'python', 'rustc', 'cargo', 'python_tests',
+                                               'rust_tests', 'logs', 'backend_receipt', 'network_policy',
+                                               'network_used', 'claims', 'unassessed')}
+        return report
+
+    def test_valid_halo2_receipt_passes_and_security_mutations_fail_closed(self):
+        for mode in (None, 'source_id', 'digest', 'tests', 'log', 'backend', 'claims',
+                     'claims_extra', 'toolchain', 'unassessed'):
+            with self.subTest(mode=mode):
+                output = self.output / (mode or 'valid'); output.mkdir(parents=True)
+                def process(command, root, log, timeout):
+                    report = self.fixture(output)
+                    if mode == 'source_id': report['source_id'] = '0' * 64
+                    if mode == 'digest': report['circuit_source_digest'] = '0' * 64
+                    if mode == 'tests': report['rust_tests'] = ['forged.test']
+                    if mode == 'log': report['logs']['rust_test']['log_sha256'] = '0' * 64
+                    if mode == 'backend': report['backend_receipt']['value']['source']['commit'] = '0' * 40
+                    if mode == 'claims': report['claims']['real_funds'] = True
+                    if mode == 'claims_extra': report['claims']['extra'] = False
+                    if mode == 'toolchain': report['rustc'] = 'rustc 1.98.0 (abcdef123 2026-10-01)'
+                    if mode == 'unassessed': report['unassessed'] = []
+                    Path(command[command.index('--report') + 1]).write_text(json.dumps(report))
+                    log.write_bytes(b'halo2 boundary fixture\n')
+                    return {'returncode': 0, 'timed_out': False, 'log_truncated': False}
+                with patch.object(current.base, 'run_process', side_effect=process):
+                    result = current.privacy_proof_halo2_verification(self.root, output, self.source, 30)
+                self.assertEqual(result['passed'], mode is None, result)
