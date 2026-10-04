@@ -10,6 +10,8 @@ The product has three separable layers: the independent protocol; the human/agen
 
 The initial audience hypothesis is creators and small teams whose agents buy research, rendering, storage and other digital services. Lunari can provide a first integration, but external agent runtimes must be able to participate. This is a hypothesis to test, not established product-market fit.
 
+The selected first wedge sharpens that hypothesis into a [private mission treasury for small teams of agents](PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md). Its differentiator is the combined contract: one private shared allowance, narrow agent authority, obligations that survive ambiguous failure, current revocation and transaction-scoped disclosure. Each part exists elsewhere in some form; the combination, its feasibility and its demand remain hypotheses.
+
 ## Two monetary instruments, two different promises
 
 A native dollar unit is a legitimate Layer 1 design. Its outstanding units would represent redemption obligations supported by a real reserve/issuer arrangement. Success would mean dependable redemption and use—not a promised price increase.
@@ -26,9 +28,11 @@ The proposed protocol should understand a responsible principal, a persistent ac
 
 The most useful candidate differentiator is economic continuity: the system preserves obligations across restarts and migrations while invalidating obsolete authority. Claims of scientific sentience, legal personhood or patentable novelty are not required and are not made.
 
+Privacy is valuable when it protects a person's or team's economic relationships without weakening that continuity contract. Encryption, a native asset and selective receipts are not standalone moats. The successor must preserve shared-budget accounting, unresolved holds and ordered revocation while limiting disclosure.
+
 The first native model supports signed transfers, recipient-constrained grants, grant nonces, explicit revocation and epoch fencing. It does not yet implement the complete proposed lifecycle. In particular, fencing is not owner-key recovery, full migration, or proof that a particular model is the same resident.
 
-A global budget spanning child grants and payment routes remains an integration requirement. The current native model shares a balance among its grants but does not provide one parent budget across distinct grants. The previous JavaScript budget-tree model is a separate reference, not silently integrated into the new native core.
+Protocol 3 provides one owner-authorized native budget whose aggregate cap is shared by all grants linked to it. Direct owner spending remains outside that ceiling, separate budgets remain separately authorized, and external payment routes do not automatically inherit the native budget's enforcement. An account-wide policy spanning native grants, direct owner actions and independently controlled external rails remains an integration requirement. The previous JavaScript budget-tree model is a separate reference, not silently integrated into the native core.
 
 ## Three pools that must stay separate
 

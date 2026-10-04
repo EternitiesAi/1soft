@@ -11,6 +11,13 @@ first architecture reference. The hard question is whether private transfers
 can preserve overlapping shared agent budgets and durable uncertain obligations.
 Importing a cipher, viewing-key type or proof library cannot answer that question.
 
+The selected product use for that hard mechanism is a [private mission treasury
+for a small team of agents](PRIVATE_ECONOMIC_AUTHORITY_DIRECTION.md). The decisive
+transition model uses one parent with 10 remaining, two overlapping grants of 8,
+and two prepared 6-unit purchases including fees. At most one may commit; the
+other obligation, current revocation, restart behavior and one scoped receipt must
+all remain correct. A transparent executable model proves semantics, not privacy.
+
 ## Delivered slice and version boundaries
 
 | Surface | Version/status | Meaning |
