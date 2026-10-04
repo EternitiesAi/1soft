@@ -6,7 +6,7 @@
 
 **Architecture:** A standalone Rust crate owns canonical cryptographic encodings, H2F, Poseidon, the note tree, the new Halo2 circuit, proof creation, proof verification, profile artifacts, KAT, and a confined verifier worker. Dedicated Python `protocol5_*` modules own consensus ordering, historical-root admission, budgets, deterministic state, SQLite durability, ABCI, state sync, certificate verification, and qualification runners. Only an external controller invokes the development prover; validator processes receive transaction wires and never receive witnesses or prover capability.
 
-**Tech Stack:** Rust 1.97.1; `halo2_proofs` 0.4.0 with default features disabled; `pasta_curves` 0.5.1; raw x86_64 Linux seccomp via `libc` 0.2.189; Python 3.12 standard library and SQLite; CometBFT 0.38.25; ABCI v0.38.25 protobuf.
+**Tech Stack:** Rust 1.97.1; `halo2_proofs` 0.4.0 with default features disabled; `pasta_curves` 0.6.0; `rand` 0.10.0; raw x86_64 Linux seccomp via `libc` 0.2.189; Python 3.12 standard library and SQLite; CometBFT 0.38.25; ABCI v0.38.25 protobuf.
 
 **Spec:** `docs/superpowers/specs/2026-10-04-shielded-consensus-admission-design.md` at commit `1880e97`.
 
