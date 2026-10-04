@@ -14,7 +14,7 @@ from protocol5_encoding import field_hex, h2f
 from protocol5_fixture import make_genesis
 from run_protocol5_engine import (
     CLIENT_MAGIC, CLIENT_GENESIS_MAGIC, PROVER_MAGIC, DevelopmentController,
-    ENGINE_SHA256, Note, Protocol5Network, _backup_sqlite,
+    ENGINE_SHA256, Note, Protocol5Network, _app_start_timeout, _backup_sqlite,
     finalize_fresh_genesis, fresh_genesis_prefix, p5_app_command, preflight,
 )
 
@@ -76,6 +76,10 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
         parsed = genesis_document(raw)
         self.assertEqual(parsed.value["initial_commitments"], commitments)
         self.assertEqual(parsed.value["chain_id"], "p5-fresh-chain")
+
+    def test_application_startup_wait_covers_worker_kat_budget(self):
+        raw = canonical_json(make_genesis())
+        self.assertEqual(_app_start_timeout(raw), 150)
 
     def test_validator_command_never_receives_prover_or_crash_controls(self):
         paths = {

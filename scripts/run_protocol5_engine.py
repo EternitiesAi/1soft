@@ -236,6 +236,12 @@ def finalize_fresh_genesis(prefix: dict, commitments: list[str]) -> bytes:
     return raw
 
 
+def _app_start_timeout(genesis_raw: bytes) -> int:
+    selected = genesis_document(genesis_raw).value["limits"][
+        "worker_startup_timeout_seconds"]
+    return min(150, selected + 30)
+
+
 def p5_app_command(paths: dict[str, Path], genesis: Path, genesis_sha256: str,
                    database: Path, socket: Path, *, crash: dict | None = None) -> list[str]:
     script = ROOT / "scripts" / (
@@ -439,7 +445,15 @@ class Protocol5Network:
             self.runtime / f"app{index}/state.sqlite", socket, crash=crash)
         process = subprocess.Popen(command, stdout=log, stderr=log)
         self.apps[index] = process
-        wait_until(lambda: socket.exists() and process.poll() is None, 20)
+
+        def ready():
+            if process.poll() is not None:
+                raise ValueError(
+                    f"Protocol 5 application node{index} exited "
+                    f"{process.returncode} during startup")
+            return socket.exists()
+
+        wait_until(ready, _app_start_timeout(self.genesis_path.read_bytes()))
         self._record(
             "application", index, process,
             hashlib.sha256((ROOT / "scripts" / (
