@@ -28,6 +28,7 @@ CHECKS=('source_clean','engine_identity','fresh_network_bound_genesis','all_four
         'forged_certificate_preserves_custody','four_validator_agreement',
         'same_store_restart_converges','workers_stopped','source_unchanged')
 CLAIMS={'restricted_change_encrypted_custody':True,'actual_imported_change_respend':True,
+        'actual_local_custody_caller':True,
         'owner_sequence_is_provenance':True,'exact_journal_recovery':True,
         'one_host_four_validators':True,'synthetic_openings':True,'external_key_required':True,
         'private_openings_delivered':False,'independent_ciphertext_decryption':False,
@@ -36,6 +37,7 @@ CLAIMS={'restricted_change_encrypted_custody':True,'actual_imported_change_respe
         'real_funds':False,'public_network':False,'freshness_established':False}
 SOURCE_NAMES=(*engine.SOURCE_NAMES,'scripts/run_protocol7_vault.py','tools/release/check_protocol7_vault.py',
               'tests/test_protocol7_vault.py','tests/test_protocol7_vault_report.py',
+              'tests/test_protocol7_custody_cli.py',
               'tools/owner-treasury-lab/halo2/tests/note_request.rs')
 
 def source():
@@ -47,10 +49,10 @@ def source():
 def run(args):
     output=args.output.absolute()
     if output.exists() or output.with_name(output.name+'.artifacts').exists():raise FileExistsError('fresh custody report required')
-    before=source();network=journal=controller=None;ciphertext=None
+    before=source();network=journal=controller=None;ciphertext=None;cli_controller_runs=[]
     report={'format':'1soft/protocol7-change-vault-engine/v1','status':'failed','source':before,
             'checks':[],'claims':CLAIMS.copy(),'inputs':{},'commands':[],
-            'records':{},'transports':{},'prover_runs':[]}
+            'records':{},'transports':{},'prover_runs':[],'cli_commands':[]}
     def check(name,passed,evidence=None):
         report['checks'].append({'id':name,'passed':bool(passed),'evidence':evidence or {}})
         print('P7_VAULT_CHECK '+name+' '+str(bool(passed)),flush=True)
@@ -105,10 +107,33 @@ def run(args):
         def reopen():return ChangeVault(vaultpath,key=key,expected_vault_id=vid,controller=controller)
         vault=ChangeVault(vaultpath,key=key,expected_vault_id=vid,controller=controller,create=True)
         submit=LoopbackSubmit('http://127.0.0.1:'+str(network.http[0]))
-        def measured_proof():
-            run=prover.last_run.copy();report['prover_runs'].append(run)
+        def measured_proof(run=None):
+            run=(run or prover.last_run).copy();report['prover_runs'].append(run)
             network.receipts.append({'role':'arbitrary-prover','node':0,'pid':run['pid'],'start_ticks':run['start_ticks'],
                                      'executable_sha256':run['binary_sha256'],'exit_code':run['exit_code']})
+        def custody_cli(op,data):
+            argv=[sys.executable,'-B',str(ROOT/'scripts/owner_treasury_custody.py'),
+                  '--journal',str(path),'--vault',str(vaultpath),'--genesis',str(network.genesis_path),
+                  '--worker',str(args.worker),'--kat',str(network.paths['kat']),'--controller',str(args.controller),
+                  '--genesis-sha256',digest(rawg),'--worker-sha256',g['worker_sha256'],
+                  '--controller-sha256',controller.sha256,'--vault-id',vid,'--execution-receipt']
+            if op=='prepare':argv+=['--prover',str(args.prover),'--prover-sha256',prover.sha256]
+            # Private key/authority only in the bounded stdin pipe, never argv,
+            # inherited environment, files, report or private-input hashes.
+            child=subprocess.Popen([*argv,op],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                  env={'PYTHONPATH':str(ROOT/'src')+':'+str(ROOT/'scripts')},start_new_session=True)
+            network._record('custody-cli',0,child,digest((ROOT/'scripts/owner_treasury_custody.py').read_bytes()))
+            try:out,err=child.communicate(canonical({'key':key.hex(),**data}),timeout=180)
+            except subprocess.TimeoutExpired:network._record_exit(child.pid,_stop(child));raise
+            network._record_exit(child.pid,child.returncode)
+            if child.returncode or err or len(out)>32768:raise RuntimeError('actual custody CLI failed')
+            reply=json.loads(out)
+            if canonical(reply)+b'\n'!=out or reply.get('status')!='completed-local-command' or reply.get('operation')!=op:
+                raise ValueError('closed successful custody CLI response required')
+            if key.hex().encode() in out:raise AssertionError('runtime external key exposed')
+            report['cli_commands'].append(reply)
+            cli_controller_runs.extend(reply['result']['execution']['note_controller'])
+            return reply['result']
         def deliver(ident,wire,label):
             calls=[];returns={'rpc_returned':False,'response_accepted':False,'response_discarded':False}
             def discard(sent):
@@ -163,12 +188,16 @@ def run(args):
         debit=integer(witness[13])+integer(public[17])
         authority={'parent':[witness[0],numfield(integer(witness[1])+debit),numfield(integer(witness[2])+1),witness[4]],
                    'grant':[witness[5],numfield(integer(witness[6])+debit),numfield(integer(witness[7])+1),witness[9],witness[10],witness[12]]}
-        vault=reopen();second=vault.prepare_payment(journal,prover,commitment,authority=authority,amount=1,valid_until=60,request=numfield(9019))
-        secondwire=journal.export(second);secondpublic=parse(secondwire);measured_proof()
+        vault=reopen();prepared=custody_cli('prepare',{'commitment':commitment,'authority':authority,
+                     'amount':1,'valid_until':60,'request':numfield(9019)})
+        second=prepared['txid'];secondwire=journal.export(second);secondpublic=parse(secondwire)
+        measured_proof(prepared['execution']['prover'])
         check('change_respend_prepared_and_staged',secondpublic[21]==d0['nullifier'] and secondpublic[20]==d0['root']
               and integer(secondpublic[25])==1 and worker.verify(secondwire) and len(vault.inventory()['retained_preparations'])==1)
         journal.close();journal=CertifiedTreasuryJournal(path,expected_genesis=rawg,worker=worker);vault=reopen()
-        check('cold_recovery_exact_wire_no_regeneration',vault.recover_prepared(journal,commitment)==second
+        recovered=custody_cli('recover-prepared',{'commitment':commitment})
+        check('cold_recovery_exact_wire_no_regeneration',recovered['txid']==second
+              and recovered['raw_sha256']==digest(secondwire) and vault.recover_prepared(journal,commitment)==second
               and journal.export(second)==secondwire and len(report['prover_runs'])==2)
         deliver(second,secondwire,'second')
         check('second_lost_return_one_attempt',journal.status(second)['attempts']==1)
@@ -179,18 +208,29 @@ def run(args):
         secondcommit=vault.import_prepared_change(journal,second);inv=vault.inventory();vault=reopen()
         check('second_change_import_and_reopen',secondcommit==secondpublic[23] and vault.inventory()==inv
               and inv['revision']==3 and inv['notes']==[commitment,secondcommit])
-        check('spent_input_and_duplicate_refused',refused(lambda:vault.prepare_payment(journal,prover,commitment,
+        with vault._locked():spent_record=vault._record(vault._read(),commitment)
+        spent_refusal=None
+        try:
+            with journal.atomic(False):vault._live(journal,spent_record)
+        except ValueError as exc:spent_refusal=str(exc)
+        check('spent_input_and_duplicate_refused',spent_refusal=='P7 change spent/anchor refused'
+              and secondpublic[21] in secondrecord['witness']['state']['treasury']['nullifiers']
+              and refused(lambda:vault.prepare_payment(journal,prover,commitment,
               authority=authority,amount=1,valid_until=60,request=numfield(9020)))
               and refused(lambda:vault.import_prepared_change(journal,second))
-              and refused(lambda:journal.deliver_once(second,submit)))
+              and refused(lambda:journal.deliver_once(second,submit)),{'refusal':spent_refusal})
         revoked=revoke(public[6],'active_revoke',4);rt=revoked['witness']['state']['treasury']
         check('active_grant_revocation_certified',rt['owner_sequence']==2
               and next(x for x in rt['grants'] if x['id']==public[6])['commitment']==ZERO)
         beforevault=vaultpath.read_bytes();calls=[];produce=prover.produce
         def forbidden(*_):calls.append('unexpected');raise AssertionError('revoked grant must refuse before proving')
         prover.produce=forbidden
-        try:check('revoked_grant_refused_before_proving',refused(lambda:vault.prepare_payment(journal,prover,secondcommit,
-                  authority=authority,amount=1,valid_until=60,request=numfield(9021))) and not calls and vaultpath.read_bytes()==beforevault)
+        try:
+            refusal=None
+            try:vault.prepare_payment(journal,prover,secondcommit,authority=authority,amount=1,valid_until=60,request=numfield(9021))
+            except ValueError as exc:refusal=str(exc)
+            check('revoked_grant_refused_before_proving',refusal=='P7 change generation/epoch/grant refused'
+                  and not calls and vaultpath.read_bytes()==beforevault,{'refusal':refusal,'prover_calls':len(calls)})
         finally:prover.produce=produce
         forged=copy.deepcopy(revoked['signed_header']);forged['header']['app_hash']='ab'*32
         check('forged_certificate_preserves_custody',refused(lambda:journal.observe(revoked['witness'],forged))
@@ -208,8 +248,8 @@ def run(args):
         if network:
             try:
                 if controller:
-                    report['controller_runs']=controller.runs
-                    for r in controller.runs:network.receipts.append({'role':'note-controller','node':0,'pid':r['pid'],
+                    report['controller_runs']=controller.runs+cli_controller_runs
+                    for r in report['controller_runs']:network.receipts.append({'role':'note-controller','node':0,'pid':r['pid'],
                         'start_ticks':r['start_ticks'],'executable_sha256':r['binary_sha256'],'exit_code':r['exit_code']})
                 network.close()
                 if ciphertext:

@@ -14,7 +14,7 @@ from check_protocol7_prover import FIXTURES,load
 def validate(v,path,worker_binary):
     keys={'format','status','source','checks','claims','inputs','commands','records','transports','prover_runs',
           'genesis','genesis_sha256','bootstrap_sha256','imported_note','vault_inventory','vault_ciphertext',
-          'controller_runs','artifacts','processes'}
+          'controller_runs','artifacts','processes','cli_commands'}
     need(type(v) is dict and set(v)==keys and v['format']=='1soft/protocol7-change-vault-engine/v1'
          and v['status']=='qualified-one-host-encrypted-change-custody','P7 closed completed custody report required')
     need(type(v['claims']) is dict and set(v['claims'])==set(CLAIMS)
@@ -24,6 +24,10 @@ def validate(v,path,worker_binary):
          and all(set(c)=={'id','passed','evidence'} and c['passed'] is True and type(c['evidence']) is dict for c in checks),
          'P7 custody check roster failed')
     need(checks[0]['evidence']=={'candidate':False},'P7 custody candidate is not qualification')
+    evidence={c['id']:c['evidence'] for c in checks}
+    need(evidence['spent_input_and_duplicate_refused']=={'refusal':'P7 change spent/anchor refused'},'P7 actual spent-input guard evidence differs')
+    need(evidence['revoked_grant_refused_before_proving']=={'refusal':'P7 change generation/epoch/grant refused','prover_calls':0},
+         'P7 active-grant guard evidence differs')
     source=v['source']
     need(type(source) is dict and set(source)=={'commit','tree','clean','status_porcelain','files'}
          and source['clean'] is True and source['status_porcelain']=='','P7 clean executed source required')
@@ -53,7 +57,7 @@ def validate(v,path,worker_binary):
         raw=p.read_bytes();need(len(raw)==r['bytes'] and digest(raw)==r['sha256'],'P7 raw artifact differs');artifacts[r['name']]=raw
     need(type(v['commands']) is list and len(v['commands'])==2 and artifacts['commands.json']==canonical(v['commands']),'P7 owner command roster differs')
     processes=v['processes'];need(type(processes) is list and 12<=len(processes)<=180,'P7 custody lifecycle bound')
-    identities=set();roles=set();byrole={r:[] for r in ('fixture-prover','arbitrary-prover','note-controller')}
+    identities=set();roles=set();byrole={r:[] for r in ('fixture-prover','arbitrary-prover','note-controller','custody-cli')}
     for p in processes:
         need(type(p) is dict and set(p)=={'role','node','pid','start_ticks','executable_sha256','exit_code'}
              and p['role'] in ('engine','application',*byrole) and type(p['node']) is int and p['node'] in range(4)
@@ -62,12 +66,14 @@ def validate(v,path,worker_binary):
         ident=(p['pid'],p['start_ticks']);need(ident not in identities,'P7 duplicate process');identities.add(ident)
         if p['role'] in byrole:
             byrole[p['role']].append(p);need(p['exit_code']==0,'P7 helper generation failed')
-            name={'fixture-prover':'fixture_prover','arbitrary-prover':'prover','note-controller':'controller'}[p['role']]
-            want=inputs[name]['sha256']
+            if p['role']=='custody-cli':want=source['files']['scripts/owner_treasury_custody.py']['sha256']
+            else:
+                name={'fixture-prover':'fixture_prover','arbitrary-prover':'prover','note-controller':'controller'}[p['role']]
+                want=inputs[name]['sha256']
         else:
             roles.add((p['role'],p['node']));want=ENGINE_SHA256 if p['role']=='engine' else source['files']['scripts/serve_abci_p7_admission.py']['sha256']
         need(p['executable_sha256']==want,'P7 process identity differs')
-    need(len(byrole['fixture-prover'])==1 and len(byrole['arbitrary-prover'])==2
+    need(len(byrole['fixture-prover'])==1 and len(byrole['arbitrary-prover'])==2 and len(byrole['custody-cli'])==2
          and roles=={(r,i) for r in ('engine','application') for i in range(4)},'P7 four-validator/prover coverage')
     runs=v['prover_runs'];need(type(runs) is list and len(runs)==2,'P7 two arbitrary proofs required')
     for run,p in zip(runs,byrole['arbitrary-prover']):
@@ -82,6 +88,21 @@ def validate(v,path,worker_binary):
              and run['request_bytes'] in (2088,*range(2122,2603,32)) and run['response_bytes']==(256 if run['operation']=='derive' else 2088)
              and run['pid']==p['pid'] and run['start_ticks']==p['start_ticks'] and run['exit_code']==0
              and run['binary_sha256']==inputs['controller']['sha256'],'P7 measured note completion differs')
+    cli=v['cli_commands']
+    need(type(cli) is list and len(cli)==2,'P7 actual custody caller roster differs')
+    cli_runs=[]
+    for reply,operation in zip(cli,('prepare','recover-prepared')):
+        need(type(reply) is dict and set(reply)=={'format','status','operation','result'}
+             and reply['format']=='1soft/protocol7-custody-command-result/v1' and reply['status']=='completed-local-command'
+             and reply['operation']==operation,'P7 actual custody caller response differs')
+        result=reply['result'];keys={'txid','raw_sha256','execution'}|({'request','attempts'} if operation=='prepare' else set())
+        need(type(result) is dict and set(result)==keys,'P7 closed public custody response required')
+        execution=result['execution'];ekeys={'note_controller'}|({'prover'} if operation=='prepare' else set())
+        need(type(execution) is dict and set(execution)==ekeys and type(execution['note_controller']) is list
+             and all(r in cr for r in execution['note_controller']),'P7 caller controller lifecycle differs')
+        cli_runs.extend(execution['note_controller'])
+        if operation=='prepare':need(execution['prover']==runs[1] and result['attempts']==0,'P7 caller actual prepare completion differs')
+    need(len(cli_runs)==len({(r['pid'],r['start_ticks']) for r in cli_runs}) and len(cli_runs)>0,'P7 caller controller lifecycle duplicates')
     g=v['genesis'];rawg=canonical(g);inv=v['vault_inventory'];vc=v['vault_ciphertext']
     need(type(inv) is dict and set(inv)=={'vault_id','revision','notes','retained_preparations'}
          and inv['revision']==3 and type(inv['notes']) is list and len(inv['notes'])==2
@@ -122,6 +143,8 @@ def validate(v,path,worker_binary):
         if kind=='payment':
             public[label]=parse(wire);need(worker.verify(wire),'P7 actual proof refused')
     first=public['first'];second=public['second'];note=v['imported_note']
+    need(all(reply['result']['txid']==records['second']['txid'] and reply['result']['raw_sha256']==digest(wires['second']) for reply in cli)
+         and cli[0]['result']['request']==second[18],'P7 caller exact prepare/recovery wire differs')
     need(type(note) is dict and set(note)=={'commitment','agent_key','nullifier','root','path'} and type(note['path']) is list and len(note['path'])==4,'P7 public imported note shape')
     for x in (note['commitment'],note['agent_key'],note['nullifier'],note['root'],*note['path']):field(x)
     t0=observations['first']['state']['treasury'];t1=observations['other_revoke']['state']['treasury'];t2=observations['second']['state']['treasury'];t3=observations['active_revoke']['state']['treasury']

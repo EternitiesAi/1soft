@@ -72,9 +72,14 @@ openings, unsafe storage, duplicate inputs, publication/nonce faults, lost local
 return, and an actual child process exiting after the encrypted stage. Audited
 state fault doubles for generation/epoch/nullifiers are explicitly labeled.
 
+The [one-shot custody caller](PROTOCOL7_CUSTODY_CLI.md) exposes the same operations
+with protected canonical stdin, fixed public diagnostics and exact recovery.
+It has no delivery or retry operation.
+
 The additive run_protocol7_vault.py gate uses a fresh four-validator CometBFT
 network. It must import a real payment's CHANGE, certify an unrelated grant
-revocation, re-spend that same note using the new owner sequence, recover the
+revocation, re-spend that same note through the actual custody command using the
+new owner sequence, recover the
 exact retained wire after reopening, certify/import its new CHANGE, then refuse
 a revoked active grant before proving. The checker independently replays exact
 proofs, certified transitions, source and artifact identities and public origin
