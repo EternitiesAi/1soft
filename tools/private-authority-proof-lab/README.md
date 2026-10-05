@@ -60,3 +60,7 @@ The next protocol must atomically compose authority with value-note conservation
 authenticate current authority through validator consensus, and connect exact
 transactions to durable wallet obligations. Passing this lab is evidence for that
 design, never evidence that it is already integrated. See the [bounded design](../../docs/superpowers/specs/2026-10-04-private-authority-proof-lab-design.md).
+
+The [component receipt](COMPONENT_MANIFEST.json) records the clean tested source and
+actual proof measurements. The [dependency receipt](DEPENDENCY_RECEIPT.json)
+records the exact locked offline graph and declared licenses.

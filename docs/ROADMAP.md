@@ -47,3 +47,11 @@ network anonymity, metadata resistance, exchange readiness, public deployment or
 real-funds use.
 
 The native coin and any future redeemable dollar instrument make different economic promises. No public supply, value, returns, reserve backing, banking relationship or partnership is implied. The static website remains separate from node/validator infrastructure.
+
+## Private shared allowance proof milestone
+
+The [isolated authority lab](PRIVATE_AUTHORITY_PROOF_LAB.md) now generates and verifies actual Halo2
+proofs for hidden shared allowance successors and ordered revocation. Its trusted
+local context is outside consensus; it has no payment or wallet caller. The next
+protocol must compose it atomically with value-note conservation and authenticated
+current authority.

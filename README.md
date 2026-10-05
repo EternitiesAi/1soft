@@ -270,3 +270,11 @@ The static website is separate from node infrastructure. This repository does no
 create public RPC, deploy a chain, use real funds, or run GitHub Actions. Read
 [node admission](docs/NODE_ADMISSION.md), [source and reuse notice](NOTICE.md) and
 the project [engineering contract](AGENTS.md) before extending the code.
+
+## Private shared allowance proof milestone
+
+The [isolated authority lab](docs/PRIVATE_AUTHORITY_PROOF_LAB.md) now generates and verifies actual Halo2
+proofs for hidden shared allowance successors and ordered revocation. Its trusted
+local context is outside consensus; it has no payment or wallet caller. The next
+protocol must compose it atomically with value-note conservation and authenticated
+current authority.
