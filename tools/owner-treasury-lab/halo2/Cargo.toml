@@ -1,0 +1,28 @@
+[package]
+name = "owner-treasury-lab"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[features]
+default = ["prover"]
+prover = []
+
+[[bin]]
+name = "owner-treasury-lab"
+path = "src/bin/owner-treasury-lab.rs"
+required-features = ["prover"]
+
+[dependencies]
+shielded-consensus-halo2 = { path = "../../shielded-consensus/halo2", default-features = false }
+ff = "=0.14.0"
+halo2_gadgets = { version = "=0.6.0", default-features = false }
+halo2_proofs = { version = "=0.4.0", default-features = false }
+pasta_curves = "=0.6.0"
+rand = "=0.10.0"
+sha2 = "=0.10.9"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
