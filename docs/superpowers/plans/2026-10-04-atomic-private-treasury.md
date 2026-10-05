@@ -56,10 +56,10 @@ commit. `Outbox.retain(raw)` and `claim(txid)` preserve bytes and claim once.
 Create `PROFILE_V1.json`, scripts/qualify.py, component/dependency receipts and
 README. Add product evidence doc and source inventory. No accepted-runtime edits.
 
-- [ ] Commit tested source, then run clean offline release tests and local ledger
+- [x] Commit tested source, then run clean offline release tests and local ledger
       scenarios with actual verifier. Pin source/tree, test roster, binary and
       sanitized log hashes; reject altered/duplicate-key/claim/source receipts.
-- [ ] Read-only review the relation and failure boundaries; resolve defects and
+- [x] Read-only review the relation and failure boundaries; resolve defects and
       rerun affected checks. Prepare source+logs ZIP and CODEX_RESULT.md/json.
 - [ ] Publish branch, PR and merge using supported authenticated access and
       existing authority; verify exact merged tree and preserve raw failures.

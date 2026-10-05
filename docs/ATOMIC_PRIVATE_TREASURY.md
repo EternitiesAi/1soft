@@ -2,8 +2,7 @@
 
 The separate [treasury payment component](../tools/private-treasury-payment-lab/README.md)
 now implements one conserved value-note payment and exact hidden parent/grant
-debits in one Halo2 circuit. It is a trusted local execution component under
-exact-source qualification, not a validator-integrated protocol or deployed coin.
+debits in one Halo2 circuit. It is a checker-qualified trusted local execution component, not a validator-integrated protocol or deployed coin.
 
 The relation binds the same amount, recipient, fee and agent across the allowance,
 input, merchant output and restricted change. Two independently prepared grants
@@ -30,3 +29,18 @@ discovery, scaling, independent review/operation, custody, hostile-host/cross-de
 recovery, metadata/relationship privacy, public readiness, real-funds safety and
 economic value remain unassessed. Existing P1-P5 and the old authority lab are
 preserved byte-for-byte; their historical evidence does not qualify this component.
+
+## Retained exact-source qualification
+
+The implementation source `69f64594d4611e468e17bdbdce2ee1f4499697f5`, tree `18620c8ff56827827ebccb1f7f7dadbd62c19685`, passed ten Rust tests,
+fourteen actual-binary ledger/recovery tests and seven real proof generations.
+Six additional adversarial receipt-parser tests and the thirty-three existing
+checkout-gate tests passed. The combined losing-race/outbox case preserves the
+original obligation and refuses a refreshed-proof replacement against its hold.
+
+The [receipt](../evidence/atomic-private-treasury/20261004/treasury-qualified-04.json)
+and adjacent sanitized logs pin the actual source, profile and verifier binary.
+Verifier SHA256: `7d8fd12f054a87640fa462a5d46ce6df3064c1f2073ec91c9991d398e3786e4b`.
+Earlier failed candidates remain external and are summarized in the delivery's
+CODEX_RESULT. This receipt supports finite local behavior, not signed publisher
+provenance, independent cryptographic review or real consensus.
