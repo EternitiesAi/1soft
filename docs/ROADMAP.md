@@ -47,3 +47,11 @@ network anonymity, metadata resistance, exchange readiness, public deployment or
 real-funds use.
 
 The native coin and any future redeemable dollar instrument make different economic promises. No public supply, value, returns, reserve backing, banking relationship or partnership is implied. The static website remains separate from node/validator infrastructure.
+
+## Later Protocol 5 wallet continuity
+
+The [finite trusted-host wallet](PROTOCOL5_WALLET_CONTINUITY.md) adds recipient-key payments, exact
+lost-return recovery, selected-output capsules, authenticated H+1 reconciliation
+and one-attempt delivery. These later controller-only additions preserve the
+existing circuit/profile/KAT/worker and historical qualification identities.
+They do not establish production custody, privacy, public deployment or real-funds safety.
