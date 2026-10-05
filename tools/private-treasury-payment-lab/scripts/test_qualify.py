@@ -5,7 +5,7 @@ class ReceiptParserTests(unittest.TestCase):
         m=q.profile_measurement()
         rust=''.join('test '+name+' ... '+('TREASURY_PROFILE '+json.dumps(m)+'\nok' if name.startswith('actual_') else 'ok')+'\n' for name in sorted(q.RUST_TESTS))
         fixtures='TREASURY_FIXTURES '+json.dumps({'actual_halo2_proofs':6,**m})+'\n'
-        ledger=''.join(name+' (test_ledger.AtomicLedgerTests.'+name+') ... ok\n' for name in sorted(q.PYTHON_TESTS))+'\nRan 13 tests in 1.0s\n\nOK\n'
+        ledger=''.join(name+' (test_ledger.AtomicLedgerTests.'+name+') ... ok\n' for name in sorted(q.PYTHON_TESTS))+'\nRan 14 tests in 1.0s\n\nOK\n'
         return {'rust':rust,'fixtures':fixtures,'ledger':ledger,'build':'TREASURY_BINARY '+json.dumps({'name':'treasury-lab','bytes':123,'sha256':'1'*64})+'\n'}
     def test_exact_rosters_and_profile_are_required(self):
         logs=self.valid_logs();self.assertEqual(q.parse_logs(logs)['actual_halo2_proofs'],7)

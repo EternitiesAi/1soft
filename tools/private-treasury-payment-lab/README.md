@@ -36,7 +36,7 @@ python -m unittest test_qualify -v
 ```
 
 The runner requires clean committed source and fresh report/log/fixture paths. It
-runs ten Rust tests, generates six actual fixture proofs and runs thirteen actual
+runs ten Rust tests, generates six actual fixture proofs and runs fourteen actual
 ledger/recovery tests with its just-built pinned binary. One additional real
 proof is generated in the Rust gate. It retains sanitized command output and
 source/log/binary identities. The offline parser test uses synthetic log strings
@@ -92,3 +92,9 @@ the build log, all ledger verifier calls and the result, refusing metadata
 substitution. This remains a local evidence model: someone able to rewrite both
 the report and every log/hash can fabricate a receipt. No signed or independently
 attested publisher provenance is claimed.
+
+The refreshed-proof allowance cases are ledger feasibility tests without an
+existing unresolved outbox obligation. In the composed losing-race/outbox case,
+the original proof remains claimed and the refreshed proof is refused as a
+replacement against the held input. No journal caller gains a retry permission
+merely because a different proof is mathematically valid at the new state.

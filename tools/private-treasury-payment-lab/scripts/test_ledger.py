@@ -158,4 +158,17 @@ class AtomicLedgerTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite3.ProgrammingError,'closed'):created[0].execute('SELECT 1')
         finally:writer.execute('ROLLBACK');writer.close()
 
+    def test_losing_race_keeps_original_obligation_and_refuses_replacement(self):
+        out=Outbox(self.outpath);ident=out.retain(RAW['b']);out.claim(ident)
+        try:
+            self.ledger.apply(RAW['a'],2);before=self.ledger.snapshot()
+            with self.assertRaises(ValueError):self.ledger.apply(RAW['b'],2)
+            self.assertEqual(self.ledger.snapshot(),before)
+            self.assertEqual(out.export(ident),RAW['b']);self.assertEqual(out.status(ident),'claimed')
+            with self.assertRaises(ValueError):out.record_local_receipt(ident,self.ledger)
+            with self.assertRaises(ValueError):out.retain(RAW['after_a_b'])
+            with self.assertRaises(ValueError):out.claim(ident)
+            self.assertEqual(out.export(ident),RAW['b'])
+        finally:out.close()
+
 if __name__=='__main__':unittest.main()

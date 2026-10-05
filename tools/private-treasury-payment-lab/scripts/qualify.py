@@ -19,7 +19,7 @@ PYTHON_TESTS={
 'test_proof_encoding_and_height_failures_change_nothing','test_outbox_retains_exact_bytes_and_claims_only_once',
 'test_lost_return_after_process_commit_does_not_create_second_payment','test_concurrent_claims_and_shared_parent_holds',
 'test_crash_before_commit_retains_unknown_claim_and_no_ledger_effect','test_new_transaction_cannot_pay_same_request_twice',
-'test_same_parent_execution_is_serialized_across_connections','test_trust_identity_permission_and_backward_height_fail_closed','test_failed_initial_lock_preserves_cause_and_closes_connection'}
+'test_same_parent_execution_is_serialized_across_connections','test_trust_identity_permission_and_backward_height_fail_closed','test_failed_initial_lock_preserves_cause_and_closes_connection','test_losing_race_keeps_original_obligation_and_refuses_replacement'}
 FALSE_CLAIMS=['consensus_integrated','validator_authenticated_current_authority','p5_wallet_integrated',
 'owner_authorization_integrated','production_privacy','production_ready','production_custody',
 'independent_security_review','independent_cryptographic_review','cross_device_safe','hostile_host_safe',
@@ -63,7 +63,7 @@ def python_log(log):
     if 'FAIL' in log or 'ERROR' in log or 'skipped' in log:raise ValueError('failed or skipped Python run')
     passed=re.findall(r'^(test_[a-z0-9_]+) \([^\n]+\) \.\.\. ok$',log,re.M)
     if len(passed)!=len(set(passed)) or set(passed)!=PYTHON_TESTS:raise ValueError('Python test roster differs')
-    if not re.search(r'\nRan 13 tests in [0-9.]+s\n\nOK\n',log):raise ValueError('Python run incomplete')
+    if not re.search(r'\nRan 14 tests in [0-9.]+s\n\nOK\n',log):raise ValueError('Python run incomplete')
 def canonical(v):return json.dumps(v,sort_keys=True,separators=(',',':'))
 def validate_binary(row,measured):
     if type(row) is not dict or set(row)!={'name','bytes','sha256'} or row['name']!='treasury-lab':raise ValueError('binary identity shape')
@@ -81,7 +81,7 @@ def parse_logs(logs):
     f=marker(logs['fixtures'],'TREASURY_FIXTURES')
     if canonical(f)!=canonical({'actual_halo2_proofs':6,**m}):raise ValueError('real fixture proofs differ')
     binary=marker(logs['build'],'TREASURY_BINARY');validate_binary(binary,binary)
-    return {'actual_halo2_proofs':7,'rust_tests':10,'local_ledger_tests':13,'proof_profile':m,'binary':binary}
+    return {'actual_halo2_proofs':7,'rust_tests':10,'local_ledger_tests':14,'proof_profile':m,'binary':binary}
 def check(report):
     r=read_json(report)
     if set(r)!={'format','version','status','source','profile','binary','logs','measurements','claims'}:raise ValueError('receipt keys differ')
@@ -108,7 +108,7 @@ def check(report):
     measured=parse_logs(logs)
     validate_binary(r['binary'],measured['binary'])
     if canonical(measured)!=canonical(r['measurements']):raise ValueError('measurement differs')
-    return {'qualified':True,'scope':'trusted local atomic treasury only','actual_halo2_proofs':7,'rust_tests':10,'local_ledger_tests':13}
+    return {'qualified':True,'scope':'trusted local atomic treasury only','actual_halo2_proofs':7,'rust_tests':10,'local_ledger_tests':14}
 def run(command,cwd,env,log_path,timeout,paths):
     if log_path.exists() or log_path.is_symlink():raise ValueError('fresh log required')
     result=subprocess.run(command,cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
