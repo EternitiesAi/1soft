@@ -55,3 +55,11 @@ lost-return recovery, selected-output capsules, authenticated H+1 reconciliation
 and one-attempt delivery. These later controller-only additions preserve the
 existing circuit/profile/KAT/worker and historical qualification identities.
 They do not establish production custody, privacy, public deployment or real-funds safety.
+
+## Private shared allowance proof milestone
+
+The [isolated authority lab](PRIVATE_AUTHORITY_PROOF_LAB.md) now generates and verifies actual Halo2
+proofs for hidden shared allowance successors and ordered revocation. Its trusted
+local context is outside consensus; it has no payment or wallet caller. The next
+protocol must compose it atomically with value-note conservation and authenticated
+current authority.
