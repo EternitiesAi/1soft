@@ -84,7 +84,7 @@ def run(args):
         domain=preliminary.network_domain(bytes.fromhex(bootstrap_digest(g)))
         fixtures=network.runtime/'proof-fixtures';network.paths['fixtures']=fixtures
         with (network.runtime/'fixture.log').open('wb') as log:
-            child=subprocess.Popen([str(args.fixture_prover),'fixtures-domain',str(fixtures),domain],
+            child=subprocess.Popen([str(args.fixture_prover),'fixtures-domain-custody',str(fixtures),domain],
                   stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True,env={'RAYON_NUM_THREADS':'2'})
             network._record('fixture-prover',0,child,report['inputs']['fixture_prover']['sha256'])
             try:code=child.wait(timeout=300)
@@ -99,7 +99,7 @@ def run(args):
         network.install_genesis(rawg,worker);network.start_sources()
         check('all_four_initialized',all(network.direct_state(i)['genesis']==g for i in range(4)))
         _hold_transaction_height(network)
-        request=subprocess.check_output([str(args.request_fixture)],input=bytes.fromhex(bootstrap_digest(g)),timeout=30)
+        request=subprocess.check_output([str(args.request_fixture),'--custody-grant'],input=bytes.fromhex(bootstrap_digest(g)),timeout=30)
         if len(request)!=2088:raise ValueError('synthetic request length differs')
         public=[request[136+i*32:168+i*32].hex() for i in range(30)]
         witness=[request[1096+i*32:1128+i*32].hex() for i in range(31)]

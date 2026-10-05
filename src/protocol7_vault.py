@@ -315,6 +315,39 @@ class ChangeVault:
             need(item is not None,'P7 encrypted prepared opening absent');w=item['witness']
             opening={'agent_secret':w[11],'value':integer(w[24]),'expiry':integer(w[26]),'note_secret':w[27],'blind':w[28]}
         return self.import_change(journal,ident,opening)
+    def preparation_status(self,journal,commitment):
+        """Read-only AS-OF encrypted-stage/journal reconciliation; never permission to retry."""
+        self._journal(journal)
+        with self._locked():
+            payload=self._read();field(commitment)
+            stages=[x for x in payload['pending'] if x['input']==commitment]
+            need(len(stages)==1,'P7 exact staged input absent or ambiguous')
+            item=stages[0]
+            with journal.atomic(False):
+                obs,rows=journal._audit();o=obs[-1] if obs else None
+                matches=[(ident,row) for ident,row in rows.items()
+                         if row['kind']=='payment' and parse(row['raw'])==item['public']]
+                need(len(matches)<=1,'P7 staged journal wire ambiguous')
+                result={'format':'1soft/protocol7-preparation-status/v1',
+                        'status':'staged-without-retained-wire','input':commitment,
+                        'request':item['public'][18],'source_txid':item['origin_txid'],
+                        'vault_revision':payload['revision'],
+                        'as_of_height':o['witness']['height'] if o else None,
+                        'as_of_app_hash':o['witness']['app_hash'] if o else None,
+                        'txid':None,'raw_sha256':None,'attempts':None,'hold_reason':None,'completed_at':None,
+                        'latest_state_guaranteed':False,'in_flight_state_known':False,
+                        'retry_authorized':False,'automatic_retry':False}
+                if matches:
+                    ident,row=matches[0];reason,_=_resolve(row['raw'],o,self.worker)
+                    completed=row['completed_at']
+                    need((completed is not None)==(reason=='executed-exact'),
+                         'P7 staged certified completion differs')
+                    result.update(status='recorded-certified' if completed is not None else
+                                  ('attempted-held' if row['attempts'] else 'retained-held'),
+                                  txid=ident,raw_sha256=digest(row['raw']),attempts=row['attempts'],
+                                  hold_reason=None if completed is not None else reason,completed_at=completed)
+                return result
+
     def inventory(self):
         with self._locked():
             p=self._read()

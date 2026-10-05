@@ -36,6 +36,14 @@ Own-grant revocation remains a distinct exact guard. The earlier24-check custody
 receipt and recipe remain separate. This new gate is unqualified until its clean
 unchanged execution and strict replay are registered.
 
+The original cap8 synthetic grant correctly refuses a ninth allowance unit.
+The retained and combined reconciliation recipes use an explicit separate cap10
+fixture for three positive payments plus fees. The old fixture and cap checks
+are unchanged; an exact native budget regression is required. The combined
+[reconciliation gate](PROTOCOL7_RECONCILIATION.md) covers all30 retained checks
+and adds6 snapshot/command checks. A combined receipt does not certify an
+unexecuted standalone recipe.
+
 Same finite one-host/external-key custody limits apply: no independent ciphertext
 decryption or private-input attestation, rollback/latestness detection,
 cross-device fencing, key recovery, merchant redemption, recipient discovery,

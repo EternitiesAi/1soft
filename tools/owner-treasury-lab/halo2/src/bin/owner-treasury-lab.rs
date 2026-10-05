@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() == 3 && args[1] == "fixtures" {
         return owner_treasury_lab::fixtures::emit(std::path::Path::new(&args[2]));
     }
-    if args.len() == 4 && args[1] == "fixtures-domain" {
+    if args.len() == 4 && (args[1] == "fixtures-domain" || args[1] == "fixtures-domain-custody") {
         let text = &args[3];
         if text.len() != 64 {
             return Err("fixture-domain-bound".into());
@@ -24,6 +24,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *b = u8::from_str_radix(&text[i * 2..i * 2 + 2], 16)?;
         }
         let f = Option::<F>::from(F::from_repr(raw)).ok_or("fixture-domain-field")?;
+        if args[1] == "fixtures-domain-custody" {
+            return owner_treasury_lab::fixtures::emit_custody_domain(std::path::Path::new(&args[2]), f);
+        }
         return owner_treasury_lab::fixtures::emit_domain(std::path::Path::new(&args[2]), f);
     }
     if args.len() != 2 {

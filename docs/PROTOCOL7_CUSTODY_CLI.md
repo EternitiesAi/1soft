@@ -33,12 +33,15 @@ extra, missing or noncanonical input is refused.
 | prepare | commitment, authority, amount, valid_until, request | Exact retained transaction ID, request ID, wire hash and attempt count |
 | prepare-retained | source_txid, amount, valid_until, request | Exact retained transaction ID, request ID, wire hash and attempt count |
 | recover-prepared | commitment | Unique exact retained transaction ID and wire hash |
+| inspect-prepared | commitment | Read-only authenticated AS-OF stage/journal outcome; no retry authority |
 | import-prepared | txid | Certified future-change commitment and revision |
 
 Opening and authority layouts are defined in PROTOCOL7_VAULT.md.
 The [retained authority path](PROTOCOL7_RETAINED_AUTHORITY.md) derives the next
 authority only from an exact certified encrypted preparation with current
 commitment continuity. It refuses missing stages or stale authority.
+The [preparation reconciliation view](PROTOCOL7_RECONCILIATION.md) distinguishes
+staged, retained, attempted and certified outcomes without altering custody.
 Private witness
 construction belongs inside that controller; callers cannot supply a different
 wire to recover-prepared or relabel a merchant output as restricted CHANGE.

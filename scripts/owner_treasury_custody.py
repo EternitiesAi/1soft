@@ -14,7 +14,7 @@ from owner_treasury_wallet import read_input
 OPS={'create':set(),'inventory':set(),'import-change':{'txid','opening'},
      'prepare':{'commitment','authority','amount','valid_until','request'},
      'prepare-retained':{'source_txid','amount','valid_until','request'},
-     'recover-prepared':{'commitment'},'import-prepared':{'txid'}}
+     'inspect-prepared':{'commitment'},'recover-prepared':{'commitment'},'import-prepared':{'txid'}}
 PROVING_OPS={'prepare','prepare-retained'}
 MAX_INPUT=8192
 MAX_OUTPUT=32768 # optional public process receipts, never private requests
@@ -76,6 +76,7 @@ def main(argv=None):
                          amount=request['amount'],valid_until=request['valid_until'],request=request['request'])
                 result={'txid':ident,'attempts':journal.status(ident)['attempts'],
                         'request':request['request'],'raw_sha256':digest(journal.export(ident))}
+            elif operation=='inspect-prepared':result=vault.preparation_status(journal,request['commitment'])
             elif operation=='recover-prepared':
                 ident=vault.recover_prepared(journal,request['commitment'])
                 result={'txid':ident,'raw_sha256':digest(journal.export(ident))}

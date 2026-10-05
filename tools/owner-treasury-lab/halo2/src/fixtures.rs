@@ -51,6 +51,12 @@ pub fn emit(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     emit_domain(path, F::from(11))
 }
 pub fn emit_domain(path: &Path, genesis: F) -> Result<(), Box<dyn std::error::Error>> {
+    emit_variant(path, genesis, false)
+}
+pub fn emit_custody_domain(path: &Path, genesis: F) -> Result<(), Box<dyn std::error::Error>> {
+    emit_variant(path, genesis, true)
+}
+fn emit_variant(path: &Path, genesis: F, custody: bool) -> Result<(), Box<dyn std::error::Error>> {
     if genesis == F::ZERO {
         return Err("zero-fixture-domain".into());
     }
@@ -62,6 +68,9 @@ pub fn emit_domain(path: &Path, genesis: F) -> Result<(), Box<dyn std::error::Er
     }
     let profile = Profile::new()?;
     let (mut context, mut a, mut b) = fixture_pair_domain(genesis);
+    // Separate synthetic three-payment fixture. Original cap8 fixtures and
+    // the circuit's allowance/conservation checks are unchanged.
+    if custody { a.witness.grant_cap = 10; }
     if genesis != F::from(11) {
         // Bounded synthetic P7 execution window. No production policy claim.
         for item in [&mut a, &mut b] {
