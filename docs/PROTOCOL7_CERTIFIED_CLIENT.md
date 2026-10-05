@@ -2,8 +2,8 @@
 
 This optional successor client retains prepared owner commands and payment proofs
 in one private POSIX FULL-sync WAL SQLite journal. It does not sign or prove.
-Original P7 kernel, application, service and P1-P6 bytes are preserved. Current
-source is a candidate until its actual client report is registered and checked.
+Original P7 kernel, application, service and P1-P6 bytes are preserved. The clean-source actual caller report is registered in
+`evidence/protocol7-client/20261005` and passed all25 required checks.
 
 `scripts/owner_treasury_wallet.py` requires explicit full genesis SHA256, measured
 worker SHA256 and the exact network-domain KAT. Commands are `retain`, `inspect`,
@@ -39,3 +39,12 @@ The finite controller is one-host development evidence only: eight obligations,
 65 observations, 1MiB observation packets, 64-block kernel history and no eviction.
 No freshness, malicious-host rollback protection, cross-device coordination,
 automatic retry/migration, production custody, public operation or real funds.
+
+## Registered caller evidence
+
+The [actual client report](../evidence/protocol7-client/20261005/client-qualified-01.json)
+and [review scope](../evidence/protocol7-client/20261005/AI_REVIEW.md) preserve
+source identity, fresh proofs, lost-return injections, exact certificate records
+and negative results. Component:
+`tools/protocol7-certified-client/COMPONENT_MANIFEST.json`. The admission companion
+has an actual caller but does not upgrade the earlier default browser product.

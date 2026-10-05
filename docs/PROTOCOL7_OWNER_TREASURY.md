@@ -2,9 +2,9 @@
 
 This successor gives one immutable Ed25519 owner canonical enrollment, revocation
 and key rotation over two stable spending-grant slots. It preserves the frozen
-P1-P6 contracts and receipts. Candidate implementation/tests exist; actual clean
-four-validator qualification and delivery must be registered before calling this
-consensus-qualified. Public deployment and production custody remain unassessed.
+P1-P6 contracts and receipts. Three fresh clean-source actual four-validator lifecycle runs are registered
+in `evidence/protocol7-owner/20261005`, with17 checks passed per scenario.
+The typed client/caller is a separate qualification. Public deployment and production custody remain unassessed.
 
 ## Exact network and proof identity
 
@@ -70,3 +70,17 @@ preseeded generation2 note. Privacy does not hide owner/topology/validator metad
 Next integration: certified P7 client recovery/holds, then safe proving/note
 discovery/redemption and custody, scaling, independent audit/operator rehearsal
 and selected production economics. P6 wallet receipts do not certify P7.
+
+## Registered validation
+
+Frozen runtime5038c8e365bfcc4ce7912ac52aa5c71292bff6ef passed the
+[rotate](../evidence/protocol7-owner/20261005/rotate-qualified-01.json),
+[reactivate](../evidence/protocol7-owner/20261005/reactivate-qualified-01.json) and
+[enroll](../evidence/protocol7-owner/20261005/enroll-qualified-01.json) gates.
+Every report has17 successful checks,12 fresh actual proofs, four actual local
+validators, exact signed lifecycle/payment receipts, same-store restart and an
+H+1 quorum certificate independently authenticating full stateH. Strict checks
+passed against the measured verifier. [AI review](../evidence/protocol7-owner/20261005/AI_REVIEW.md)
+records repairs, other actual-input tests, optional skips and limits. Component:
+`tools/owner-consensus-bridge/COMPONENT_MANIFEST.json`. There is no public or
+value-bearing launch claim.

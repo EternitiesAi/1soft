@@ -34,7 +34,8 @@ No ticker, listing, investment return or reserve promise follows from code tests
 | P6 atomic private payment/shared allowance | Registered19-height state authenticated by20-height header; all18 actual engine checks | Finite64-height/16-note profile, static grants and one host remain |
 | P6 exact certified client recovery | Registered clean-source19-check actual engine receipt, exact completion/reopen and actual proof/CLI/adversarial tests | Local finite controller only; freshness, custody and independent operators remain |
 | One-attempt local delivery | SQLite attempt committed before bounded loopback RPC; explicit acknowledgement discard test | One canonical journal only; no hostile-host rollback or cross-device guarantee |
-| Owner grant lifecycle | New-profile design boundary established | Owner-signed canonical commands, context/sequence/generation propagation into proof identity, ordered concurrency, fresh proof/engine/recovery evidence |
+| Owner grant lifecycle | P7 fresh network-bound proof profile; registered rotation/revocation, reactivation and enrollment,17 actual checks per run | Custody/key recovery, independent review and operators remain |
+| P7 typed client/caller recovery | Registered25-check actual future-owner/payment run; two discarded acknowledgements recovered from exact certificates; stale first claim refused | Prepared-wire client only; safe proving/note custody/discovery/redemption remain |
 | Proving, notes, recipient discovery and redemption | Earlier isolated proof laboratories and P5 finite wallet remain distinct | Safe prepared-transaction caller, encrypted note discovery/disclosure/redemption and custody must compose with the selected treasury profile |
 | Scale/history/availability | Deliberately finite profiles and replay | Scalable authenticated pool, receipt availability/pruning and measured resource bounds |
 | Production privacy/security | Specific relation/worker tests only | Independent cryptographic/protocol/custody audit and privacy threat model; no production claim |
@@ -44,13 +45,15 @@ No ticker, listing, investment return or reserve promise follows from code tests
 
 ## Next executable work
 
-The P6 certified client evidence is registered in
-`evidence/protocol6-wallet/20261005`. Next implement the new authenticated owner
-lifecycle profile. The frozen P6 proof context lacks
-owner-key/sequence/generation commitments; adding only a local signed wrapper
-would not propagate that authority into the proof relation. Preserve P6 and do
-not silently migrate notes to a new owner/grant generation. Threshold ownership,
-key recovery and funding/minting policy are separate decisions.
+P7 owner lifecycle and typed owner/payment recovery are registered in
+`evidence/protocol7-owner/20261005` and `evidence/protocol7-client/20261005`.
+The next executable product gate is safe prepared-proof production and encrypted
+note custody/discovery with selected-output disclosure bound to the exact P7
+profile/genesis/owner generation. Compose this with the certified journal and
+actual validator receipts before making a user-facing private-money claim.
+Preserve P1-P7 history; no silent migration/retry or relabeling old notes.
+Merchant redemption, scalable authenticated history, threshold/key recovery,
+economic/genesis/governance and independent operators remain separate gates.
 
 Keep the campaign active while an in-scope implementation/verification gate is
 ready. Record completed increments and the next action in repository records and

@@ -1,0 +1,96 @@
+test_external_endpoints_and_credentials_refused (tests.test_protocol7_delivery.DeliveryTests.test_external_endpoints_and_credentials_refused) ... ok
+test_malformed_unknown_and_wrong_type_wire_refuse_before_network (tests.test_protocol7_delivery.DeliveryTests.test_malformed_unknown_and_wrong_type_wire_refuse_before_network) ... ok
+test_owner_exact_wire_is_delivered (tests.test_protocol7_delivery.DeliveryTests.test_owner_exact_wire_is_delivered) ... ERROR
+test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) ... 
+  test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='lost') ... FAIL
+  test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='503') ... FAIL
+  test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='rpc-error') ... FAIL
+  test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='bad') ... FAIL
+  test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='redirect') ... FAIL
+test_payment_exact_wire_is_delivered (tests.test_protocol7_delivery.DeliveryTests.test_payment_exact_wire_is_delivered) ... ok
+
+======================================================================
+ERROR: test_owner_exact_wire_is_delivered (tests.test_protocol7_delivery.DeliveryTests.test_owner_exact_wire_is_delivered)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 40, in test_owner_exact_wire_is_delivered
+    def test_owner_exact_wire_is_delivered(self):self.exchange(self.owner,'ok')
+                                                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 34, in exchange
+    if mode=='ok':self.assertEqual(LoopbackSubmit('http://127.0.0.1:'+str(server.server_port))(raw)['code'],0)
+                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol7_delivery.py", line 17, in __call__
+    parse(raw)
+    ~~~~~^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol7_treasury.py", line 40, in parse
+    need(type(raw) is bytes and len(raw)==4168 and raw[:8]==PAYMENT_MAGIC,'exact owner treasury payment envelope required')
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol7_treasury.py", line 25, in need
+    if not condition:raise StateError(message)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+protocol7_treasury.StateError: exact owner treasury payment envelope required
+
+======================================================================
+FAIL: test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='lost')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 44, in test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry
+    with self.subTest(mode=mode):self.exchange(self.owner,mode)
+                                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 38, in exchange
+    self.assertEqual(gets,[]);self.assertEqual(len(posts),1)
+                              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='503')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 44, in test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry
+    with self.subTest(mode=mode):self.exchange(self.owner,mode)
+                                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 38, in exchange
+    self.assertEqual(gets,[]);self.assertEqual(len(posts),1)
+                              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='rpc-error')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 44, in test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry
+    with self.subTest(mode=mode):self.exchange(self.owner,mode)
+                                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 38, in exchange
+    self.assertEqual(gets,[]);self.assertEqual(len(posts),1)
+                              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='bad')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 44, in test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry
+    with self.subTest(mode=mode):self.exchange(self.owner,mode)
+                                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 38, in exchange
+    self.assertEqual(gets,[]);self.assertEqual(len(posts),1)
+                              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry (tests.test_protocol7_delivery.DeliveryTests.test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry) (mode='redirect')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 44, in test_owner_lost_reply_http_rpc_failure_malformed_and_redirect_do_not_retry
+    with self.subTest(mode=mode):self.exchange(self.owner,mode)
+                                 ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol7_delivery.py", line 38, in exchange
+    self.assertEqual(gets,[]);self.assertEqual(len(posts),1)
+                              ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+----------------------------------------------------------------------
+Ran 5 tests in 3.520s
+
+FAILED (failures=5, errors=1)
