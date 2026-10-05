@@ -297,3 +297,9 @@ not establish validator consensus, production privacy/custody or launch readines
 ## Protocol 6 atomic treasury validator development
 
 The separately pinned [P6 treasury protocol](docs/PROTOCOL6_TREASURY.md) promotes the frozen combined payment/allowance relation into a finite four-validator development application with atomic recovery and signed AS-OF full-state evidence. Existing protocols remain separate. Static genesis grants, one-host validators, bounded trusted-host verification, no owner lifecycle, wallet integration or merchant redemption are explicit limits. The [clean-source real-engine receipt](evidence/protocol6-treasury/20261004/engine-qualified-01.json) passed all 18 checks; [review and validation scope](evidence/protocol6-treasury/20261004/AI_REVIEW.md) records the failures, repairs and remaining gates.
+
+## Certified treasury controller and release gates
+
+The [P6 certified journal](docs/PROTOCOL6_CERTIFIED_WALLET.md) retains exact prepared payments, claims one delivery attempt before loopback I/O and records only independently replayed signed inclusion. The [deployment readiness map](docs/DEPLOYMENT_READINESS.md) separates development qualification from owner lifecycle, merchant/custody, scale, independent operators and public-launch gates. Exact wallet-engine evidence is registered after its clean-source run; the original P6 receipt remains scoped to its captured runtime.
+
+The certified treasury wallet [registered receipt](evidence/protocol6-wallet/20261005/wallet-qualified-01.json) passed19 actual engine/recovery checks. The [deployment readiness map](docs/DEPLOYMENT_READINESS.md) keeps public-launch and production custody gates explicit.
