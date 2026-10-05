@@ -37,3 +37,7 @@ The local reports and logs are unsigned artifacts. Joint fabrication of a report
 ## Next integration boundary
 
 An authenticated owner lifecycle and certified wallet obligations must be designed before this can safely become an agent payment product. Merchant note discovery, disclosure and redemption are also separate unfinished capabilities. No existing P5 wallet or local outbox is silently upgraded by this protocol.
+
+## Recorded qualification
+
+The [real-engine report](../evidence/protocol6-treasury/20261004/engine-qualified-01.json) captures clean implementation commit `175f9f3f20f291befad6bbfd2e3d478ddecf3a5d`, tree `36bb8a73196a6c15d46d4089ecd77d9ba50c0285`. Its 18 checks passed. The signed height-20 header authenticates state height 19 under 30/40 static-genesis voting power. The [AI review and validation record](../evidence/protocol6-treasury/20261004/AI_REVIEW.md) describes tested recovery and timeout repairs and separates actual proof tests from optional default-suite skips. Registration commits add only documentation, manifests and evidence; qualified runtime bytes remain unchanged.
