@@ -164,6 +164,7 @@ def run(args):
         witness[13]=numfield(1);witness[24]=numfield(7)
         for i in (9,10,11,12,13,19,21,22,23,24):public[i]=ZERO
         public,witness=controller.construct(public,witness)
+        public=list(public);witness=list(witness)
         first=journal.prepare(prover,public,witness);firstwire=journal.export(first);measured_proof()
         check('first_arbitrary_prepare',parse(firstwire)==public and worker.verify(firstwire)
               and all(public!=parse(v) for v in txs.values()) and journal.status(first)['attempts']==0)
