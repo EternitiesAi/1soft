@@ -12,6 +12,19 @@ chosen public supply or audited production wallet. The application uses pinned
 CometBFT 0.38.25 for local validator consensus. Independent operators, external
 security review, production custody and economic design remain release gates.
 
+## Current developer paths
+
+| Path | What works | Entry point and evidence |
+|---|---|---|
+| Local browser product (P4 durable alpha) | Native public-ledger payments, spending review, invoices, merchant resources and retained recovery | [First-run guide](docs/LOCAL_DEMO_GUIDE.md), [durable alpha](docs/DURABLE_ALPHA.md), [release architecture](docs/LOCAL_DEVELOPER_RELEASE.md) |
+| Proof-backed owner treasury (P7) | Fresh-network enrollment/revocation/rotation, atomic payment/shared allowance, exact owner/payment recovery after lost acknowledgements | [Owner profile](docs/PROTOCOL7_OWNER_TREASURY.md), [prepared-wire client](docs/PROTOCOL7_CERTIFIED_CLIENT.md), [actual caller receipt](evidence/protocol7-client/20261005/client-qualified-01.json) |
+
+P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
+P4/P6 state, and it is not the default browser or merchant path. Its client
+consumes prepared proofs/commands; safe proving and encrypted note discovery
+are the next product integration gate. See the [deployment readiness map](docs/DEPLOYMENT_READINESS.md)
+for the remaining privacy/custody, scale, operator and economic decisions.
+
 ## Selected product direction
 
 1soft is being evaluated as **private programmable money and durable economic

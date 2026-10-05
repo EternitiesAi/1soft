@@ -82,3 +82,7 @@ The [P6 certified journal](PROTOCOL6_CERTIFIED_WALLET.md) retains exact prepared
 ## P7 authenticated owner lifecycle
 
 The [owner treasury successor](PROTOCOL7_OWNER_TREASURY.md) adds canonical owner-signed enrollment, revocation and rotation to a new network-bound proof profile. Three fresh clean-source actual validator runs and strict replay checkers passed; original protocols and notes are not relabeled. The certified owner/payment client and production/operator/economic gates remain distinct.
+
+## Certified P7 owner/payment developer path
+
+The [typed P7 client](PROTOCOL7_CERTIFIED_CLIENT.md) now has25-check actual caller evidence for future-height owner execution, lost owner/payment acknowledgements, exact signed recovery, stale first-claim refusal and same-store restart. The P4 durable alpha remains the browser product. Next compose safe proof production and encrypted note custody/discovery/disclosure with P7; public launch, economics, independent operators and specialist review remain separate.
