@@ -71,6 +71,14 @@ pub fn encode(a: &Assignment, bootstrap: [u8; 32]) -> Result<Vec<u8>, &'static s
     Ok(out)
 }
 pub fn decode(raw: &[u8]) -> Result<Assignment, &'static str> {
+    let a = syntax(raw)?;
+    validate(&a)?;
+    Ok(a)
+}
+
+// Syntax only for the separate private note controller. This never verifies a
+// proof or establishes permission; public request construction validates next.
+pub(crate) fn syntax(raw: &[u8]) -> Result<Assignment, &'static str> {
     if raw.len() != BYTES || &raw[..8] != MAGIC {
         return Err("request-bound");
     }
@@ -123,6 +131,8 @@ pub fn decode(raw: &[u8]) -> Result<Assignment, &'static str> {
     if a.public[1] != network_domain(bootstrap) {
         return Err("network-domain");
     }
-    validate(&a)?;
+    if a.witness.input_position >= 16 {
+        return Err("position");
+    }
     Ok(a)
 }
