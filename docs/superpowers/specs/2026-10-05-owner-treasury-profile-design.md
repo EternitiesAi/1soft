@@ -31,7 +31,10 @@ grant commitment and restricted note membership/change generation.
 Owner sequence advances only accepted commands. Grant generation advances only
 enrollment from0 to1 or rotation old+1; payments increment private grant spend
 version and preserve generation. Revocation retains the last generation and
-marks the slot inactive. Stable grant IDs never recycle. Enrollment only once
+marks the slot inactive by clearing its active commitment. Its last agent-key
+commitment is retained as quarantine/audit metadata and the signed successor
+explicitly declares that same retained key. It cannot authorize a payment while
+the active commitment is zero. Stable grant IDs never recycle. Enrollment only once
 at generation0; rotation can reactivate a revoked slot with new generation.
 Restricted notes bind generation and owner_epoch, not owner_sequence. Unrelated
 grant commands stale prepared proof context, but do not silently destroy/relabel
@@ -66,3 +69,31 @@ four actual validators, signed-state recovery and conservative wallet holds.
 No old proof/profile/worker identity can qualify as the new one. Actual sources,
 logs, fixtures and explicit skips/failures are retained. Freeze profile after
 discovering real circuit identities, not before pretending old VKs still apply.
+
+## Mandatory P7 network identity
+
+P7 uses SHA256 of domain `1soft/protocol7-owner-treasury/bootstrap/v1\0`
+concatenated with canonical closed JSON bootstrap core. The core includes its
+versioned format, protocol7, exact chain ID, sorted validator keys/powers,
+owner-profile and verifier-only binary digests, asset/mission/parent ID,
+treasury epoch, immutable exact owner key/epoch, fee and ordered stable grant IDs.
+Poseidon532 absorbs the two exact little-endian u128 digest limbs to derive the
+genesis field used by every proof and note. No whole-digest field reduction.
+Dynamic parent/grant/note commitments and KAT are excluded to avoid a cycle;
+the full exact genesis/AppHash/quorum separately binds them. Treasury starts
+at sequence0. A structurally decoded document only selects measured worker/KAT
+pins. Before any application authority or certificate, an actual initialized
+verifier recomputes the field and requires both treasury and KAT proof to match.
+
+P7 is a separate explicit kernel/version/domain/database contract. Verifier-only
+bridge default-features=false compiles proving/fixture modules out. Unknown
+operations are refused before stdin, input8192/output256 byte bounds and exact
+typed proof responses apply. Public `owner-key` and `network-domain` operations
+only hash exact public bytes; neither signs nor derives secret material.
+Every cached proof remeasures the executable. Worker unavailability propagates
+through proposals/finalization and cannot become an invalid-transaction result.
+
+Fresh owned four-validator runs use separate rotate, reactivate and enroll
+genesis/roster/domain/proof sets. Every run emits12 real synthetic proofs before
+nodes start; development windows are1<=h<60, private expiry64. Generation2 value
+is explicitly preseeded in a third initial note; commands do not mint/migrate.
