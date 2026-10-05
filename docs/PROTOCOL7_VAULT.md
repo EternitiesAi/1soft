@@ -95,5 +95,8 @@ public-launch claim is made. Restoring an old valid encrypted copy can lose
 custody history. Backups must preserve the external key, exact vault identity,
 the current ciphertext and canonical journal together under operator control.
 
-At this source checkpoint the new actual validator gate is not yet qualified.
-Its eventual registered receipt must state the exact clean executed revision.
+[The registered clean-source receipt](../evidence/protocol7-vault/20261005/vault-qualified-02.json)
+passes all24 actual checks at execution source `829c2bc80219a9f1191061775ade3e9362a3e9a4`.
+The strict replay checker and12 adversarial receipt subcases passed.
+[Review and validation scope](../evidence/protocol7-vault/20261005/AI_REVIEW.md)
+records exact tests, resolved failures and the custody limits.

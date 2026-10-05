@@ -318,3 +318,5 @@ The [P6 certified journal](docs/PROTOCOL6_CERTIFIED_WALLET.md) retains exact pre
 The certified treasury wallet [registered receipt](evidence/protocol6-wallet/20261005/wallet-qualified-01.json) passed19 actual engine/recovery checks. The [deployment readiness map](docs/DEPLOYMENT_READINESS.md) keeps public-launch and production custody gates explicit.
 
 The [P7 owner treasury](docs/PROTOCOL7_OWNER_TREASURY.md) has registered fresh-domain rotation, reactivation and enrollment evidence:17 checks per four-validator run. Exact owner/payment client recovery and public-release gates remain separately assessed.
+
+The [P7 encrypted restricted CHANGE vault](docs/PROTOCOL7_VAULT.md) now has a [registered24-check actual four-validator receipt](evidence/protocol7-vault/20261005/vault-qualified-02.json): import, encrypted reopen, real command re-spend, exact lost-return recovery, and spent/revoked-grant refusal. [Custody commands](docs/PROTOCOL7_CUSTODY_CLI.md) use protected stdin and an external key. This remains finite trusted-host development custody; merchant redemption, discovery, rollback protection and production privacy are separate gates.

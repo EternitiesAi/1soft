@@ -36,7 +36,8 @@ No ticker, listing, investment return or reserve promise follows from code tests
 | One-attempt local delivery | SQLite attempt committed before bounded loopback RPC; explicit acknowledgement discard test | One canonical journal only; no hostile-host rollback or cross-device guarantee |
 | Owner grant lifecycle | P7 fresh network-bound proof profile; registered rotation/revocation, reactivation and enrollment,17 actual checks per run | Custody/key recovery, independent review and operators remain |
 | P7 typed client/caller recovery | Registered25-check actual future-owner/payment run; two discarded acknowledgements recovered from exact certificates; stale first claim refused | Typed client and prepared wire; note custody/discovery/redemption remain |
-| P7 bounded proof preparation | [Registered16-check actual arbitrary-payment run](../evidence/protocol7-prover/20261005/prover-qualified-01.json), strict replay checker and4 adversarial receipt tests; exact profile/verifier-only consensus bridge retained | Canonical developer inputs and synthetic openings on one POSIX host; encrypted authentic-note custody/discovery remain |
+| P7 bounded proof preparation | [Registered16-check actual arbitrary-payment run](../evidence/protocol7-prover/20261005/prover-qualified-01.json), strict replay checker and4 adversarial receipt tests; exact profile/verifier-only consensus bridge retained | Canonical developer inputs and synthetic openings on one POSIX host; merchant redemption/discovery and production custody remain |
+| P7 encrypted restricted CHANGE custody | [Registered24-check actual import/re-spend/reopen gate](../evidence/protocol7-vault/20261005/vault-qualified-02.json), exact CLI recovery, precise spent/revoked guards and strict replay | One host, external key, finite synthetic notes; rollback/key recovery, discovery and merchant redemption remain |
 | Notes, recipient discovery and redemption | Earlier isolated proof laboratories and P5 finite wallet remain distinct | P7 encrypted note discovery/disclosure/redemption and custody must compose with its certified journal and prover |
 | Scale/history/availability | Deliberately finite profiles and replay | Scalable authenticated pool, receipt availability/pruning and measured resource bounds |
 | Production privacy/security | Specific relation/worker tests only | Independent cryptographic/protocol/custody audit and privacy threat model; no production claim |
@@ -61,16 +62,21 @@ Bounded arbitrary-input proof preparation is now registered in
 `ad4d011c93c58da19ed83cedbe01051ce46f59d7`. All16 actual four-validator
 checks and the strict receipt checker pass.
 
-The next executable product gate is encrypted custody of authentic P7 restricted
-change-note openings, authenticated import/discovery and a later spend composed
-with the certified journal and this prover. Bind storage to profile/genesis and
-owner generation, preserve current certificate authority and local holds, and
-never export private openings or a standalone witness hash. Owner sequence at
-import is audit provenance, not a new note identity. P7 merchant outputs use a
-different domain and need a separate redemption relation; they must not be
-relabeled as restricted change notes. Qualify actual import/spend/reopen, wrong
-network/generation and forged receipt refusal before any private-wallet claim.
-Preserve P1-P7 history; no silent migration/retry or relabeling old notes.
+Encrypted authentic restricted CHANGE custody is registered in
+`evidence/protocol7-vault/20261005`:24 actual four-validator checks at clean
+execution source `829c2bc80219a9f1191061775ade3e9362a3e9a4`, strict replay and12
+receipt tamper subcases pass. The external-key vault imports exact certified
+origins, encrypts future openings before proof retention, re-spends through the
+protected-stdin caller and recovers the original wire without proving again.
+Owner sequence remains provenance. Spent and revoked-grant refusals are exact
+guards; merchant outputs retain their separate domain. This is a finite trusted
+host developer custody result, with no rollback or production privacy claim.
+
+The next bounded product increment is private authority progression from a
+retained certified request, so a subsequent CHANGE spend need not resupply
+parent/grant openings. Exact current commitment continuity, fail-closed races,
+encrypted stage and canonical journal CAS must remain authoritative. No auto
+delivery/retry or private-opening export. Preserve P1-P7 history.
 Merchant redemption, scalable authenticated history, threshold/key recovery,
 economic/genesis/governance and independent operators remain separate gates.
 
