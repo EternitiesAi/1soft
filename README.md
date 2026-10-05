@@ -283,6 +283,13 @@ They do not establish production custody, privacy, public deployment or real-fun
 
 The [isolated authority lab](docs/PRIVATE_AUTHORITY_PROOF_LAB.md) now generates and verifies actual Halo2
 proofs for hidden shared allowance successors and ordered revocation. Its trusted
-local context is outside consensus; it has no payment or wallet caller. The next
-protocol must compose it atomically with value-note conservation and authenticated
-current authority.
+local context is outside consensus; it has no payment or wallet caller. The
+separate atomic treasury component below adds local value-note composition;
+authenticated validator authority and wallet integration remain required.
+
+## Atomic private treasury payment component
+
+The [separately versioned component](docs/ATOMIC_PRIVATE_TREASURY.md) links a conserved private note
+payment with exact shared allowance debits and durable local obligation retention.
+It preserves the earlier runtime contracts. Local execution and real proofs do
+not establish validator consensus, production privacy/custody or launch readiness.
