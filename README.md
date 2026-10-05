@@ -301,3 +301,5 @@ The separately pinned [P6 treasury protocol](docs/PROTOCOL6_TREASURY.md) promote
 ## Certified treasury controller and release gates
 
 The [P6 certified journal](docs/PROTOCOL6_CERTIFIED_WALLET.md) retains exact prepared payments, claims one delivery attempt before loopback I/O and records only independently replayed signed inclusion. The [deployment readiness map](docs/DEPLOYMENT_READINESS.md) separates development qualification from owner lifecycle, merchant/custody, scale, independent operators and public-launch gates. Exact wallet-engine evidence is registered after its clean-source run; the original P6 receipt remains scoped to its captured runtime.
+
+The certified treasury wallet [registered receipt](evidence/protocol6-wallet/20261005/wallet-qualified-01.json) passed19 actual engine/recovery checks. The [deployment readiness map](docs/DEPLOYMENT_READINESS.md) keeps public-launch and production custody gates explicit.

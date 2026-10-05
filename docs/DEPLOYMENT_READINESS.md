@@ -32,7 +32,7 @@ No ticker, listing, investment return or reserve promise follows from code tests
 |---|---|---|
 | Exact source and historical protocol preservation | Required-source manifest and private merge receipts | Recheck each material revision; never reset old evidence |
 | P6 atomic private payment/shared allowance | Registered19-height state authenticated by20-height header; all18 actual engine checks | Finite64-height/16-note profile, static grants and one host remain |
-| P6 exact certified client recovery | New controller implementation and real-proof tests; actual engine qualification being registered separately | Exact final clean-source wallet receipt and delivery must pass before calling this qualified |
+| P6 exact certified client recovery | Registered clean-source19-check actual engine receipt, exact completion/reopen and actual proof/CLI/adversarial tests | Local finite controller only; freshness, custody and independent operators remain |
 | One-attempt local delivery | SQLite attempt committed before bounded loopback RPC; explicit acknowledgement discard test | One canonical journal only; no hostile-host rollback or cross-device guarantee |
 | Owner grant lifecycle | New-profile design boundary established | Owner-signed canonical commands, context/sequence/generation propagation into proof identity, ordered concurrency, fresh proof/engine/recovery evidence |
 | Proving, notes, recipient discovery and redemption | Earlier isolated proof laboratories and P5 finite wallet remain distinct | Safe prepared-transaction caller, encrypted note discovery/disclosure/redemption and custody must compose with the selected treasury profile |
@@ -44,8 +44,9 @@ No ticker, listing, investment return or reserve promise follows from code tests
 
 ## Next executable work
 
-Complete and register the P6 certified client evidence first. Then design the
-new authenticated owner lifecycle profile. The frozen P6 proof context lacks
+The P6 certified client evidence is registered in
+`evidence/protocol6-wallet/20261005`. Next implement the new authenticated owner
+lifecycle profile. The frozen P6 proof context lacks
 owner-key/sequence/generation commitments; adding only a local signed wrapper
 would not propagate that authority into the proof relation. Preserve P6 and do
 not silently migrate notes to a new owner/grant generation. Threshold ownership,
