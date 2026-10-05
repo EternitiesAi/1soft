@@ -293,3 +293,7 @@ The [separately versioned component](docs/ATOMIC_PRIVATE_TREASURY.md) links a co
 payment with exact shared allowance debits and durable local obligation retention.
 It preserves the earlier runtime contracts. Local execution and real proofs do
 not establish validator consensus, production privacy/custody or launch readiness.
+
+## Protocol 6 atomic treasury validator development
+
+The separately pinned [P6 treasury protocol](docs/PROTOCOL6_TREASURY.md) promotes the frozen combined payment/allowance relation into a finite four-validator development application with atomic recovery and signed AS-OF full-state evidence. Existing protocols remain separate. Static genesis grants, one-host validators, bounded trusted-host verification, no owner lifecycle, wallet integration or merchant redemption are explicit limits. Exact qualified evidence is registered separately after the real-engine gate.
