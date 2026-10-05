@@ -96,6 +96,26 @@ def _app_start_timeout(genesis_raw: bytes) -> int:
     return min(150, selected + 30)
 
 
+def _engine_consensus_ready(network: "Protocol5Network", index: int,
+                            minimum_height: int) -> bool:
+    status = rpc(network.http[index], "status")["sync_info"]
+    return (int(status["latest_block_height"]) >= minimum_height
+            and status.get("catching_up") is False)
+
+
+def _application_ready(network: "Protocol5Network", index: int,
+                       process, socket_path: Path) -> bool:
+    if process.poll() is not None:
+        raise ValueError(f"Protocol 5 application node{index} exited during startup")
+    if not socket_path.exists():
+        return False
+    # A failed endpoint can leave its old socket inode behind. Only a live
+    # Info response proves that the replacement application is listening.
+    request = Request()
+    request.info.SetInParent()
+    return network.abci(index, request).WhichOneof("value") == "info"
+
+
 def p5_app_command(paths: dict[str, Path], genesis: Path, genesis_sha256: str,
                    database: Path, socket: Path, *, crash: dict | None = None) -> list[str]:
     script = ROOT / "scripts" / (
@@ -309,11 +329,7 @@ class Protocol5Network:
         self.apps[index] = process
 
         def ready():
-            if process.poll() is not None:
-                raise ValueError(
-                    f"Protocol 5 application node{index} exited "
-                    f"{process.returncode} during startup")
-            return socket.exists()
+            return _application_ready(self, index, process, socket)
 
         wait_until(ready, _app_start_timeout(self.genesis_path.read_bytes()))
         self._record(
@@ -339,6 +355,7 @@ class Protocol5Network:
              str(self.homes / f"node{index}")], stdout=log, stderr=log)
         self.engines[index] = process
         self._record("engine", index, process, _sha(self.paths["engine"]))
+        wait_until(lambda: self.height(index) >= 0, 90)
 
     def start_sources(self) -> None:
         if not self.genesis_sha256:
@@ -927,7 +944,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         advanced = min(network.height(index) for index in (0, 2, 3))
         network.start_app(1)
         network.start_engine(1)
-        wait_until(lambda: network.height(1) >= advanced, 60)
+        wait_until(lambda: _engine_consensus_ready(network, 1, advanced), 60)
         failure_evidence.append({
             "kind": "stall", "node": 1, "worker_pid": stalled_pid,
             "height_before": stalled_height, "height_after": network.height(1)})
@@ -949,7 +966,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         advanced = min(network.height(index) for index in (0, 1, 3))
         network.start_app(2)
         network.start_engine(2)
-        wait_until(lambda: network.height(2) >= advanced, 60)
+        wait_until(lambda: _engine_consensus_ready(network, 2, advanced), 60)
         failure_evidence.append({
             "kind": "kill", "node": 2, "worker_pid": killed_pid,
             "height_before": killed_height, "height_after": network.height(2)})
@@ -988,7 +1005,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
             network.start_app(node)
             network.start_engine(node)
             target_height = max(network.height(index) for index in (1, 2, 3))
-            wait_until(lambda: network.height(node) >= target_height, 60)
+            wait_until(lambda: _engine_consensus_ready(network, node, target_height), 60)
             crash_evidence.append({
                 "phase": phase, "exit_code": observed_exit,
                 "durable_before": durable_before, "durable_after": durable_after,
