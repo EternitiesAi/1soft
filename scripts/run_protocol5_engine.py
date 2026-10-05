@@ -96,6 +96,19 @@ def _app_start_timeout(genesis_raw: bytes) -> int:
     return min(150, selected + 30)
 
 
+def _application_ready(network: "Protocol5Network", index: int,
+                       process, socket_path: Path) -> bool:
+    if process.poll() is not None:
+        raise ValueError(f"Protocol 5 application node{index} exited during startup")
+    if not socket_path.exists():
+        return False
+    # A failed endpoint can leave its old socket inode behind. Only a live
+    # Info response proves that the replacement application is listening.
+    request = Request()
+    request.info.SetInParent()
+    return network.abci(index, request).WhichOneof("value") == "info"
+
+
 def p5_app_command(paths: dict[str, Path], genesis: Path, genesis_sha256: str,
                    database: Path, socket: Path, *, crash: dict | None = None) -> list[str]:
     script = ROOT / "scripts" / (
@@ -309,11 +322,7 @@ class Protocol5Network:
         self.apps[index] = process
 
         def ready():
-            if process.poll() is not None:
-                raise ValueError(
-                    f"Protocol 5 application node{index} exited "
-                    f"{process.returncode} during startup")
-            return socket.exists()
+            return _application_ready(self, index, process, socket)
 
         wait_until(ready, _app_start_timeout(self.genesis_path.read_bytes()))
         self._record(
@@ -339,6 +348,7 @@ class Protocol5Network:
              str(self.homes / f"node{index}")], stdout=log, stderr=log)
         self.engines[index] = process
         self._record("engine", index, process, _sha(self.paths["engine"]))
+        wait_until(lambda: self.height(index) >= 0, 90)
 
     def start_sources(self) -> None:
         if not self.genesis_sha256:
