@@ -605,6 +605,12 @@ def _prepare_conflict_below_quorum(
     return admissions, prepared, process_status, checkpoint
 
 
+def _hold_transaction_height(network: Protocol5Network) -> dict:
+    """Reserve the next height without letting an empty proposal consume it."""
+    network.set_empty_blocks(False)
+    return network.hold_sources_without_quorum()
+
+
 def _process_probe_at_held_height(
         network: Protocol5Network, transactions: list[bytes],
         validator_hash: bytes) -> tuple[int, dict]:
@@ -996,10 +1002,14 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
                {"startup_contract":
                 "worker self-test, KAT, confinement probes and framed stdout required"})
 
+        # Stop producing empty proposals before holding quorum. Otherwise a
+        # pending empty proposal can consume this exact one-height validity
+        # interval when the third validator returns, even though both live
+        # mempools already contain the transaction.
         # Hold two validators below quorum while constructing and staging the
         # exact one-height validity case. Starting validator 2 releases exactly
         # the three-validator quorum; validator 3 remains stopped.
-        held = network.hold_sources_without_quorum()
+        held = _hold_transaction_height(network)
         boundary_height = held["height"] + 1
         boundary_outputs = _make_outputs(notes[4], genesis.value["fee"])
         boundary = controller.prove(raw_genesis, controller.spend_request(

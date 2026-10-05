@@ -16,11 +16,34 @@ from run_protocol5_engine import (
     CLIENT_MAGIC, CLIENT_GENESIS_MAGIC, PROVER_MAGIC, DevelopmentController,
     ENGINE_SHA256, Note, Protocol5Network, _app_start_timeout, _backup_sqlite,
     _check_tx_at_held_state, _prepare_conflict_below_quorum,
-    _process_probe_at_held_height,
+    _process_probe_at_held_height, _hold_transaction_height,
     finalize_fresh_genesis, fresh_genesis_prefix, p5_app_command, preflight,
 )
 
 class Protocol5EngineRunnerTests(unittest.TestCase):
+    def test_exact_height_hold_stops_empty_proposals_before_quorum_pause(self):
+        class SchedulingNetwork:
+            empty_blocks = True
+            height = 37
+            frozen_empty_proposal = False
+
+            def set_empty_blocks(self, enabled):
+                self.empty_blocks = enabled
+
+            def hold_sources_without_quorum(self):
+                self.frozen_empty_proposal = self.empty_blocks
+                return {"height": self.height}
+
+            def release(self):
+                return self.height + (2 if self.frozen_empty_proposal else 1)
+
+        naive = SchedulingNetwork()
+        naive.hold_sources_without_quorum()
+        self.assertEqual(naive.release(), 39)
+        network = SchedulingNetwork()
+        held = _hold_transaction_height(network)
+        self.assertEqual(network.release(), held["height"] + 1)
+
     def test_controller_client_wire_is_exact_and_stdin_only(self):
         captured = []
 
