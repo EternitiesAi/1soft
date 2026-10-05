@@ -5,7 +5,7 @@ from pathlib import Path
 from block_application import StoreLock,transaction_data_size
 from protocol5_encoding import decode_canonical_json,comet_validator_set
 from protocol5_abci_wire import Response
-from protocol7_treasury import (canonical,need,genesis_document,initial_state,execute_block,replay,application_hash,result,StateError,CapacityError)
+from protocol7_treasury import (canonical,need,genesis_document,initial_state,execute_block,_execute,replay,application_hash,result,StateError,CapacityError)
 
 SCHEMA={
 'checkpoint':'CREATE TABLE checkpoint (id INTEGER PRIMARY KEY CHECK(id=1), genesis BLOB NOT NULL, height INTEGER NOT NULL, app_hash TEXT NOT NULL, state BLOB NOT NULL)',
@@ -68,7 +68,11 @@ class Application:
         need(len(rows)==self.height,'P7 retained block count differs')
         s=initial_state(self.g,self.worker)
         for h,b in enumerate(self.state['blocks'],1):
-            s,results=execute_block(self.g,s,[bytes.fromhex(v) for v in b['transactions']],h,self.worker)
+            # The constructor already replayed the entire stored checkpoint.
+            # This audit starts at genesis and advances its own valid prefix;
+            # verify each transition again without replaying every earlier
+            # prefix at every height. Retained wire/result/response checks stay.
+            s,results=_execute(self.g,s,[bytes.fromhex(v) for v in b['transactions']],h,self.worker)
             row=rows[h-1];value=decode_canonical_json(bytes(row[3]))
             need(row[0]==h and re.fullmatch('[0-9a-f]{64}',row[1]) is not None and re.fullmatch('[0-9a-f]{64}',row[2]) is not None,'P7 retained block identity')
             need(type(value) is dict and set(value)=={'height','app_hash','tx_results','last_commit_votes','validator_updates'} and value['height']==h and value['app_hash']==application_hash(self.g,h,s) and value['tx_results']==results and value['validator_updates']==[],'P7 retained block result differs')
@@ -77,6 +81,7 @@ class Application:
             wanted=finalization_identity([bytes.fromhex(v) for v in b['transactions']],h,bytes.fromhex(row[1]),bytes.fromhex(self.validators.hash),votes,wire)
             need(row[2]==wanted,'P7 retained finalization identity differs')
             need(bytes(row[4])==encode_finalization(value),'P7 exact retained response differs')
+        need(canonical(s)==canonical(self.state),'P7 audited checkpoint differs')
     def close(self):
         with self.lock:
             if not self.closed:self.db.close();self.store_lock.close();self.closed=True;self.pending=None

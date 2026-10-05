@@ -56,3 +56,22 @@ Same one-host/external-key/finite-synthetic-funds limits apply. No independent
 ciphertext decryption, private-input attestation, rollback/latestness detector,
 cross-device fencing, key recovery, discovery, merchant redemption, production
 privacy or real-funds/public-network claim follows.
+
+## Failed combined attempt and restart repair
+
+The clean combined attempt at `74027d260c7d56e3de2093dc6460b72f288894a4`
+is failed, not qualified:33 functional checks plus cleanup/source identity
+completed (35 recorded). Replacement app3 startup timed out before the final
+engine restart/convergence assertion. [Original evidence](../evidence/protocol7-reconciliation-attempts/20261005/reconciliation-failed-01.json)
+is preserved; no strict completed-receipt replay or16-subcase qualification follows.
+
+The constructor still fully replays the checkpoint and validates its AppHash.
+The repaired durable-block audit advances its own valid prefix with _execute
+instead of replaying every growing prefix at each height. Every transition/proof,
+row/result/request/vote/response check remains, with final reconstructed state
+compared to the checkpoint. Readiness limits remain unchanged. The focused
+native test passes using actual failed-run public history and explicitly
+synthetic SQLite rows, including exact corrupted-response refusal. This is
+not a same-store engine restart. Repeated prefix auditing is a likely timeout
+cause; a fresh complete36-check engine run and strict replay remain required
+before qualification or merge.
