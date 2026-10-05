@@ -27,11 +27,17 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
             height = 37
             frozen_empty_proposal = False
 
-            def set_empty_blocks(self, enabled):
+            def set_empty_blocks(self, enabled, *, commit_delay=None):
                 self.empty_blocks = enabled
+                self.delay = commit_delay
+                # Height-bound state still requires a proof block without txs.
+                self.height += 1
+
+            def direct_state(self, index):
+                return {"height": self.height}
 
             def hold_sources_without_quorum(self):
-                self.frozen_empty_proposal = self.empty_blocks
+                self.frozen_empty_proposal = self.empty_blocks or getattr(self, "delay", None) != "60s"
                 return {"height": self.height}
 
             def release(self):
@@ -43,6 +49,7 @@ class Protocol5EngineRunnerTests(unittest.TestCase):
         network = SchedulingNetwork()
         held = _hold_transaction_height(network)
         self.assertEqual(network.release(), held["height"] + 1)
+        self.assertEqual(network.delay, "60s")
 
     def test_controller_client_wire_is_exact_and_stdin_only(self):
         captured = []

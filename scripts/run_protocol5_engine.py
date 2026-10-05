@@ -502,7 +502,10 @@ class Protocol5Network:
             raise AssertionError("Protocol 5 application worker count differs")
         return children[0]
 
-    def set_empty_blocks(self, enabled: bool) -> None:
+    def set_empty_blocks(self, enabled: bool, *,
+                         commit_delay: str | None = None) -> None:
+        if commit_delay not in (None, "60s"):
+            raise ValueError("unsupported qualification commit delay")
         running = sorted(self.engines)
         for index in running:
             self.stop_engine(index)
@@ -511,7 +514,7 @@ class Protocol5Network:
             config.write_text(patch_toml(config.read_text(), {
                 "consensus.create_empty_blocks": enabled,
                 "consensus.create_empty_blocks_interval": "0s",
-                "consensus.timeout_commit": "2s" if enabled else "500ms",
+                "consensus.timeout_commit": commit_delay or ("2s" if enabled else "500ms"),
             }), encoding="utf-8")
         for index in running:
             self.start_engine(index)
@@ -607,7 +610,15 @@ def _prepare_conflict_below_quorum(
 
 def _hold_transaction_height(network: Protocol5Network) -> dict:
     """Reserve the next height without letting an empty proposal consume it."""
-    network.set_empty_blocks(False)
+    before = max(network.direct_state(index)["height"] for index in range(4))
+    # A height-bound AppHash changes even on empty blocks. CometBFT therefore
+    # needs another proof block despite create_empty_blocks=False. Reserve a
+    # finite commit delay after observing a new block under the new config;
+    # construct/stage the exact one-height transaction before the next proposal.
+    # Preserve all WAL and validator signing state through ordinary restarts.
+    network.set_empty_blocks(False, commit_delay="60s")
+    wait_until(lambda: all(network.direct_state(index)["height"] > before
+                           for index in range(4)), 90)
     return network.hold_sources_without_quorum()
 
 
