@@ -78,3 +78,7 @@ The separately pinned [P6 treasury protocol](PROTOCOL6_TREASURY.md) promotes the
 ## Certified treasury controller and release gates
 
 The [P6 certified journal](PROTOCOL6_CERTIFIED_WALLET.md) retains exact prepared payments, claims one delivery attempt before loopback I/O and records only independently replayed signed inclusion. The [deployment readiness map](DEPLOYMENT_READINESS.md) separates development qualification from owner lifecycle, merchant/custody, scale, independent operators and public-launch gates. Exact wallet-engine evidence is registered after its clean-source run; the original P6 receipt remains scoped to its captured runtime.
+
+## P7 authenticated owner lifecycle
+
+The [owner treasury successor](PROTOCOL7_OWNER_TREASURY.md) adds canonical owner-signed enrollment, revocation and rotation to a new network-bound proof profile. Three fresh clean-source actual validator runs and strict replay checkers passed; original protocols and notes are not relabeled. The certified owner/payment client and production/operator/economic gates remain distinct.
