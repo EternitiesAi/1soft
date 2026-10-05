@@ -178,6 +178,52 @@ class CertifiedTreasuryJournal:
                 self.db.execute('INSERT INTO obligations VALUES (?,?,?,?,?,?,?,?,?,NULL)',(ident,raw,*projection))
             return ident
         except sqlite3.IntegrityError:raise WalletError('P7 context, sequence, input, authority or request is held by an existing obligation') from None
+    def prepare(self,prover,public,witness):
+        """Prove and retain under one write transaction; never claim or submit.
+
+        Supplied openings are developer inputs, not encrypted custody or discovery.
+        Certified AS-OF state and the existing full preflight remain authoritative.
+        """
+        from protocol7_prover import Prover,canonical_inputs
+        p,w=canonical_inputs(public,witness)
+        need(isinstance(prover,Prover) and prover.raw_genesis==self.raw_genesis
+             and prover.worker is self.worker,'P7 prover/journal pins differ')
+        try:
+            with self.atomic():
+                obs,rows=self._audit()
+                need(len(rows)<MAX_OBLIGATIONS,'P7 obligation capacity')
+                state,earliest=self._checkpoint(obs);t=state['treasury']
+                need(all(p[i]==t[k] for i,k in [(1,'genesis'),(2,'asset'),(3,'mission'),(5,'parent_id'),(7,'parent')])
+                     and integer(p[14])==t['epoch'] and integer(p[17])==t['fee']
+                     and integer(p[25])==t['owner_sequence'] and integer(p[28])==t['owner_epoch']
+                     and p[27]==self.worker.owner_key(t['owner_key']) and p[4]==self.worker.context_root(t),
+                     'P7 proving current authority differs')
+                need(any(g['id']==p[6] and g['generation']==integer(p[26])
+                         and g['commitment']==p[8]!=ZERO and g['agent_key']==p[29] for g in t['grants']),
+                     'P7 proving grant differs')
+                need(p[20] in t['anchors'] and integer(p[15])<=earliest<integer(p[16]),
+                     'P7 proving anchor/window differs')
+                need(p[21] not in t['nullifiers'] and p[11]!=p[12]
+                     and not any(v in t['authority_nullifiers'] for v in p[11:13])
+                     and not any(v in t['notes'] for v in p[22:24])
+                     and not any(r['kind']=='payment' and r['statement'][18]==p[18] for r in state['receipts']),
+                     'P7 proving replay differs')
+                # Refuse all live reservation conflicts before sending any witness to a child.
+                resources=(('context_root',p[4]),('nf',p[21]),('parent_old',p[7]),
+                           ('grant_old',p[8]),('request',p[18]))
+                for column,value in resources:
+                    need(not self.db.execute('SELECT 1 FROM obligations WHERE completed_at IS NULL AND '+column+'=?',(value,)).fetchone(),
+                         'P7 proving resource already held')
+                raw=prover.produce(p,w)
+                need(tuple(parse(raw))==p,'P7 produced statement differs from requested payment')
+                projection=self._checked(raw);ident=txid(raw)
+                need(ident not in rows,'P7 exact obligation already retained')
+                need(preflight(self.g,state,raw,earliest,self.worker)['code']==0,
+                     'P7 produced transaction not valid at AS-OF context/future frontier')
+                self.db.execute('INSERT INTO obligations VALUES (?,?,?,?,?,?,?,?,?,NULL)',(ident,raw,*projection))
+            return ident
+        except sqlite3.IntegrityError:
+            raise WalletError('P7 proving resource conflicts with an existing obligation') from None
     def claim(self,ident):
         with self.atomic():
             obs,rows=self._audit();need(ident in rows,'P7 exact obligation missing');row=rows[ident]

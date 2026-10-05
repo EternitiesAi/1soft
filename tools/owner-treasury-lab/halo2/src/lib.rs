@@ -12,4 +12,6 @@ pub const PROOF_BYTES: usize = 3200;
 
 #[cfg(feature = "prover")]
 pub mod fixtures;
+#[cfg(feature = "prover")]
+pub mod prover_request;
 pub mod wire;
