@@ -111,10 +111,12 @@ def main():
         if any([a.output,a.cargo,a.target_dir]):raise ValueError('ambiguous mode')
         print(json.dumps(check(a.check),sort_keys=True));return
     if not all([a.output,a.cargo,a.target_dir]):raise ValueError('exact execution paths required')
-    output=a.output.absolute();target=a.target_dir.resolve();cargo=a.cargo.resolve(strict=True)
+    output=a.output.absolute();target=a.target_dir.resolve();cargo=a.cargo.absolute()
     for path in [output,target]:
         if path==ROOT or ROOT in path.parents:raise ValueError('external evidence/target required')
     if output.exists() or output.is_symlink() or not output.parent.is_dir() or git('status','--porcelain').strip():raise ValueError('fresh output and clean committed source required')
+    if not cargo.is_file():raise ValueError('Cargo launcher missing')
+    # Preserve the Cargo shim name: resolving its Rustup symlink changes CLI dispatch.
     env=dict(os.environ,CARGO_TARGET_DIR=str(target),CARGO_NET_OFFLINE='true')
     paths=[(ROOT,'<source>'),(target,'<target>'),(output.parent,'<evidence>'),(Path.home(),'<home>')]
     base=[str(cargo),'+1.97.1'];manifest=str(COMPONENT/'halo2/Cargo.toml');logs={}
