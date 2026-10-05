@@ -9,7 +9,7 @@ payments, discover notes, recover keys, export private data or start a service.
 
 Provide these public arguments: journal, vault, genesis, worker, KAT and
 controller paths; genesis, worker and controller SHA-256 pins; and vault ID.
-Only prepare also requires a prover path and SHA-256 pin. All paths/pins must
+Both prepare and prepare-retained require a prover path and SHA-256 pin. All paths/pins must
 match the expected genesis and measured executables. The journal must already
 exist as a private owner-only regular file; use the journal interface to
 initialize it and authenticate observations. Vault creation is explicit and
@@ -31,17 +31,22 @@ extra, missing or noncanonical input is refused.
 | inventory | None | Imported commitments and retained preparation request IDs |
 | import-change | txid, opening | Imported restricted commitment and revision |
 | prepare | commitment, authority, amount, valid_until, request | Exact retained transaction ID, request ID, wire hash and attempt count |
+| prepare-retained | source_txid, amount, valid_until, request | Exact retained transaction ID, request ID, wire hash and attempt count |
 | recover-prepared | commitment | Unique exact retained transaction ID and wire hash |
 | import-prepared | txid | Certified future-change commitment and revision |
 
-Opening and authority layouts are defined in PROTOCOL7_VAULT.md. Private witness
+Opening and authority layouts are defined in PROTOCOL7_VAULT.md.
+The [retained authority path](PROTOCOL7_RETAINED_AUTHORITY.md) derives the next
+authority only from an exact certified encrypted preparation with current
+commitment continuity. It refuses missing stages or stale authority.
+Private witness
 construction belongs inside that controller; callers cannot supply a different
 wire to recover-prepared or relabel a merchant output as restricted CHANGE.
 Successful preparation is a local journal result. It is not delivery, settlement,
 a spendable-balance report or authorization to retry.
 
 The optional public --execution-receipt flag includes the measured note-controller
-process records; prepare also includes the actual prover process record. These
+process records; either preparation operation includes the actual prover process record. These
 contain operation, PID/start ticks, executable hash, exit code and byte counts,
 without private requests or their hashes. The output remains bounded to32768
 bytes. Normal output is one canonical JSON response plus a newline.
@@ -55,7 +60,7 @@ never echoed. SIGTERM enters normal bounded cleanup instead of abandoning
 the owned private prover/controller child; Ctrl-C is also handled without an
 exception-string diagnostic.
 
-Once prepare is entered, any unreturned outcome is conservatively labeled
+Once either preparation operation is entered, any unreturned outcome is conservatively labeled
 prepare-not-returned with failure_class unknown and reconcile_required true.
 This can include a validation failure before a stage exists: the flag means
 inspect/reconcile before another action, not proof that a stage or journal row

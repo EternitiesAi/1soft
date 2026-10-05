@@ -265,6 +265,39 @@ class ChangeVault:
         # Durable encrypted output openings precede journal proving/commit. On
         # any unknown result recover the exact journal wire; do not regenerate.
         return journal.prepare(prover,public,witness)
+    def prepare_retained_change(self,journal,prover,source_txid,*,amount,valid_until,request):
+        """Derive private authority from a certified retained witness; ordinary CAS still decides."""
+        self._journal(journal)
+        with self._locked():
+            payload=self._read()
+            source=journal.recorded_receipt(source_txid)
+            public,_=self._origin(source)
+            record=self._record(payload,public[23])
+            need(record['origin']==source and record['origin']['txid']==source_txid,
+                 'P7 retained certified CHANGE origin differs')
+            matches=[x for x in payload['pending'] if x['public']==public]
+            need(len(matches)==1,'P7 retained source request absent or ambiguous')
+            w=matches[0]['witness']
+            with journal.atomic(False):
+                obs,rows=journal._audit();row=rows.get(source_txid)
+                need(row is not None and row['kind']=='payment' and row['raw'].hex()==source['raw']
+                     and row['completed_at']==source['state_height'] and bool(obs),
+                     'P7 retained source journal binding differs')
+                current=obs[-1]['witness']['state']['treasury']
+                slot=next((g for g in current['grants'] if g['id']==public[6]),None)
+                need(current['parent']==public[9] and slot is not None and slot['commitment']==public[10],
+                     'P7 retained authority continuity refused')
+                self._live(journal,record)
+                debit=integer(w[13])+integer(public[17])
+                advanced=(integer(w[1])+debit,integer(w[2])+1,integer(w[6])+debit,integer(w[7])+1)
+                need(all(0<=x<=MAX_U64 for x in advanced),'P7 retained authority range refused')
+                authority={'parent':[w[0],numfield(advanced[0]),numfield(advanced[1]),w[4]],
+                           'grant':[w[5],numfield(advanced[2]),numfield(advanced[3]),w[9],w[10],w[12]]}
+        # Release both locks before the ordinary path reacquires them. This is
+        # a one-shot snapshot: a racing authority change fails native current
+        # commitment construction or the final journal CAS. Never refresh/retry.
+        return self.prepare_payment(journal,prover,public[23],authority=authority,
+                                    amount=amount,valid_until=valid_until,request=request)
     def recover_prepared(self,journal,commitment):
         self._journal(journal)
         with self._locked():
