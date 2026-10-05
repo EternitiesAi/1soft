@@ -35,22 +35,41 @@ No ticker, listing, investment return or reserve promise follows from code tests
 | P6 exact certified client recovery | Registered clean-source19-check actual engine receipt, exact completion/reopen and actual proof/CLI/adversarial tests | Local finite controller only; freshness, custody and independent operators remain |
 | One-attempt local delivery | SQLite attempt committed before bounded loopback RPC; explicit acknowledgement discard test | One canonical journal only; no hostile-host rollback or cross-device guarantee |
 | Owner grant lifecycle | P7 fresh network-bound proof profile; registered rotation/revocation, reactivation and enrollment,17 actual checks per run | Custody/key recovery, independent review and operators remain |
-| P7 typed client/caller recovery | Registered25-check actual future-owner/payment run; two discarded acknowledgements recovered from exact certificates; stale first claim refused | Prepared-wire client only; safe proving/note custody/discovery/redemption remain |
-| Proving, notes, recipient discovery and redemption | Earlier isolated proof laboratories and P5 finite wallet remain distinct | Safe prepared-transaction caller, encrypted note discovery/disclosure/redemption and custody must compose with the selected treasury profile |
+| P7 typed client/caller recovery | Registered25-check actual future-owner/payment run; two discarded acknowledgements recovered from exact certificates; stale first claim refused | Typed client and prepared wire; note custody/discovery/redemption remain |
+| P7 bounded proof preparation | [Registered16-check actual arbitrary-payment run](../evidence/protocol7-prover/20261005/prover-qualified-01.json), strict replay checker and4 adversarial receipt tests; exact profile/verifier-only consensus bridge retained | Canonical developer inputs and synthetic openings on one POSIX host; encrypted authentic-note custody/discovery remain |
+| Notes, recipient discovery and redemption | Earlier isolated proof laboratories and P5 finite wallet remain distinct | P7 encrypted note discovery/disclosure/redemption and custody must compose with its certified journal and prover |
 | Scale/history/availability | Deliberately finite profiles and replay | Scalable authenticated pool, receipt availability/pruning and measured resource bounds |
 | Production privacy/security | Specific relation/worker tests only | Independent cryptographic/protocol/custody audit and privacy threat model; no production claim |
 | Independent operator network | Not established | Separately owned hosts, bootstrap custody, network fault/security/operator drills |
 | Supply chain and operational release | Pinned source/binaries/dependencies and existing NOTICE | Reproducible signed release, review/update policy and operator incident/rollback drills |
 | Economics and public launch | No value-bearing genesis or network established | Supply/denomination/distribution/governance and release-owner choices; approved public targets and external review |
 
+## Frontier direction check
+
+Frontier check: 2026-10-05 | sweep: 2026-10-05-sweep.md@8f8b7fa5db4d559c9441936022d2511209059957 | lane: 1soft | result: preserve private/native treasury; extend existing commerce adapters after safe P7 proving/custody, with identity, authority and provider evidence kept separate.
+
+See [the revised mission and development sequence](FRONTIER_DIRECTION_20261005.md).
+The native P4 x402 envelope already exists; external-route acceptance and AP2
+mapping remain separate integration gates. No new runtime gate passed in this check.
+
 ## Next executable work
 
 P7 owner lifecycle and typed owner/payment recovery are registered in
 `evidence/protocol7-owner/20261005` and `evidence/protocol7-client/20261005`.
-The next executable product gate is safe prepared-proof production and encrypted
-note custody/discovery with selected-output disclosure bound to the exact P7
-profile/genesis/owner generation. Compose this with the certified journal and
-actual validator receipts before making a user-facing private-money claim.
+Bounded arbitrary-input proof preparation is now registered in
+`evidence/protocol7-prover/20261005`, covering clean execution source
+`ad4d011c93c58da19ed83cedbe01051ce46f59d7`. All16 actual four-validator
+checks and the strict receipt checker pass.
+
+The next executable product gate is encrypted custody of authentic P7 restricted
+change-note openings, authenticated import/discovery and a later spend composed
+with the certified journal and this prover. Bind storage to profile/genesis and
+owner generation, preserve current certificate authority and local holds, and
+never export private openings or a standalone witness hash. Owner sequence at
+import is audit provenance, not a new note identity. P7 merchant outputs use a
+different domain and need a separate redemption relation; they must not be
+relabeled as restricted change notes. Qualify actual import/spend/reopen, wrong
+network/generation and forged receipt refusal before any private-wallet claim.
 Preserve P1-P7 history; no silent migration/retry or relabeling old notes.
 Merchant redemption, scalable authenticated history, threshold/key recovery,
 economic/genesis/governance and independent operators remain separate gates.
