@@ -35,9 +35,9 @@ Do not duplicate EID, the Browser sandbox, A2A civilization semantics, or Reside
 ## Current implementation versus missing work
 
 - P4 provides a transparent local developer account/merchant flow with retained payment and resource recovery. Its x402 envelope is an experimental `1soft-p4` scheme for valueless native DEV, not external stablecoin support or production x402 acceptance.
-- P7 provides a separate finite proof-backed owner/grant and payment development profile. The prepared-wire client is not an arbitrary-input wallet/prover. Public mission/parent/grant identifiers still correlate activity.
+- P7 provides a separate finite proof-backed owner/grant and payment development profile. Its bounded arbitrary-input developer prover now composes with the certified journal and has16-check actual validator evidence. Encrypted authentic-note custody/discovery remains open. Public mission/parent/grant identifiers still correlate activity.
 - [SettlementJournal](../src/settlement_journal.py) is a trusted-fixture multi-asset accounting model. It has no authenticated provider connector and must not become a live API by relabeling its methods.
-- Safe P7 proof preparation, encrypted custody/discovery, selected disclosure, merchant redemption, cross-device coordination, scalable history and independent operation remain distinct gates.
+- Bounded P7 proof preparation is qualified for canonical developer inputs on one host. Encrypted custody/discovery, selected disclosure, merchant redemption, cross-device coordination, scalable history and independent operation remain distinct gates.
 - No AP2 interface was found in the inspected current paths. That scoped result is not an exhaustive absence claim.
 - A common account display does not create one atomic shared budget across independently controlled external accounts. External holds, delayed captures, refunds and liability exceptions require their own reconciliation.
 
@@ -45,7 +45,7 @@ Do not duplicate EID, the Browser sandbox, A2A civilization semantics, or Reside
 
 ### 1. Complete the selected private wallet foundation
 
-Continue the [live readiness gate](DEPLOYMENT_READINESS.md): a bounded P7 prover using the actual profile/parameters/verifier identity, encrypted note custody and discovery, and selected-output disclosure composed with the existing certified journal.
+Continue the [live readiness gate](DEPLOYMENT_READINESS.md). The bounded P7 prover is now registered at clean execution source ad4d011. Next compose encrypted custody and authenticated import/discovery of actual restricted change-note openings with the certified journal, then prove and spend a later change note. Keep selected-output disclosure separate from spend permission. Merchant outputs have a distinct P7 domain; their redemption requires a separate relation.
 
 Acceptance: actual fresh-network prepare, verify, submit, recipient import/spend, reopen and selected disclosure; refuse wrong profile/genesis/owner generation, altered witnesses and forged receipts; retain original obligations after an intentionally lost return. A detector or viewing capability cannot gain spend authority. Do not inherit P5 evidence or claim activity-graph privacy from note encryption.
 

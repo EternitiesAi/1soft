@@ -98,8 +98,11 @@ process lifecycle, exact artifact inventory/hashes, public request bindings,
 real proof and certificate replay. Candidate runs cannot qualify. The old P7
 lifecycle/client gate and historical receipts remain unchanged.
 
-An actual clean-source receipt must pass before this increment is described
-as engine-qualified. The registered receipt location and covered source are
-recorded in [deployment readiness](DEPLOYMENT_READINESS.md) after execution.
+The [registered clean-source receipt](../evidence/protocol7-prover/20261005/prover-qualified-01.json)
+passed all16 checks at execution source
+`ad4d011c93c58da19ed83cedbe01051ce46f59d7`; the independent replay checker
+and all4 adversarial receipt tests passed. The [AI review and validation scope](../evidence/protocol7-prover/20261005/AI_REVIEW.md)
+records the exact tests, resolved failures and remaining limits. Encrypted
+authentic-note custody/import/spend is the next [readiness gate](DEPLOYMENT_READINESS.md).
 No public launch, real funds, independent-operator or production privacy claim
 follows.

@@ -92,4 +92,10 @@ The [owner treasury successor](PROTOCOL7_OWNER_TREASURY.md) adds canonical owner
 
 ## Certified P7 owner/payment developer path
 
-The [typed P7 client](PROTOCOL7_CERTIFIED_CLIENT.md) now has25-check actual caller evidence for future-height owner execution, lost owner/payment acknowledgements, exact signed recovery, stale first-claim refusal and same-store restart. The P4 durable alpha remains the browser product. Next compose safe proof production and encrypted note custody/discovery/disclosure with P7; public launch, economics, independent operators and specialist review remain separate.
+The [typed P7 client](PROTOCOL7_CERTIFIED_CLIENT.md) now has25-check actual caller evidence for future-height owner execution, lost owner/payment acknowledgements, exact signed recovery, stale first-claim refusal and same-store restart. The P4 durable alpha remains the browser product. The P7 prover increment below closes bounded proof preparation; encrypted authentic-note custody/discovery remains next. Public launch, economics, independent operators and specialist review remain separate.
+
+## Bounded P7 arbitrary payment preparation
+
+The [P7 developer prover](PROTOCOL7_PROVER.md) now accepts canonical Assignment/Witness inputs, produces an independently randomized proof with the exact frozen identities, and atomically retains the exact payment in the certified journal. The [registered clean-source actual run](../evidence/protocol7-prover/20261005/prover-qualified-01.json) passed16 checks, including four-validator settlement, a deliberately lost acknowledgement, signed exact recovery, cold reopening, refusal of redelivery and validator restart. New prover/journal tests passed10 cases; Rust request/binary tests passed2; the existing real-proof journal regression passed10; adversarial receipt tests passed4.
+
+Next qualify encrypted custody and authenticated import/re-spend of actual P7 restricted change notes. Viewing/disclosure cannot confer spend authority, imported owner sequence is provenance rather than note identity, and merchant-note redemption remains a distinct relation. These are synthetic one-host development receipts, not a complete private wallet or production release.
