@@ -12,15 +12,76 @@ import unittest
 from protocol5_encoding import canonical_json, genesis_document
 from protocol5_encoding import field_hex, h2f
 from protocol5_fixture import make_genesis
+from protocol5_abci_wire import Response
 from run_protocol5_engine import (
     CLIENT_MAGIC, CLIENT_GENESIS_MAGIC, PROVER_MAGIC, DevelopmentController,
     ENGINE_SHA256, Note, Protocol5Network, _app_start_timeout, _backup_sqlite,
     _check_tx_at_held_state, _prepare_conflict_below_quorum,
-    _process_probe_at_held_height,
+    _process_probe_at_held_height, _hold_transaction_height, _application_ready, _engine_consensus_ready,
     finalize_fresh_genesis, fresh_genesis_prefix, p5_app_command, preflight,
 )
 
 class Protocol5EngineRunnerTests(unittest.TestCase):
+    def test_exact_height_hold_stops_empty_proposals_before_quorum_pause(self):
+        class SchedulingNetwork:
+            empty_blocks = True
+            height = 37
+            frozen_empty_proposal = False
+
+            def set_empty_blocks(self, enabled, *, commit_delay=None):
+                self.empty_blocks = enabled
+                self.delay = commit_delay
+                # Height-bound state still requires a proof block without txs.
+                self.height += 1
+
+            def direct_state(self, index):
+                return {"height": self.height}
+
+            def hold_sources_without_quorum(self):
+                self.frozen_empty_proposal = self.empty_blocks or getattr(self, "delay", None) != "60s"
+                return {"height": self.height}
+
+            def release(self):
+                return self.height + (2 if self.frozen_empty_proposal else 1)
+
+        naive = SchedulingNetwork()
+        naive.hold_sources_without_quorum()
+        self.assertEqual(naive.release(), 39)
+        network = SchedulingNetwork()
+        held = _hold_transaction_height(network)
+        self.assertEqual(network.release(), held["height"] + 1)
+        self.assertEqual(network.delay, "60s")
+
+    def test_stale_socket_cannot_claim_replacement_application_ready(self):
+        from unittest.mock import Mock
+        socket_path = Mock()
+        socket_path.exists.return_value = True
+        process = Mock()
+        process.poll.return_value = None
+        network = Mock()
+        network.abci.side_effect = ConnectionRefusedError("stale inode")
+        with self.assertRaises(ConnectionRefusedError):
+            _application_ready(network, 1, process, socket_path)
+        response = Response()
+        response.info.SetInParent()
+        network.abci.side_effect = None
+        network.abci.return_value = response
+        self.assertTrue(_application_ready(network, 1, process, socket_path))
+        process.poll.return_value = 1
+        with self.assertRaises(ValueError):
+            _application_ready(network, 1, process, socket_path)
+
+    def test_recovered_height_does_not_prove_validator_rejoined_consensus(self):
+        from unittest.mock import Mock, patch
+        network = Mock()
+        network.http = {1: 12345}
+        with patch("run_protocol5_engine.rpc") as status:
+            status.return_value = {"sync_info": {"latest_block_height": "115", "catching_up": True}}
+            self.assertFalse(_engine_consensus_ready(network, 1, 114))
+            status.return_value["sync_info"]["catching_up"] = False
+            self.assertTrue(_engine_consensus_ready(network, 1, 114))
+            self.assertFalse(_engine_consensus_ready(network, 1, 116))
+
     def test_controller_client_wire_is_exact_and_stdin_only(self):
         captured = []
 

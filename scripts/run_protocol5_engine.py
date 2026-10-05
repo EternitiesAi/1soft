@@ -7,7 +7,6 @@ import base64
 import binascii
 import concurrent.futures
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -16,7 +15,6 @@ from pathlib import Path
 import signal
 import socket
 import sqlite3
-import struct
 import subprocess
 import sys
 import tempfile
@@ -26,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 from protocol5_encoding import (
     canonical_json, decode_canonical_json, derive_genesis_field, field_hex,
-    field_bytes, genesis_document, PALLAS_BASE_MODULUS, Transaction,
+    genesis_document, Transaction,
 )
 from protocol5_abci_wire import Request, Response, read_frame, write_frame
 from protocol5_certificate import (
@@ -43,154 +41,10 @@ INPUT_NAMES = (
     "toolchain", "policy", "genesis",
 )
 MAX_LOG_BYTES = 1_048_576
-CLIENT_MAGIC = b"1SFTCLI1"
-CLIENT_GENESIS_MAGIC = b"1SFTGEN1"
-PROVER_MAGIC = b"1SFTPRV1"
-
-
-@dataclass(frozen=True)
-class Note:
-    expiry: int
-    value: int
-    owner_spend_secret: bytes
-    note_secret: bytes
-    blinding: bytes
-
-    def encode(self) -> bytes:
-        if (type(self.expiry) is not int or type(self.value) is not int
-                or not 1 <= self.expiry < 2**64 or not 1 <= self.value < 2**64):
-            raise ValueError("invalid development note amount or expiry")
-        fields = (self.owner_spend_secret, self.note_secret, self.blinding)
-        if not all(type(item) is bytes and len(item) == 32
-                   and 0 < int.from_bytes(item, "little") < PALLAS_BASE_MODULUS
-                   for item in fields):
-            raise ValueError("invalid development note secret")
-        return struct.pack("<QQ", self.expiry, self.value) + b"".join(fields)
-
-
-def _random_field() -> bytes:
-    while True:
-        value = os.urandom(32)
-        if 0 < int.from_bytes(value, "little") < PALLAS_BASE_MODULUS:
-            return value
-
-
-def development_note(expiry: int, value: int) -> Note:
-    return Note(expiry, value, _random_field(), _random_field(), _random_field())
-
-
-class DevelopmentController:
-    """Controller-only Rust client/prover adapter; secrets use stdin only."""
-
-    def __init__(self, client: Path, prover: Path, genesis_prefix: dict,
-                 receipts: list[dict] | None = None):
-        self.client = client
-        self.prover = prover
-        self.prefix = genesis_prefix
-        self.receipts = receipts if receipts is not None else []
-
-    def _run(self, role: str, binary: Path, request: bytearray,
-             *, expected_length: int | None = None,
-             maximum_length: int = 131_072) -> bytes:
-        process = subprocess.Popen(
-            [str(binary)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
-        receipt = {
-            "role": role, "node": None, "pid": process.pid,
-            "start_ticks": _start_ticks(process.pid),
-            "executable_sha256": _sha(binary),
-        }
-        self.receipts.append(receipt)
-        try:
-            output, error = process.communicate(bytes(request), timeout=120)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            output, error = process.communicate(timeout=10)
-            raise RuntimeError(role + " exceeded its watchdog")
-        finally:
-            request[:] = b"\0" * len(request)
-        receipt["exit_code"] = process.returncode
-        receipt["stdout_sha256"] = hashlib.sha256(output).hexdigest()
-        receipt["stderr_sha256"] = hashlib.sha256(error).hexdigest()
-        if process.returncode != 0 or error:
-            raise RuntimeError(role + " failed closed")
-        if len(output) > maximum_length:
-            raise RuntimeError(role + " output exceeded bound")
-        if expected_length is not None and len(output) != expected_length:
-            raise RuntimeError(role + " output length differs")
-        return output
-
-    def _domain_fields(self) -> tuple[bytes, ...]:
-        return (
-            field_bytes(self.prefix["genesis_field"]),
-            field_bytes(self.prefix["asset_field"]),
-            field_bytes(self.prefix["context_field"]),
-            self.prefix["authority_epoch"].to_bytes(32, "little"),
-            field_bytes(self.prefix["policy_field"]),
-        )
-
-    def commitments(self, notes: list[Note]) -> tuple[list[str], str]:
-        if type(notes) is not list or not 1 <= len(notes) <= 16:
-            raise ValueError("development genesis note count differs")
-        request = bytearray(
-            CLIENT_MAGIC + struct.pack("<HH", 1, 1)
-            + b"".join(self._domain_fields()) + struct.pack("<H", len(notes))
-            + b"".join(note.encode() for note in notes))
-        output = self._run(
-            "development-client-genesis", self.client, request,
-            expected_length=12 + 32 * len(notes) + 32, maximum_length=556)
-        if output[:8] != CLIENT_GENESIS_MAGIC:
-            raise RuntimeError("development client genesis magic differs")
-        version, count = struct.unpack_from("<HH", output, 8)
-        if version != 1 or count != len(notes):
-            raise RuntimeError("development client genesis header differs")
-        values = [output[12 + 32 * index:44 + 32 * index]
-                  for index in range(count)]
-        root = output[-32:]
-        if not all(0 < int.from_bytes(item, "little") < PALLAS_BASE_MODULUS
-                   for item in values + [root]) or len(set(values)) != len(values):
-            raise RuntimeError("development client returned invalid commitments")
-        return [item.hex() for item in values], root.hex()
-
-    def spend_request(self, genesis_raw: bytes, commitments: list[str],
-                      input_position: int, input_note: Note,
-                      output_notes: tuple[Note, Note], *,
-                      valid_from: int, valid_until: int) -> bytes:
-        genesis = genesis_document(genesis_raw)
-        if (type(commitments) is not list or not 1 <= len(commitments) <= 14
-                or type(input_position) is not int
-                or not 0 <= input_position < len(commitments)
-                or type(output_notes) is not tuple or len(output_notes) != 2):
-            raise ValueError("invalid development spend request")
-        fields = self._domain_fields() + (
-            valid_from.to_bytes(32, "little"),
-            valid_until.to_bytes(32, "little"),
-            genesis.value["fee"].to_bytes(32, "little"),
-        )
-        request = bytearray(
-            CLIENT_MAGIC + struct.pack("<HH", 1, 2)
-            + genesis.sha256 + genesis.deployment.identity
-            + b"".join(fields) + struct.pack("<H", len(commitments))
-            + b"".join(field_bytes(item) for item in commitments)
-            + struct.pack("<H", input_position) + input_note.encode()
-            + b"".join(note.encode() for note in output_notes))
-        return self._run(
-            "development-client-spend", self.client, request,
-            expected_length=1010, maximum_length=1010)
-
-    def prove(self, genesis_raw: bytes, prover_request: bytes) -> bytes:
-        if (type(prover_request) is not bytes or len(prover_request) != 1010
-                or prover_request[:8] != PROVER_MAGIC):
-            raise ValueError("invalid development prover request")
-        genesis = genesis_document(genesis_raw)
-        request = bytearray(prover_request)
-        transaction = self._run(
-            "development-prover", self.prover, request,
-            expected_length=534 + genesis.profile.proof_length,
-            maximum_length=genesis.value["limits"]["max_tx_bytes"])
-        Transaction.decode(transaction, genesis)
-        return transaction
-
+from protocol5_controller import (
+    CLIENT_GENESIS_MAGIC, CLIENT_MAGIC, CLIENT_OWNER_MAGIC, PROVER_MAGIC,
+    DevelopmentController, Note, RecipientOutput, development_note,
+)
 
 def fresh_genesis_prefix(template_raw: bytes, chain_id: str,
                          engine_validators: list[dict]) -> dict:
@@ -240,6 +94,26 @@ def _app_start_timeout(genesis_raw: bytes) -> int:
     selected = genesis_document(genesis_raw).value["limits"][
         "worker_startup_timeout_seconds"]
     return min(150, selected + 30)
+
+
+def _engine_consensus_ready(network: "Protocol5Network", index: int,
+                            minimum_height: int) -> bool:
+    status = rpc(network.http[index], "status")["sync_info"]
+    return (int(status["latest_block_height"]) >= minimum_height
+            and status.get("catching_up") is False)
+
+
+def _application_ready(network: "Protocol5Network", index: int,
+                       process, socket_path: Path) -> bool:
+    if process.poll() is not None:
+        raise ValueError(f"Protocol 5 application node{index} exited during startup")
+    if not socket_path.exists():
+        return False
+    # A failed endpoint can leave its old socket inode behind. Only a live
+    # Info response proves that the replacement application is listening.
+    request = Request()
+    request.info.SetInParent()
+    return network.abci(index, request).WhichOneof("value") == "info"
 
 
 def p5_app_command(paths: dict[str, Path], genesis: Path, genesis_sha256: str,
@@ -340,12 +214,18 @@ class Protocol5Network:
     """Owned one-host CometBFT and ABCI processes for a single qualification run."""
 
     def __init__(self, paths: dict[str, Path], output: Path, report: dict,
-                 *, include_target: bool):
+                 *, include_target: bool,
+                 runtime_parent: Path | None = None):
         self.paths = paths
         self.output = output
         self.report = report
         self.include_target = include_target
-        self.temp = tempfile.TemporaryDirectory(prefix="one-protocol5-engine-")
+        if runtime_parent is not None:
+            runtime_parent = Path(runtime_parent)
+            if runtime_parent.is_symlink() or not runtime_parent.is_dir():
+                raise ValueError("unsafe Protocol 5 runtime parent")
+        self.temp = tempfile.TemporaryDirectory(
+            prefix="one-protocol5-engine-", dir=runtime_parent)
         self.runtime = Path(self.temp.name)
         self.homes = self.runtime / "nodes"
         self.apps: dict[int, subprocess.Popen] = {}
@@ -449,11 +329,7 @@ class Protocol5Network:
         self.apps[index] = process
 
         def ready():
-            if process.poll() is not None:
-                raise ValueError(
-                    f"Protocol 5 application node{index} exited "
-                    f"{process.returncode} during startup")
-            return socket.exists()
+            return _application_ready(self, index, process, socket)
 
         wait_until(ready, _app_start_timeout(self.genesis_path.read_bytes()))
         self._record(
@@ -479,6 +355,7 @@ class Protocol5Network:
              str(self.homes / f"node{index}")], stdout=log, stderr=log)
         self.engines[index] = process
         self._record("engine", index, process, _sha(self.paths["engine"]))
+        wait_until(lambda: self.height(index) >= 0, 90)
 
     def start_sources(self) -> None:
         if not self.genesis_sha256:
@@ -642,7 +519,10 @@ class Protocol5Network:
             raise AssertionError("Protocol 5 application worker count differs")
         return children[0]
 
-    def set_empty_blocks(self, enabled: bool) -> None:
+    def set_empty_blocks(self, enabled: bool, *,
+                         commit_delay: str | None = None) -> None:
+        if commit_delay not in (None, "60s"):
+            raise ValueError("unsupported qualification commit delay")
         running = sorted(self.engines)
         for index in running:
             self.stop_engine(index)
@@ -651,7 +531,7 @@ class Protocol5Network:
             config.write_text(patch_toml(config.read_text(), {
                 "consensus.create_empty_blocks": enabled,
                 "consensus.create_empty_blocks_interval": "0s",
-                "consensus.timeout_commit": "2s" if enabled else "500ms",
+                "consensus.timeout_commit": commit_delay or ("2s" if enabled else "500ms"),
             }), encoding="utf-8")
         for index in running:
             self.start_engine(index)
@@ -743,6 +623,20 @@ def _prepare_conflict_below_quorum(
     process_status = network.direct_process(
         0, [first, second], checkpoint["height"] + 1, validator_hash)
     return admissions, prepared, process_status, checkpoint
+
+
+def _hold_transaction_height(network: Protocol5Network) -> dict:
+    """Reserve the next height without letting an empty proposal consume it."""
+    before = max(network.direct_state(index)["height"] for index in range(4))
+    # A height-bound AppHash changes even on empty blocks. CometBFT therefore
+    # needs another proof block despite create_empty_blocks=False. Reserve a
+    # finite commit delay after observing a new block under the new config;
+    # construct/stage the exact one-height transaction before the next proposal.
+    # Preserve all WAL and validator signing state through ordinary restarts.
+    network.set_empty_blocks(False, commit_delay="60s")
+    wait_until(lambda: all(network.direct_state(index)["height"] > before
+                           for index in range(4)), 90)
+    return network.hold_sources_without_quorum()
 
 
 def _process_probe_at_held_height(
@@ -1050,7 +944,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         advanced = min(network.height(index) for index in (0, 2, 3))
         network.start_app(1)
         network.start_engine(1)
-        wait_until(lambda: network.height(1) >= advanced, 60)
+        wait_until(lambda: _engine_consensus_ready(network, 1, advanced), 60)
         failure_evidence.append({
             "kind": "stall", "node": 1, "worker_pid": stalled_pid,
             "height_before": stalled_height, "height_after": network.height(1)})
@@ -1072,7 +966,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
         advanced = min(network.height(index) for index in (0, 1, 3))
         network.start_app(2)
         network.start_engine(2)
-        wait_until(lambda: network.height(2) >= advanced, 60)
+        wait_until(lambda: _engine_consensus_ready(network, 2, advanced), 60)
         failure_evidence.append({
             "kind": "kill", "node": 2, "worker_pid": killed_pid,
             "height_before": killed_height, "height_after": network.height(2)})
@@ -1111,7 +1005,7 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
             network.start_app(node)
             network.start_engine(node)
             target_height = max(network.height(index) for index in (1, 2, 3))
-            wait_until(lambda: network.height(node) >= target_height, 60)
+            wait_until(lambda: _engine_consensus_ready(network, node, target_height), 60)
             crash_evidence.append({
                 "phase": phase, "exit_code": observed_exit,
                 "durable_before": durable_before, "durable_after": durable_after,
@@ -1136,10 +1030,14 @@ def _run_consensus_scenarios(paths: dict[str, Path], output: Path,
                {"startup_contract":
                 "worker self-test, KAT, confinement probes and framed stdout required"})
 
+        # Stop producing empty proposals before holding quorum. Otherwise a
+        # pending empty proposal can consume this exact one-height validity
+        # interval when the third validator returns, even though both live
+        # mempools already contain the transaction.
         # Hold two validators below quorum while constructing and staging the
         # exact one-height validity case. Starting validator 2 releases exactly
         # the three-validator quorum; validator 3 remains stopped.
-        held = network.hold_sources_without_quorum()
+        held = _hold_transaction_height(network)
         boundary_height = held["height"] + 1
         boundary_outputs = _make_outputs(notes[4], genesis.value["fee"])
         boundary = controller.prove(raw_genesis, controller.spend_request(
