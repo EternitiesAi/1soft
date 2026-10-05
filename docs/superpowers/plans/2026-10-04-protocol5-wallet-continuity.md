@@ -402,3 +402,5 @@ class Protocol5Wallet:
 ## Completion Condition
 
 Phase 8 is complete only when a clean, source-bound, strict-checker-qualified real-engine run shows two distinct private wallet journals using actual Halo2 proofs on four local validators; A pays B using only B's public owner key; A recovers byte-identical TransactionV1 after a lost approval return without reproving; delivery records one attempt before I/O and never retries; H+1 authentication alone reconciles execution; B verifies/imports one exact private capsule and spends that note; hostile mutation/restart/leakage gates pass; P1-5 protected surfaces remain unchanged; and all production/public/security/economic claims remain false.
+
+Registration checkpoint: real consensus, state-sync and wallet receipts are strictly qualified. Final manifest-checked regression, review and GitHub integration are recorded in the external delivery receipt.

@@ -286,3 +286,11 @@ security or cryptographic review, production custody or side-channel safety,
 wallet scanning/recovery, scalable storage, multi-host Byzantine behavior,
 public-network or exchange readiness, real-funds safety, or economic value. All
 such claims remain false.
+
+## Later Protocol 5 wallet continuity
+
+The [finite trusted-host wallet](PROTOCOL5_WALLET_CONTINUITY.md) adds recipient-key payments, exact
+lost-return recovery, selected-output capsules, authenticated H+1 reconciliation
+and one-attempt delivery. These later controller-only additions preserve the
+existing circuit/profile/KAT/worker and historical qualification identities.
+They do not establish production custody, privacy, public deployment or real-funds safety.
