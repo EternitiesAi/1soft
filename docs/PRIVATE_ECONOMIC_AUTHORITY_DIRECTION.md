@@ -2,6 +2,16 @@
 
 Selected 4 October 2026. This document chooses a product and architecture direction for evaluation. It does not change consensus, monetary rules, current release status, or the public claims allowed by the tested development evidence.
 
+## October 5 frontier reassessment
+
+The selected mission is retained and sharpened: private programmable money and
+durable economic authority, with native 1soft settlement and separately qualified
+connections to established commerce protocols. The immediate private-wallet gate
+remains; AP2 mapping and extension of the existing native x402 path follow it.
+Eternities ID owns identity; 1soft owns spending permission and obligations.
+See [the source-backed refinement and ordered acceptance gates](FRONTIER_DIRECTION_20261005.md).
+This is a strategic decision, not a new runtime capability or launch claim.
+
 ## The direction
 
 Build 1soft toward **private programmable money and durable economic authority for people and persistent agents**.

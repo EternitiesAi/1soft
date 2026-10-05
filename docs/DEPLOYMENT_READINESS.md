@@ -43,6 +43,14 @@ No ticker, listing, investment return or reserve promise follows from code tests
 | Supply chain and operational release | Pinned source/binaries/dependencies and existing NOTICE | Reproducible signed release, review/update policy and operator incident/rollback drills |
 | Economics and public launch | No value-bearing genesis or network established | Supply/denomination/distribution/governance and release-owner choices; approved public targets and external review |
 
+## Frontier direction check
+
+Frontier check: 2026-10-05 | sweep: 2026-10-05-sweep.md@8f8b7fa5db4d559c9441936022d2511209059957 | lane: 1soft | result: preserve private/native treasury; extend existing commerce adapters after safe P7 proving/custody, with identity, authority and provider evidence kept separate.
+
+See [the revised mission and development sequence](FRONTIER_DIRECTION_20261005.md).
+The native P4 x402 envelope already exists; external-route acceptance and AP2
+mapping remain separate integration gates. No new runtime gate passed in this check.
+
 ## Next executable work
 
 P7 owner lifecycle and typed owner/payment recovery are registered in

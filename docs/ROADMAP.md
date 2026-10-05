@@ -1,6 +1,13 @@
 # Native-coin roadmap — current development gate
 
-Updated 4 October 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
+Updated 5 October 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
+
+The [October 5 frontier reassessment](FRONTIER_DIRECTION_20261005.md) retains the
+private/native treasury mission and prioritizes safe P7 proving/custody first,
+then extension of the existing native x402 path and a bounded AP2 mapping.
+Identity is an authenticated input from Eternities ID; settlement through external
+providers requires separate evidence and cannot inherit native-chain guarantees.
+This is an ordered development plan, not a claim of new interoperability.
 
 | Milestone | Current state | Required evidence / next action |
 |---|---|---|
