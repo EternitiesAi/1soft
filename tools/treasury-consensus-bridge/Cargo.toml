@@ -1,0 +1,15 @@
+[package]
+name = "treasury-consensus-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+[dependencies]
+private-treasury-payment-lab = { path = "../private-treasury-payment-lab/halo2" }
+shielded-consensus-halo2 = { path = "../shielded-consensus/halo2", default-features = false }
+ff = "=0.14.0"
+halo2_proofs = { version = "=0.4.0", default-features = false }
+sha2 = "=0.10.9"
+[profile.release]
+codegen-units = 1
+lto = "thin"
