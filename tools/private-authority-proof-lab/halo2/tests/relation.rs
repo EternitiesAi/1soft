@@ -114,6 +114,9 @@ fn forged_successors_cannot_change_caps_or_immutable_policy() {
             statement.public[9] = parent(&original, false);
         }
         statement.public[19] = authorization(&statement.public);
+        // The old opening is still valid: only the claimed successor is forged.
+        assert_eq!(parent(&statement, false), original.public[7]);
+        assert_eq!(grant(&statement, false), original.public[8]);
         assert!(validate(&statement).is_err(), "successor case {i}");
         assert!(!satisfied(statement), "successor case {i}");
     }

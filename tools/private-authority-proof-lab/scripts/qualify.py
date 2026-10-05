@@ -40,14 +40,16 @@ def identity(path):
 
 def source_files():
     local=sorted([*COMPONENT.glob('halo2/src/*.rs'),*COMPONENT.glob('halo2/tests/*.rs'),
-                  COMPONENT/'halo2/Cargo.toml',COMPONENT/'halo2/Cargo.lock',PROFILE,Path(__file__)])
+                  COMPONENT/'halo2/Cargo.toml',COMPONENT/'halo2/Cargo.lock',PROFILE,*COMPONENT.glob('scripts/*.py')])
     dependency=ROOT/'tools/shielded-consensus/halo2'
     reuse=[dependency/'Cargo.toml',dependency/'Cargo.lock',*dependency.glob('src/**/*.rs')]
     return sorted(set(local+reuse))
 
 def parse_log(log):
     if 'FAILED' in log or 'test result: FAILED' in log:raise ValueError('failed test')
-    names=set(re.findall(r'^test ([a-z_]+) \.\.\. ok$',log,re.M))
+    passed=re.findall(r'^test ([a-z0-9_]+) \.\.\. ok$',log,re.M)
+    names=set(passed)
+    if len(passed)!=len(names):raise ValueError('duplicate test execution')
     # The real-proof test emits its measurement before the test harness writes ok.
     if re.search(r'^test actual_proofs_bind_shared_current_state_and_ordered_revocation \.\.\. AUTHORITY_EVIDENCE ',log,re.M):
         names.add('actual_proofs_bind_shared_current_state_and_ordered_revocation')
