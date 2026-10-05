@@ -1,0 +1,59 @@
+{
+  "executed_source": "829c2bc80219a9f1191061775ade3e9362a3e9a4",
+  "engine_checks": 24,
+  "engine_failed": 0,
+  "independent_replay": {
+    "check_count": 24,
+    "ciphertext_independently_decrypted": false,
+    "claim": "actual one-host restricted change respend; external-key custody tested at runtime; no production/rollback claim",
+    "first_txid": "112c1c6dfb584cf6fbda63046767aa733aac6801fe1bc725095a7e13852cb2af",
+    "genesis_sha256": "2c922a61db1ea2696a172efbfdab63f589fbc7966b775d8c17d596bae32aad15",
+    "qualified": true,
+    "respend_txid": "a9872c56b38ea5a68a8947fa515dec1a900267de9001fdc74298bb01ef61dd05",
+    "source_commit": "829c2bc80219a9f1191061775ade3e9362a3e9a4",
+    "state_height": 11,
+    "status": "qualified-one-host-encrypted-change-custody"
+  },
+  "tests": {
+    "native_note_request": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    "existing_prover_regression": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    "actual_origin_vault": {
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    "actual_caller_and_touched_storage": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "early_receipt_tamper": {
+      "tests": 1,
+      "subcases": 12,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "build": "offline locked release jobs=2; verifier-only bridge passed; no new dependencies",
+  "resolved_failures": [
+    {
+      "cause": "Rust borrow conflict in ciphertext mutation test",
+      "resolution": "separate end index; native tests passed"
+    },
+    {
+      "cause": "first actual run had generic refusal assertions that did not establish the causal guard",
+      "resolution": "withheld first receipt; precise spent/grant guard and actual CLI evidence required; fresh clean run02 passed"
+    }
+  ],
+  "private_material_exported": false,
+  "independent_ciphertext_decryption": false,
+  "source_manifest_rows": 403
+}

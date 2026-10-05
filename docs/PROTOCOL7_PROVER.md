@@ -103,6 +103,7 @@ passed all16 checks at execution source
 `ad4d011c93c58da19ed83cedbe01051ce46f59d7`; the independent replay checker
 and all4 adversarial receipt tests passed. The [AI review and validation scope](../evidence/protocol7-prover/20261005/AI_REVIEW.md)
 records the exact tests, resolved failures and remaining limits. Encrypted
-authentic-note custody/import/spend is the next [readiness gate](DEPLOYMENT_READINESS.md).
+authentic restricted CHANGE import/spend is now [qualified on one host](PROTOCOL7_VAULT.md);
+recipient discovery, merchant redemption and production custody remain [readiness gates](DEPLOYMENT_READINESS.md).
 No public launch, real funds, independent-operator or production privacy claim
 follows.
