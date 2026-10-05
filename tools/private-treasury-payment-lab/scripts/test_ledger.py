@@ -4,6 +4,7 @@ from ledger import Bridge,Ledger,Outbox
 
 FIXTURES=Path(os.environ['TREASURY_FIXTURES'])
 BINARY=Path(os.environ['TREASURY_BINARY'])
+EXPECTED_SHA=os.environ['TREASURY_EXPECTED_BINARY_SHA256']
 GENESIS=json.loads((FIXTURES/'genesis.json').read_text())
 RAW={name:(FIXTURES/(name+'.tx')).read_bytes() for name in ['a','b','after_a_b','after_b_a','revoked_a_b','duplicate_request']}
 def txid(raw):return hashlib.sha256(b'1soft/private-treasury-payment-lab/transaction/v1\0'+raw).hexdigest()
@@ -11,7 +12,7 @@ class AtomicLedgerTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.directory=Path(self.tmp.name);os.chmod(self.directory,0o700)
         self.db=self.directory/'ledger.sqlite';self.outpath=self.directory/'outbox.sqlite'
-        self.bridge=Bridge(BINARY,hashlib.sha256(BINARY.read_bytes()).hexdigest())
+        self.bridge=Bridge(BINARY,EXPECTED_SHA)
         self.ledger=Ledger(self.db,GENESIS,self.bridge)
     def tearDown(self):self.ledger.close();self.tmp.cleanup()
     def test_actual_payment_commits_all_effects_and_reopens(self):
@@ -73,7 +74,7 @@ class AtomicLedgerTests(unittest.TestCase):
         finally:out.close()
     def test_lost_return_after_process_commit_does_not_create_second_payment(self):
         out=Outbox(self.outpath);ident=out.retain(RAW['a']);out.claim(ident);out.close();self.ledger.close()
-        code="from ledger import *; import os,json,hashlib; from pathlib import Path; b=Path(os.environ['TREASURY_BINARY']); l=Ledger(Path(os.environ['TEST_DB']),json.loads(Path(os.environ['TREASURY_FIXTURES'],'genesis.json').read_text()),Bridge(b,hashlib.sha256(b.read_bytes()).hexdigest())); l.apply(Path(os.environ['TREASURY_FIXTURES'],'a.tx').read_bytes(),2); os._exit(0)"
+        code="from ledger import *; import os,json,hashlib; from pathlib import Path; b=Path(os.environ['TREASURY_BINARY']); l=Ledger(Path(os.environ['TEST_DB']),json.loads(Path(os.environ['TREASURY_FIXTURES'],'genesis.json').read_text()),Bridge(b,os.environ['TREASURY_EXPECTED_BINARY_SHA256'])); l.apply(Path(os.environ['TREASURY_FIXTURES'],'a.tx').read_bytes(),2); os._exit(0)"
         subprocess.run([sys.executable,'-c',code],env=dict(os.environ,TEST_DB=str(self.db)),check=True,timeout=90)
         self.ledger=Ledger(self.db,GENESIS,self.bridge);out=Outbox(self.outpath)
         try:
@@ -106,7 +107,7 @@ class AtomicLedgerTests(unittest.TestCase):
         finally:out.close()
     def test_crash_before_commit_retains_unknown_claim_and_no_ledger_effect(self):
         before=self.ledger.snapshot();self.ledger.close()
-        code="from ledger import *; import os,json,hashlib; from pathlib import Path; b=Path(os.environ['TREASURY_BINARY']); raw=Path(os.environ['TREASURY_FIXTURES'],'a.tx').read_bytes(); out=Outbox(Path(os.environ['TEST_OUTBOX'])); i=out.retain(raw); out.claim(i); l=Ledger(Path(os.environ['TEST_DB']),json.loads(Path(os.environ['TREASURY_FIXTURES'],'genesis.json').read_text()),Bridge(b,hashlib.sha256(b.read_bytes()).hexdigest())); l.db.create_function('crash_now',0,lambda:os._exit(0)); l.db.execute('CREATE TRIGGER crash_receipt BEFORE INSERT ON receipts BEGIN SELECT crash_now(); END'); l.apply(raw,2)"
+        code="from ledger import *; import os,json,hashlib; from pathlib import Path; b=Path(os.environ['TREASURY_BINARY']); raw=Path(os.environ['TREASURY_FIXTURES'],'a.tx').read_bytes(); out=Outbox(Path(os.environ['TEST_OUTBOX'])); i=out.retain(raw); out.claim(i); l=Ledger(Path(os.environ['TEST_DB']),json.loads(Path(os.environ['TREASURY_FIXTURES'],'genesis.json').read_text()),Bridge(b,os.environ['TREASURY_EXPECTED_BINARY_SHA256'])); l.db.create_function('crash_now',0,lambda:os._exit(0)); l.db.execute('CREATE TRIGGER crash_receipt BEFORE INSERT ON receipts BEGIN SELECT crash_now(); END'); l.apply(raw,2)"
         subprocess.run([sys.executable,'-c',code],env=dict(os.environ,TEST_DB=str(self.db),TEST_OUTBOX=str(self.outpath)),check=True,timeout=90)
         self.ledger=Ledger(self.db,GENESIS,self.bridge);self.assertEqual(self.ledger.snapshot(),before)
         out=Outbox(self.outpath)

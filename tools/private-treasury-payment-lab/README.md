@@ -42,7 +42,7 @@ proof is generated in the Rust gate. It retains sanitized command output and
 source/log/binary identities. The offline parser test uses synthetic log strings
 only to attack parsing; these strings never establish executed behavior.
 
-For direct ledger tests use `TREASURY_BINARY` and `TREASURY_FIXTURES` from the
+For direct ledger tests use `TREASURY_BINARY`, `TREASURY_FIXTURES` and `TREASURY_EXPECTED_BINARY_SHA256` from the
 runner's external build target and generated `.fixtures` directory. Tests never
 silently skip when those inputs are missing. Proof fixtures contain only public
 statements/proofs and public synthetic genesis, and are generated deterministically.
@@ -85,3 +85,10 @@ Next promotion gate: fresh-genesis validator execution of this exact combined
 relation and current authority, followed by certified wallet obligations and
 merchant disclosure/redemption. None may inherit this local receipt as proof of
 consensus. See the [design](../../docs/superpowers/specs/2026-10-04-atomic-private-treasury-design.md).
+
+The qualifier captures committed source before execution and refuses any source
+change before reporting. It binds the bounded regular verifier binary digest to
+the build log, all ledger verifier calls and the result, refusing metadata
+substitution. This remains a local evidence model: someone able to rewrite both
+the report and every log/hash can fabricate a receipt. No signed or independently
+attested publisher provenance is claimed.

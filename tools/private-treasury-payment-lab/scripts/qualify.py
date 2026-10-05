@@ -65,12 +65,23 @@ def python_log(log):
     if len(passed)!=len(set(passed)) or set(passed)!=PYTHON_TESTS:raise ValueError('Python test roster differs')
     if not re.search(r'\nRan 13 tests in [0-9.]+s\n\nOK\n',log):raise ValueError('Python run incomplete')
 def canonical(v):return json.dumps(v,sort_keys=True,separators=(',',':'))
+def validate_binary(row,measured):
+    if type(row) is not dict or set(row)!={'name','bytes','sha256'} or row['name']!='treasury-lab':raise ValueError('binary identity shape')
+    if type(row['bytes']) is not int or not 1<=row['bytes']<=67108864 or not re.fullmatch('[0-9a-f]{64}',row['sha256']):raise ValueError('binary identity bound')
+    if canonical(row)!=canonical(measured):raise ValueError('binary execution identity differs')
+def binary_identity(path):
+    if path.is_symlink() or not path.is_file() or not 1<=path.stat().st_size<=67108864:raise ValueError('regular bounded binary required')
+    raw=path.read_bytes();return {'name':path.name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}
+def source_identity():
+    if git('status','--porcelain').strip():raise ValueError('clean committed source required')
+    return {'commit':git('rev-parse','HEAD').decode().strip(),'tree':git('rev-parse','HEAD^{tree}').decode().strip(),'clean':True,'files':[identity(f) for f in files()]}
 def parse_logs(logs):
     if any('FAILED' in text or 'error:' in text for text in logs.values()):raise ValueError('failed execution log')
     m=rust_log(logs['rust']);python_log(logs['ledger'])
     f=marker(logs['fixtures'],'TREASURY_FIXTURES')
     if canonical(f)!=canonical({'actual_halo2_proofs':6,**m}):raise ValueError('real fixture proofs differ')
-    return {'actual_halo2_proofs':7,'rust_tests':10,'local_ledger_tests':13,'proof_profile':m}
+    binary=marker(logs['build'],'TREASURY_BINARY');validate_binary(binary,binary)
+    return {'actual_halo2_proofs':7,'rust_tests':10,'local_ledger_tests':13,'proof_profile':m,'binary':binary}
 def check(report):
     r=read_json(report)
     if set(r)!={'format','version','status','source','profile','binary','logs','measurements','claims'}:raise ValueError('receipt keys differ')
@@ -94,7 +105,9 @@ def check(report):
         raw=p.read_bytes()
         if len(raw)!=row['bytes'] or hashlib.sha256(raw).hexdigest()!=row['sha256']:raise ValueError('log content differs')
         logs[label]=raw.decode()
-    if canonical(parse_logs(logs))!=canonical(r['measurements']):raise ValueError('measurement differs')
+    measured=parse_logs(logs)
+    validate_binary(r['binary'],measured['binary'])
+    if canonical(measured)!=canonical(r['measurements']):raise ValueError('measurement differs')
     return {'qualified':True,'scope':'trusted local atomic treasury only','actual_halo2_proofs':7,'rust_tests':10,'local_ledger_tests':13}
 def run(command,cwd,env,log_path,timeout,paths):
     if log_path.exists() or log_path.is_symlink():raise ValueError('fresh log required')
@@ -119,19 +132,25 @@ def main():
     # Preserve the Cargo shim name: resolving its Rustup symlink changes CLI dispatch.
     env=dict(os.environ,CARGO_TARGET_DIR=str(target),CARGO_NET_OFFLINE='true')
     paths=[(ROOT,'<source>'),(target,'<target>'),(output.parent,'<evidence>'),(Path.home(),'<home>')]
+    source=source_identity()
     base=[str(cargo),'+1.97.1'];manifest=str(COMPONENT/'halo2/Cargo.toml');logs={}
     logs['rust']=run(base+['test','--release','--locked','--offline','--manifest-path',manifest,'--','--test-threads=1','--nocapture'],ROOT,env,output.with_suffix('.rust.log'),300,paths)
     logs['build']=run(base+['build','--release','--locked','--offline','--manifest-path',manifest,'--bin','treasury-lab'],ROOT,env,output.with_suffix('.build.log'),180,paths)
-    binary=target/'release/treasury-lab';fixture=output.with_suffix('.fixtures')
+    binary=target/'release/treasury-lab';expected_binary=binary_identity(binary);fixture=output.with_suffix('.fixtures')
+    build_log=output.parent/logs['build']['name']
+    with build_log.open('a') as f:f.write('TREASURY_BINARY '+canonical(expected_binary)+'\n')
+    build_raw=build_log.read_bytes();logs['build'].update(bytes=len(build_raw),sha256=hashlib.sha256(build_raw).hexdigest())
     if fixture.exists() or fixture.is_symlink():raise ValueError('fresh fixture directory required')
     logs['fixtures']=run([str(binary),'fixtures',str(fixture)],ROOT,env,output.with_suffix('.fixtures.log'),300,paths)
-    env.update(TREASURY_BINARY=str(binary),TREASURY_FIXTURES=str(fixture))
+    validate_binary(binary_identity(binary),expected_binary)
+    env.update(TREASURY_BINARY=str(binary),TREASURY_FIXTURES=str(fixture),TREASURY_EXPECTED_BINARY_SHA256=expected_binary['sha256'])
     logs['ledger']=run([sys.executable,'-m','unittest','test_ledger','-v'],COMPONENT/'scripts',env,output.with_suffix('.ledger.log'),600,paths)
     measured=parse_logs({k:(output.parent/v['name']).read_text() for k,v in logs.items()})
-    raw=binary.read_bytes()
+    validate_binary(binary_identity(binary),expected_binary)
+    if canonical(source_identity())!=canonical(source):raise ValueError('source changed during qualification')
     r={'format':'1soft/private-treasury-payment-lab-result/v1','version':1,'status':'qualified-local-atomic-treasury',
-       'source':{'commit':git('rev-parse','HEAD').decode().strip(),'tree':git('rev-parse','HEAD^{tree}').decode().strip(),'clean':True,'files':[identity(f) for f in files()]},
-       'profile':read_json(PROFILE),'binary':{'name':binary.name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()},
+       'source':source,
+       'profile':read_json(PROFILE),'binary':expected_binary,
        'logs':logs,'measurements':measured,'claims':CLAIMS}
     with output.open('x') as f:json.dump(r,f,indent=2,sort_keys=True);f.write('\n')
     print(json.dumps(check(output),sort_keys=True))
