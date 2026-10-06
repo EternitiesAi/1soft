@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src import protocol8_transfer as p
-CHECKS = ('profile_identity', 'first_native_proof', 'second_native_proof', 'randomized_proof_distinct', 'wrong_network_refused', 'public_mutation_refused', 'proof_mutation_refused', 'trailing_wire_refused', 'truncated_wire_refused', 'recipient_receive', 'recipient_respend', 'public_state_replay', 'spent_nullifier_refused', 'consumed_intent_refused', 'unknown_root_refused', 'wrong_fee_refused', 'wrong_height_refused', 'wrong_context_refused', 'forged_snapshot_refused', 'legacy_wire_refused', 'legacy_note_refused', 'private_request_refusals', 'processes_reaped')
+CHECKS = ('profile_identity', 'first_native_proof', 'second_native_proof', 'randomized_proof_distinct', 'valid_competing_intent', 'wrong_network_refused', 'public_mutation_refused', 'proof_mutation_refused', 'trailing_wire_refused', 'truncated_wire_refused', 'recipient_receive', 'recipient_respend', 'public_state_replay', 'spent_nullifier_refused', 'consumed_intent_refused', 'unknown_root_refused', 'wrong_fee_refused', 'wrong_height_refused', 'wrong_context_refused', 'forged_snapshot_refused', 'legacy_wire_refused', 'legacy_note_refused', 'private_request_refusals', 'processes_reaped')
 CLAIMS = {'native_recipient_proof': True, 'bounded_public_state_kernel': True, 'consensus_qualified': False, 'cometbft_exercised': False, 'authenticated_genesis_or_height': False, 'custody_qualified': False, 'p7_migration': False, 'production_ready': False, 'real_funds': False, 'recipient_identity': False, 'hostile_host_privacy': False}
 
 def main():
@@ -102,6 +102,11 @@ def main():
     network = fields[1]
     randomized = run('prover', None, requests[0])
     passed('randomized_proof_distinct', randomized != first and p.parse(randomized) == fields and worker.verify(randomized, network))
+    competing_request = bytearray(run('fixture', 'competing', bootstrap))
+    competing = run('prover', None, competing_request)
+    competing_request[:] = b'\x00' * len(competing_request)
+    cp = p.parse(competing)
+    passed('valid_competing_intent', worker.verify(competing, network) and cp[:6] == fields[:6] and (cp[6] != fields[6]) and (cp[10] != fields[10]) and (cp[11] != fields[11]))
     note = run('fixture', 'genesis-note', bootstrap)
     p.need(len(note) == 32, 'genesis note bound')
     genesis = p.initial_state(network=network, asset=fields[2], mission=fields[3], fee=1, notes=[{'kind': 'p8-recipient-v1', 'commitment': note.hex()}], worker=worker)
@@ -125,7 +130,7 @@ def main():
         raw = bytearray(first)
         raw[8 + 32 * index:8 + 32 * (index + 1)] = value.to_bytes(32, 'little')
         return bytes(raw)
-    refuse('spent_nullifier_refused', lambda: p.apply(genesis, state1, mutate(6, 90), 3, worker))
+    refuse('spent_nullifier_refused', lambda: p.apply(genesis, state1, competing, 3, worker))
     refuse('consumed_intent_refused', lambda: p.apply(genesis, state1, mutate(5, 90), 3, worker))
     refuse('unknown_root_refused', lambda: p.apply(genesis, genesis, mutate(4, 90), 2, worker))
     refuse('wrong_fee_refused', lambda: p.apply(genesis, genesis, mutate(9, 2), 2, worker))
@@ -163,7 +168,7 @@ def main():
     p.need(set(checks) == set(CHECKS), 'complete check membership')
     for e in source['runtime_files']:
         p.need((ROOT / e['path']).stat().st_size == e['bytes'] and p.sha((ROOT / e['path']).read_bytes()) == e['sha256'], 'runtime source changed')
-    report = {'format': '1soft/P8-recipient-native-run/v1', 'status': 'passed', 'scope': 'native recipient proof and bounded public state only', 'source': source, 'profile_sha256': p.PROFILE_SHA256, 'profile': p.PROFILE, 'binary_identities': identities, 'bootstrap_hex': bootstrap.hex(), 'genesis': genesis, 'genesis_sha256': p.sha(p.canonical(genesis)), 'final_state': state2, 'state_sha256': p.state_hash(state2), 'public_wires': [first.hex(), second.hex(), randomized.hex()], 'public_wire_sha256': [p.sha(w) for w in (first, second, randomized)], 'checks': checks, 'details': details, 'processes': processes, 'claims': CLAIMS}
+    report = {'format': '1soft/P8-recipient-native-run/v1', 'status': 'passed', 'scope': 'native recipient proof and bounded public state only', 'source': source, 'profile_sha256': p.PROFILE_SHA256, 'profile': p.PROFILE, 'binary_identities': identities, 'bootstrap_hex': bootstrap.hex(), 'genesis': genesis, 'genesis_sha256': p.sha(p.canonical(genesis)), 'final_state': state2, 'state_sha256': p.state_hash(state2), 'public_wires': [first.hex(), second.hex(), randomized.hex(), competing.hex()], 'public_wire_sha256': [p.sha(w) for w in (first, second, randomized, competing)], 'checks': checks, 'details': details, 'processes': processes, 'claims': CLAIMS}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('xb') as f:
         f.write(json.dumps(report, sort_keys=True, indent=2).encode() + b'\n')

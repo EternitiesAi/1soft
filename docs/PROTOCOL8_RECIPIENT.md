@@ -69,8 +69,12 @@ a clean checkout and refuses to overwrite an output. The real local flow is
 two consumed nullifiers and two collected fees. The values and keys in this
 example are documented synthetic fixtures, not private funds or provisioning.
 
-`scripts/check_protocol8_recipient_report.py` independently recomputes three
-public proof verifications and the two-receipt state history. Report-schema
+`scripts/check_protocol8_recipient_report.py` independently recomputes four
+public proof verifications and the two-receipt state history. A separately valid
+competing intent for the first input has the same nullifier and a different
+request/output pair; both the run and public replay refuse it after that input
+is consumed. This tests an actual valid double-spend attempt, rather than
+inferring uniqueness from rejection of a tampered proof. Report-schema
 tests use explicitly fake proofs; they establish rejection behavior, never
 cryptographic verification. Actual execution receipts are registered separately
 after the clean-source run.

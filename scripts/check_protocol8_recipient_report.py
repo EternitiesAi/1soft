@@ -35,7 +35,7 @@ def validate_shape(r, genesis_sha256, verifier_sha256):
     p.need(es == expected, 'complete runtime membership')
     p.need({'src/protocol8_transfer.py', 'scripts/run_protocol8_recipient.py', 'scripts/check_protocol8_recipient_report.py', 'tools/recipient-transfer/PROFILE_V1.json', 'tools/recipient-transfer/halo2/src/circuit.rs', 'tools/recipient-transfer/halo2/src/verifier.rs'}.issubset(names), 'mandatory runtime sources')
     p.need(type(r['bootstrap_hex']) is str and re.fullmatch('[0-9a-f]{64}', r['bootstrap_hex']) is not None, 'bootstrap syntax')
-    p.need(type(r['public_wires']) is list and len(r['public_wires']) == 3 and (type(r['public_wire_sha256']) is list) and (len(r['public_wire_sha256']) == 3), 'public wire membership')
+    p.need(type(r['public_wires']) is list and len(r['public_wires']) == 4 and (type(r['public_wire_sha256']) is list) and (len(r['public_wire_sha256']) == 4), 'public wire membership')
     wires = []
     for raw, digest in zip(r['public_wires'], r['public_wire_sha256']):
         p.need(type(raw) is str and len(raw) == p.PROFILE['wire_bytes'] * 2 and (re.fullmatch('[0-9a-f]+', raw) is not None), 'canonical wire')
@@ -44,6 +44,8 @@ def validate_shape(r, genesis_sha256, verifier_sha256):
         p.need(p.sha(b) == digest, 'wire hash')
         wires.append(b)
     p.need(wires[0] != wires[2] and p.parse(wires[0]) == p.parse(wires[2]), 'randomized transcript')
+    cp, fp = (p.parse(wires[3]), p.parse(wires[0]))
+    p.need(cp[:6] == fp[:6] and cp[6] != fp[6] and (cp[10] != fp[10]) and (cp[11] != fp[11]), 'valid competing statement')
     p.need(type(r['details']) is dict and set(r['details']) == {'spent_nullifier_refused', 'consumed_intent_refused', 'unknown_root_refused', 'wrong_fee_refused', 'wrong_height_refused', 'wrong_context_refused', 'forged_snapshot_refused', 'legacy_wire_refused', 'legacy_note_refused', 'private_request_refusals'}, 'detail membership')
     p.need(r['details']['private_request_refusals'] == ['magic', 'profile', 'parameters', 'verifying_key', 'bootstrap', 'wrong_recipient_key', 'truncated', 'trailing', 'u64_overflow'], 'all private refusal cases')
     rows = r['processes']
@@ -61,7 +63,7 @@ def validate_shape(r, genesis_sha256, verifier_sha256):
         p.need(type(row['elapsed_seconds']) in (int, float) and 0 <= row['elapsed_seconds'] <= 101, 'bounded elapsed')
         p.need(type(row['exit_code']) is int and row['exit_code'] in (0, 1), 'bounded exit')
         p.need(row['resource_limits'] == {'cpu_seconds': 45 if row['binary'] == 'verifier' else 90, 'address_space_bytes': 2 * 1024 ** 3, 'core_bytes': 0}, 'process limits')
-    allowed = {'prover': {'prove'}, 'fixture': {'first', 'second', 'genesis-note'}, 'verifier': {'inspect', 'verify', 'note-root'}}
+    allowed = {'prover': {'prove'}, 'fixture': {'first', 'second', 'competing', 'genesis-note'}, 'verifier': {'inspect', 'verify', 'note-root'}}
     for row in rows:
         p.need(type(row['operation']) is str and row['operation'] in allowed[row['binary']], 'closed operation')
     return wires
@@ -74,7 +76,14 @@ def verify(r, genesis_sha256, verifier, verifier_sha256):
     state = p.replay(r['genesis'], r['final_state'], worker)
     p.need(p.state_hash(state) == r['state_sha256'] and len(state['receipts']) == 2 and (len(state['notes']) == 5) and (state['fees'] == 2), 'exact final state')
     p.need([v['raw'] for v in state['receipts']] == r['public_wires'][:2], 'receipt wire provenance')
-    return {'status': 'passed', 'scope': r['scope'], 'public_proofs_verified': 3, 'state_receipts_replayed': 2, 'state_sha256': r['state_sha256'], 'runtime_files_matched': len(r['source']['runtime_files']), 'verification_processes': worker.runs, 'claims': CLAIMS}
+    first_state = p.apply(r['genesis'], r['genesis'], wires[0], 2, worker)
+    try:
+        p.apply(r['genesis'], first_state, wires[3], 3, worker)
+    except p.Invalid as e:
+        p.need(str(e) == 'P8 note or intent already consumed', 'exact competing refusal')
+    else:
+        raise p.Invalid('valid competing spend accepted')
+    return {'status': 'passed', 'scope': r['scope'], 'public_proofs_verified': 4, 'valid_competing_spend_refused': True, 'state_receipts_replayed': 2, 'state_sha256': r['state_sha256'], 'runtime_files_matched': len(r['source']['runtime_files']), 'verification_processes': worker.runs, 'claims': CLAIMS}
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
