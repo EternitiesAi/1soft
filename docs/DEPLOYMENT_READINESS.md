@@ -145,3 +145,8 @@ native store audit and foreground owner-only ABCI service. It provisions no engi
 or keys and chooses no remote trust. Its [fresh actual caller/recovery receipt](../evidence/protocol8-operator/20261006/operator-02.json)
 passed 11 operator checks and the underlying 22 real recovery checks at clean source
 `c578fee39a484c02328a824c45d107ea43bbc14e`. This is application workflow qualification on one trusted host.
+
+The [protected P8 wallet commands](PROTOCOL8_WALLET_CLI.md) expose authenticated
+import, retained native preparation, one-attempt marking and exact reconciliation.
+Their fresh actual caller journey requires clean-source qualification. The CLI
+dispatches nothing and adds no production key management or custody claim.
