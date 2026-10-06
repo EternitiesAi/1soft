@@ -48,7 +48,8 @@ def abort_owned_tree(proc):
         try:pending.extend(int(x) for x in Path(f'/proc/{pid}/task/{pid}/children').read_text().split())
         except (FileNotFoundError,ProcessLookupError):pass
     for pid,identity in reversed(list(owned.items())):
-        if process_identity(pid)==identity:
+        live=process_identity(pid)
+        if live is not None and live[0]==identity[0]:
             try:os.kill(pid,signal.SIGKILL)
             except ProcessLookupError:pass
     proc.communicate()
