@@ -2,6 +2,37 @@
 use crate::{prover_request, relation, F};
 use ff::{Field, PrimeField};
 
+/// Closed five-field merchant disclosure. No authority openings or proof result.
+/// Input is the pinned request header/public statement followed by recipient,
+/// payment, blind, expiry and note secret (five canonical field encodings).
+pub fn merchant(raw: &[u8]) -> Result<Vec<u8>, &'static str> {
+    const PUBLIC_END: usize = 136 + crate::PUBLIC_COUNT * 32;
+    if raw.len() != PUBLIC_END + 5 * 32 {
+        return Err("merchant-bound");
+    }
+    let mut expanded = vec![0; prover_request::BYTES];
+    expanded[..PUBLIC_END].copy_from_slice(&raw[..PUBLIC_END]);
+    for (index, slot) in [12, 13, 14, 29, 30].iter().enumerate() {
+        let start = PUBLIC_END + slot * 32;
+        expanded[start..start + 32]
+            .copy_from_slice(&raw[PUBLIC_END + index * 32..PUBLIC_END + (index + 1) * 32]);
+    }
+    let decoded = prover_request::syntax(&expanded);
+    expanded.fill(0);
+    let a = decoded?;
+    let w = &a.witness;
+    if a.public[0] != F::from(2)
+        || [1, 2, 3, 18, 26, 28].iter().any(|i| a.public[*i] == F::ZERO)
+        || [16, 26, 28].iter().any(|i| relation::integer(a.public[*i]).is_none())
+        || w.recipient == F::ZERO || w.payment == 0
+        || w.payment_blind == F::ZERO || w.payment_note_secret == F::ZERO
+        || w.payment_expiry < relation::integer(a.public[16]).ok_or("expiry")?
+    {
+        return Err("merchant-opening");
+    }
+    Ok(relation::merchant_note(&a).to_repr().to_vec())
+}
+
 pub fn derive(raw: &[u8]) -> Result<Vec<u8>, &'static str> {
     let end = prover_request::BYTES;
     if raw.len() < end + 2 {

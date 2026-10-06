@@ -8,12 +8,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut raw = Vec::new();
     io::stdin().take(2603).read_to_end(&mut raw)?;
     let result = match args[1].as_str() {
-        "derive" => owner_treasury_lab::note_request::derive(&raw)?,
-        "construct" => owner_treasury_lab::note_request::construct(&raw)?,
-        _ => return Err("operation".into()),
+        "derive" => owner_treasury_lab::note_request::derive(&raw),
+        "construct" => owner_treasury_lab::note_request::construct(&raw),
+        "merchant" => owner_treasury_lab::note_request::merchant(&raw),
+        _ => Err("operation"),
     };
-    io::stdout().write_all(&result)?;
     raw.fill(0);
+    io::stdout().write_all(&result?)?;
     Ok(())
 }
 fn main() {

@@ -35,9 +35,9 @@ class NoteController:
             if not isinstance(exc,Exception):raise
             raise Unavailable('P7 note controller cannot be opened') from None
     def call(self,op,raw):
-        if op not in ('derive','construct') or type(raw) is not bytes or len(raw)>2602:
+        if op not in ('derive','construct','merchant') or type(raw) is not bytes or len(raw)>2602:
             raise ValueError('P7 note controller input bound')
-        bound=256 if op=='derive' else 2088;fd=self._open();child=None;threads=[];replies={}
+        bound={'derive':256,'construct':2088,'merchant':32}[op];fd=self._open();child=None;threads=[];replies={}
         def read(name,stream,limit):
             try:replies[name]=stream.read(limit+1)
             except Exception:replies[name]=None
@@ -99,3 +99,26 @@ class NoteController:
         if tuple(witness)!=w or any(p[i]!=public[i] for i in (0,1,2,3,4,5,6,7,8,14,15,16,17,18,20,25,26,27,28,29)):
             raise Unavailable('P7 constructed request differs from intent')
         return p,w
+
+    def merchant_commitment(self,public,opening):
+        """Native domain604 projection; explicit disclosure, not execution authority."""
+        from protocol7_treasury import integer,parse,PAYMENT_MAGIC
+        if type(public) not in (list,tuple) or len(public)!=30:
+            raise ValueError('P7 exact merchant public statement required')
+        # The envelope parser checks canonical public integers and interval. The
+        # zero proof suffix here is syntax only, never passed to a verifier.
+        p=parse(PAYMENT_MAGIC+b''.join(field(v) for v in public)+bytes(3200))
+        if type(opening) is not dict or set(opening)!={'recipient','payment','payment_blind','payment_expiry','payment_note_secret'}:
+            raise ValueError('P7 closed merchant opening required')
+        w=[ZERO]*31
+        for slot,key in ((12,'recipient'),(14,'payment_blind'),(30,'payment_note_secret')):
+            field(opening[key])
+            if opening[key]==ZERO:raise ValueError('P7 nonzero merchant opening required')
+            w[slot]=opening[key]
+        w[13]=numfield(opening['payment']);w[29]=numfield(opening['payment_expiry'])
+        if opening['payment']==0 or opening['payment_expiry']<integer(p[16]):
+            raise ValueError('P7 merchant amount/expiry refused')
+        full=request_bytes(p,w,self.g)
+        raw=full[:1096]+b''.join(field(w[i]) for i in (12,13,14,29,30))
+        commitment=self.call('merchant',raw).hex();field(commitment)
+        return commitment

@@ -39,6 +39,7 @@ No ticker, listing, investment return or reserve promise follows from code tests
 | P7 bounded proof preparation | [Registered16-check actual arbitrary-payment run](../evidence/protocol7-prover/20261005/prover-qualified-01.json), strict replay checker and4 adversarial receipt tests; exact profile/verifier-only consensus bridge retained | Canonical developer inputs and synthetic openings on one POSIX host; merchant redemption/discovery and production custody remain |
 | P7 encrypted restricted CHANGE custody | [Registered24-check actual import/re-spend/reopen gate](../evidence/protocol7-vault/20261005/vault-qualified-02.json), exact CLI recovery, precise spent/revoked guards and strict replay | One host, external key, finite synthetic notes; rollback/key recovery, discovery and merchant redemption remain |
 | P7 retained authority, status and restart | [Complete36-check v2 actual gate](../evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json), strict proof/certificate replay and 20 early tamper subcases; three payments and five read-only snapshots | One host/external key; no retry/latestness authority; standalone 30 recipe unqualified |
+| P7 certified local merchant fulfillment | [Registered 26-check actual gate](../evidence/protocol7-merchant/20261006/merchant-qualified-03.json), independent public replay, five actual merchant calls and 19 early tamper subcases | Explicit trusted-local disclosure and external key; merchant redemption, public integration and independent private decryption remain |
 | Notes, recipient discovery and redemption | Earlier isolated proof laboratories and P5 finite wallet remain distinct | P7 encrypted note discovery/disclosure/redemption and custody must compose with its certified journal and prover |
 | Scale/history/availability | Deliberately finite profiles and replay | Scalable authenticated pool, receipt availability/pruning and measured resource bounds |
 | Production privacy/security | Specific relation/worker tests only | Independent cryptographic/protocol/custody audit and privacy threat model; no production claim |
@@ -53,6 +54,14 @@ Frontier check: 2026-10-05 | sweep: 2026-10-05-sweep.md@8f8b7fa5db4d559c94419360
 See [the revised mission and development sequence](FRONTIER_DIRECTION_20261005.md).
 The native P4 x402 envelope already exists; external-route acceptance and AP2
 mapping remain separate integration gates. No new runtime gate passed in this check.
+
+Frontier checked again 2026-10-06: no Oct 6 sweep was committed at inspection.
+The Oct 5 sweep revision remains `8f8b7fa5db4d559c9441936022d2511209059957`;
+`2026-10-05-agent-finance-watch.md@062cc88b55a53b85ac45f8d85701c62c52a23282`
+was also consulted. Its exact authorized-resource/execution boundary supports
+precommitted quotes and distinct native/identity/adapter authority. The primary
+[x402 canonicalization change](https://github.com/x402-foundation/x402/commit/606ced026102a16d7724125c6b60d93e3ead770b)
+was verified as research; no acquired code or external integration was activated.
 
 ## Next executable work
 
@@ -81,13 +90,20 @@ five exact AS-OF status snapshots and a post-restart signed H+1 header. The
 readiness/convergence budgets and default cap 8 remain unchanged. Earlier failed
 and interrupted runs remain preserved; standalone 30 remains unqualified.
 
-The next bounded product integration is certified recipient disclosure and local
-fulfillment against an independently retained quote. A certificate and merchant
-commitment alone do not authenticate hidden recipient/value: require the exact
-domain604 opening disclosure or a separately qualified disclosure proof. The
-disclosure includes payment expiry and all native preimage fields; quote/resource
-binding is independent. Merchant-note redemption is a separate relation/state
-gate. Preserve P1-P7 history, external-key custody and finite profile limits.
+Certified P7 disclosure and exact local fulfillment are now registered in
+`evidence/protocol7-merchant/20261006`: 26 actual engine checks, strict public
+replay and 19 early report-tamper subcases pass. The merchant commits to exact
+public resource bytes before payment, verifies all five domain 604 opening terms
+against the exact certified wire, encrypts the disclosure and re-verifies after
+cold open. A discarded application response recovers the same retained local
+result without another wallet attempt. Public replay does not independently
+decrypt the ciphertext; this remains explicit trusted-local disclosure.
+
+The [next native value-transfer gate](RECIPIENT_SPENDING_BOUNDARY.md) is recipient-controlled spending and its
+recipient custody/recovery design. Current ordinary/CHANGE inputs do not by
+themselves authorize spending domain 604 notes. This needs a separately versioned
+relation/profile/state/client change and new actual-engine qualification; never
+reinterpret P7 commitments or silently import another profile's authority.
 Merchant redemption, scalable authenticated history, threshold/key recovery,
 economic/genesis/governance and independent operators remain separate gates.
 
