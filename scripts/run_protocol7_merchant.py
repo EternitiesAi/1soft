@@ -229,20 +229,24 @@ def run(args):
             s=(network.runtime/'app3/state.sqlite').lstat()
             return {'device':s.st_dev,'inode':s.st_ino,'uid':s.st_uid,'mode':s.st_mode&0o777}
         store_before=store_ref()
-        old_app=network.apps[3].pid;old_engine=network.engines[3].pid
-        network.start_engine(2);network.start_engine(3);network.stop_node(3);network.start_app(3);network.start_engine(3)
-        wait_until(lambda:len(network.direct_state(3)['state']['receipts'])==1,150)
+        old_app=network.apps[3].pid
+        # Holding sources removes engines 2/3 from the live-process map. Capture
+        # both engine identities while running, before stop/hold removes them.
+        network.start_engine(2);network.start_engine(3);old_engine=network.engines[3].pid
+        network.stop_node(3);network.start_app(3);network.start_engine(3)
+        new_app=network.apps[3].pid;new_engine=network.engines[3].pid
+        wait_until(lambda:canonical(network.direct_state(3))==canonical(network.direct_state(0)),150)
         restarted=network.hold_sources_without_quorum();network.start_engine(2);network.start_engine(3)
         wait_until(lambda:network.height(0)>=restarted['height']+1,150)
         next_signed=rpc(network.http[0],'commit',{'height':str(restarted['height']+1)})['signed_header']
         certificate=verify_state(restarted,next_signed,rawg,worker);network.hold_sources_without_quorum()
         report['restart']={'witness':restarted,'signed_header':next_signed,'certificate':certificate,
             'store_before':store_before,'store_after':store_ref(),'old_application_pid':old_app,'old_engine_pid':old_engine,
-            'new_application_pid':network.apps[3].pid,'new_engine_pid':network.engines[3].pid}
+            'new_application_pid':new_app,'new_engine_pid':new_engine}
         check('same_store_restart_authenticated',all(canonical(network.direct_state(i))==canonical(network.direct_state(0)) for i in range(4)) and
               restarted['state']['receipts']==observation['state']['receipts'] and book.fulfill(requestid)==canonical(lost) and
               store_before==store_ref() and store_before['uid']==os.getuid() and store_before['mode']==0o600 and
-              old_app!=network.apps[3].pid and old_engine!=network.engines[3].pid)
+              old_app!=new_app and old_engine!=new_engine)
         recertified=copy.deepcopy(record);recertified.update(witness=restarted,signed_header=next_signed,
             certificate=certificate,state_height=restarted['height'])
         if canonical(recertified)==canonical(record):raise AssertionError('distinct actual recertification required')
