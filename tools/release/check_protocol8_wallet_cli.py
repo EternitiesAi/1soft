@@ -21,7 +21,7 @@ def check(path):
     wallet_check(linked);inner=json.loads(inner_bytes);assert inner['source']==r['source'] and inner['wallet_cli']==r['wallet_cli']
     e=r['wallet_cli'];assert not e['forced_cleanup']
     assert all(e[k] is True for k in ('bad_pin_refused','duplicate_owner_refused','early_delivery_refused','output_overwrite_refused'))
-    calls=e['invocations'];responses=e['responses'];assert len(calls)==len(responses)==len(EXPECTED_COMMANDS)==56
+    calls=e['invocations'];responses=e['responses'];assert len(calls)==len(responses)==len(EXPECTED_COMMANDS)==57
     assert tuple(x['command'] for x in calls)==EXPECTED_COMMANDS
     assert {i for i,x in enumerate(calls,1) if x['exit_code']==1}==EXPECTED_REFUSALS
     raw_log=(path.parent/r['cli_log']).read_bytes()
@@ -34,6 +34,9 @@ def check(path):
     runtime_sha=sha(canonical(dict(sorted(runtime.items()))))
     identities=set();native_ids=set();prepare=[];marks=[];bad=[]
     for call,x in zip(calls,responses):
+        assert type(call['pid']) is int and call['pid']>0
+        assert type(call['start_ticks']) is int and call['start_ticks']>0
+        assert type(x['pid']) is int and type(x['start_ticks']) is int
         ident=(call['pid'],call['start_ticks']);assert ident not in identities;identities.add(ident)
         assert call['process_reaped'] is True and call['script_sha256']==script_sha
         assert call['pid']==x['pid'] and call['start_ticks']==x['start_ticks'] and call['command']==x['command']
@@ -47,6 +50,9 @@ def check(path):
         for kind,a in x['native_audits'].items():
             assert kind in ('worker','helper','prover') and a['call_count']==a['reaped_count']==a['retained_count']==len(a['calls'])<=512 and a['timeout_count']==0
             for n in a['calls']:
+                assert type(n['pid']) is int and n['pid']>0
+                birth=n['start_ticks']
+                assert type(birth) is str and birth.isascii() and birth.isdecimal() and int(birth)>0 and birth==str(int(birth))
                 pid=(n['pid'],str(n['start_ticks']));assert pid not in native_ids;native_ids.add(pid)
                 assert n['binary_sha256']==inner['inputs'][kind]['sha256'] and n['process_reaped'] is True and not n['timed_out'] and n['exit_code'] in (0,2)
                 assert n['operation'] in {'worker':{'verify','identities','network-domain','note-root'},'helper':{'key','inspect-note','construct'},'prover':{'prove'}}[kind]

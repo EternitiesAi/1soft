@@ -24,8 +24,8 @@ EXPECTED_COMMANDS=(
     'init','doctor','observe','import-note','prepare','deliver','export','export','prepare','export','prepare',
     'inventory','reconcile','reconcile','mark-attempt','inventory','reconcile','observe','reconcile',
     'inventory','reconcile','inventory','mark-attempt','deliver','init','doctor','observe','import-note',
-    'export','observe','reconcile','inventory','observe','observe','import-note','import-note','inventory')
-EXPECTED_REFUSALS={1,4,6,7,8,9,10,14,25,27,30,42,52,53,54,55}
+    'inventory','export','observe','reconcile','inventory','observe','observe','import-note','import-note','inventory')
+EXPECTED_REFUSALS={1,4,6,7,8,9,10,14,25,27,30,42,53,54,55,56}
 
 def process_identity(pid):
     try:
