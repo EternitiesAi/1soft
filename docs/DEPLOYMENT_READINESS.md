@@ -125,6 +125,10 @@ and public replay are native-component evidence. A subsequent separately version
 and separate native/certificate replay: receive/re-spend, valid conflict refusal,
 ordered dependency proposals, atomic persistence, same-store restart and signed
 AS-OF full state. The static certificate is for state height 3/header height 4;
-it establishes no freshness. Recipient custody/import/recovery, certified wallet
-dispatch and P8 state sync remain gates. No P7 migration, owner-allowance
+it establishes no freshness. The subsequent [P8 encrypted recipient wallet](PROTOCOL8_RECIPIENT_WALLET.md)
+has a [22-check actual receipt](../evidence/protocol8-wallet/20261006/recipient-wallet-02.json):
+signed exact receive import, encrypted cold reopen, arbitrary native preparation,
+discarded-broadcast-reply exact recovery, private recipient delivery and genuine
+certified conflict holds. The wallet has no network dispatcher or automatic retry.
+P8 state sync and production custody remain gates. No P7 migration, owner-allowance
 composition, independent operators or launch readiness is inferred.

@@ -28,8 +28,12 @@ key-controlled receive/re-spend and a bounded native state kernel. Its
 [19-check actual four-validator receipt](evidence/protocol8-validator/20261006/recipient-validator-01.json):
 receive/re-spend, valid competing-spend refusal, ordered proposals, atomic
 persistence, same-store restart and signed AS-OF full-state replay. This is a
-finite synthetic qualification on one host. P8 certified-wallet delivery,
-recipient custody and state sync remain separate gates; no P7 notes migrate.
+finite synthetic qualification on one host. The separate
+[P8 encrypted recipient wallet](docs/PROTOCOL8_RECIPIENT_WALLET.md) has a
+[22-check actual wallet receipt](evidence/protocol8-wallet/20261006/recipient-wallet-02.json):
+exact received-note import, arbitrary native spending, discarded-reply original
+recovery, private recipient delivery and certified conflict holds. P8 state sync,
+production custody and public deployment remain separate gates; no P7 notes migrate.
 
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
 P4/P6 state, and it is not the default browser or merchant path. Its developer
