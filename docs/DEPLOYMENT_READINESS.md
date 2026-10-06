@@ -119,7 +119,12 @@ new publication/spending boundary must be named explicitly when reached.
 [Recipient-controlled notes](PROTOCOL8_RECIPIENT.md) now have a separately
 qualified native receive/re-spend relation and bounded replayed state kernel.
 The synthetic [24-check receipt](../evidence/protocol8-recipient/20261006/recipient-qualified-02.json)
-and public replay do not authenticate live genesis/height or replace P7 validator
-evidence. Required next gates are separately versioned authenticated ABCI/state,
-recipient custody/import/recovery and fresh four-validator qualification. No P7
-merchant-note migration, owner-allowance composition or launch readiness is inferred.
+and public replay are native-component evidence. A subsequent separately versioned
+[P8 validator application](PROTOCOL8_RECIPIENT_CONSENSUS.md) now has a
+[19-check four-validator receipt](../evidence/protocol8-validator/20261006/recipient-validator-01.json)
+and separate native/certificate replay: receive/re-spend, valid conflict refusal,
+ordered dependency proposals, atomic persistence, same-store restart and signed
+AS-OF full state. The static certificate is for state height 3/header height 4;
+it establishes no freshness. Recipient custody/import/recovery, certified wallet
+dispatch and P8 state sync remain gates. No P7 migration, owner-allowance
+composition, independent operators or launch readiness is inferred.
