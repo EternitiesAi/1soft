@@ -33,11 +33,13 @@ recovery use the actual retained-authority CLI without caller-supplied private
 authority. It must refuse a missing stage, stale source commitments and an
 authenticated handoff race before proof/staging with unchanged ciphertext.
 Own-grant revocation remains a distinct exact guard. The earlier24-check custody
-receipt and recipe remain separate. This new gate is unqualified until its clean
-unchanged execution and strict replay are registered.
+receipt and recipe remain separate. Retained progression is covered by the
+[actual combined 36-check v2 receipt](../evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json) at clean unchanged source
+`c0e0e7b15921a2d6f0723575f33771eaae724ecf`, followed by strict replay.
+The standalone 30-check recipe has not separately qualified.
 
-The original cap8 synthetic grant correctly refuses a ninth allowance unit.
-The retained and combined reconciliation recipes use an explicit separate cap10
+The original cap 8 synthetic grant correctly refuses a ninth allowance unit.
+The retained and combined reconciliation recipes use an explicit separate cap 10
 fixture for three positive payments plus fees. The old fixture and cap checks
 are unchanged; an exact native budget regression is required. The combined
 [reconciliation gate](PROTOCOL7_RECONCILIATION.md) covers all30 retained checks
@@ -55,7 +57,7 @@ The clean combined attempt at `74027d260c7d56e3de2093dc6460b72f288894a4`
 is failed, not qualified:33 functional checks plus cleanup/source identity
 completed (35 recorded). Replacement app3 startup timed out before the final
 engine restart/convergence assertion. [Original evidence](../evidence/protocol7-reconciliation-attempts/20261005/reconciliation-failed-01.json)
-is preserved; no strict completed-receipt replay or16-subcase qualification follows.
+is preserved; no strict completed-receipt replay or 16-subcase qualification follows.
 
 The constructor still fully replays the checkpoint and validates its AppHash.
 The repaired durable-block audit advances its own valid prefix with _execute
@@ -65,5 +67,5 @@ compared to the checkpoint. Readiness limits remain unchanged. The focused
 native test passes using actual failed-run public history and explicitly
 synthetic SQLite rows, including exact corrupted-response refusal. This is
 not a same-store engine restart. Repeated prefix auditing is a likely timeout
-cause; a fresh complete36-check engine run and strict replay remain required
-before qualification or merge.
+cause. The fresh combined 36-check v2 run and strict replay now qualify the
+repaired path within the same bounds; the original failed report remains failed.

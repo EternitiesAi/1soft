@@ -18,11 +18,15 @@ security review, production custody and economic design remain release gates.
 |---|---|---|
 | Local browser product (P4 durable alpha) | Native public-ledger payments, spending review, invoices, merchant resources and retained recovery | [First-run guide](docs/LOCAL_DEMO_GUIDE.md), [durable alpha](docs/DURABLE_ALPHA.md), [release architecture](docs/LOCAL_DEVELOPER_RELEASE.md) |
 | Proof-backed owner treasury (P7) | Fresh-network enrollment/revocation/rotation, atomic payment/shared allowance, exact owner/payment recovery after lost acknowledgements | [Owner profile](docs/PROTOCOL7_OWNER_TREASURY.md), [prepared-wire client](docs/PROTOCOL7_CERTIFIED_CLIENT.md), [actual caller receipt](evidence/protocol7-client/20261005/client-qualified-01.json) |
+| Encrypted restricted CHANGE custody (P7) | Exact certified import, encrypted reopen, protected-input re-spend and original-wire recovery | [Custody guide](docs/PROTOCOL7_VAULT.md), [commands](docs/PROTOCOL7_CUSTODY_CLI.md), [24-check receipt](evidence/protocol7-vault/20261005/vault-qualified-02.json) |
+| Retained authority and preparation status (P7) | Three-payment CHANGE 7 -> 4 -> 1 progression, original-wire recovery, AS-OF inspection and full-state restart certificate | [Authority](docs/PROTOCOL7_RETAINED_AUTHORITY.md), [reconciliation](docs/PROTOCOL7_RECONCILIATION.md), [36-check v2 receipt](evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json) |
 
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
-P4/P6 state, and it is not the default browser or merchant path. Its client
-consumes prepared proofs/commands; safe proving and encrypted note discovery
-are the next product integration gate. See the [deployment readiness map](docs/DEPLOYMENT_READINESS.md)
+P4/P6 state, and it is not the default browser or merchant path. Its developer
+path prepares real proofs, retains encrypted CHANGE/private authority and
+inspects original obligations without automatic retry. These receipts cover
+one trusted host with finite synthetic funds. Recipient disclosure/discovery,
+merchant redemption and production custody remain open gates. See the [deployment readiness map](docs/DEPLOYMENT_READINESS.md)
 for the remaining privacy/custody, scale, operator and economic decisions.
 
 ## Selected product direction

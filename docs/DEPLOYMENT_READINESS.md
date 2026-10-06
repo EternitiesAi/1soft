@@ -38,6 +38,7 @@ No ticker, listing, investment return or reserve promise follows from code tests
 | P7 typed client/caller recovery | Registered25-check actual future-owner/payment run; two discarded acknowledgements recovered from exact certificates; stale first claim refused | Typed client and prepared wire; note custody/discovery/redemption remain |
 | P7 bounded proof preparation | [Registered16-check actual arbitrary-payment run](../evidence/protocol7-prover/20261005/prover-qualified-01.json), strict replay checker and4 adversarial receipt tests; exact profile/verifier-only consensus bridge retained | Canonical developer inputs and synthetic openings on one POSIX host; merchant redemption/discovery and production custody remain |
 | P7 encrypted restricted CHANGE custody | [Registered24-check actual import/re-spend/reopen gate](../evidence/protocol7-vault/20261005/vault-qualified-02.json), exact CLI recovery, precise spent/revoked guards and strict replay | One host, external key, finite synthetic notes; rollback/key recovery, discovery and merchant redemption remain |
+| P7 retained authority, status and restart | [Complete36-check v2 actual gate](../evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json), strict proof/certificate replay and 20 early tamper subcases; three payments and five read-only snapshots | One host/external key; no retry/latestness authority; standalone 30 recipe unqualified |
 | Notes, recipient discovery and redemption | Earlier isolated proof laboratories and P5 finite wallet remain distinct | P7 encrypted note discovery/disclosure/redemption and custody must compose with its certified journal and prover |
 | Scale/history/availability | Deliberately finite profiles and replay | Scalable authenticated pool, receipt availability/pruning and measured resource bounds |
 | Production privacy/security | Specific relation/worker tests only | Independent cryptographic/protocol/custody audit and privacy threat model; no production claim |
@@ -72,11 +73,21 @@ Owner sequence remains provenance. Spent and revoked-grant refusals are exact
 guards; merchant outputs retain their separate domain. This is a finite trusted
 host developer custody result, with no rollback or production privacy claim.
 
-The next bounded product increment is private authority progression from a
-retained certified request, so a subsequent CHANGE spend need not resupply
-parent/grant openings. Exact current commitment continuity, fail-closed races,
-encrypted stage and canonical journal CAS must remain authoritative. No auto
-delivery/retry or private-opening export. Preserve P1-P7 history.
+Retained private authority, read-only preparation status and authenticated full-
+state restart are registered in evidence/protocol7-reconciliation/20261006.
+The actual36-check v2 run at clean source `c0e0e7b15921a2d6f0723575f33771eaae724ecf`,
+strict replay and 20 early-tamper subcases pass. CHANGE 7 -> 4 -> 1 composes with
+five exact AS-OF status snapshots and a post-restart signed H+1 header. The
+readiness/convergence budgets and default cap 8 remain unchanged. Earlier failed
+and interrupted runs remain preserved; standalone 30 remains unqualified.
+
+The next bounded product integration is certified recipient disclosure and local
+fulfillment against an independently retained quote. A certificate and merchant
+commitment alone do not authenticate hidden recipient/value: require the exact
+domain604 opening disclosure or a separately qualified disclosure proof. The
+disclosure includes payment expiry and all native preimage fields; quote/resource
+binding is independent. Merchant-note redemption is a separate relation/state
+gate. Preserve P1-P7 history, external-key custody and finite profile limits.
 Merchant redemption, scalable authenticated history, threshold/key recovery,
 economic/genesis/governance and independent operators remain separate gates.
 
