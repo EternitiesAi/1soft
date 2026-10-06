@@ -219,7 +219,7 @@ def run(args):
         d=network.runtime/'bob-wallet';d.mkdir(mode=0o700);key=os.urandom(32);private.extend([key.hex().encode(),field(41).encode()])
         bob=RecipientWallet(d/'wallet',create=True,key=key,wallet_id=os.urandom(32).hex(),recipient_secret=field(41),controller=controller)
         bob.observe(joined,joined_header);commitment=bob.import_note(received,raw=first)
-        ident=bob.prepare(prover,commitment,request=field(71),destination=controller.key(field(51)),payment=4,valid_until=60,payment_expiry=56)
+        ident=bob.prepare(prover,commitment,request=field(71),destination=controller.key(field(51)),payment=4,valid_until=56,payment_expiry=56)
         spend=bob.export(ident);(fixtures/'post-sync-spend.tx').write_bytes(spend)
         check('recipient_from_restored_state',commitment==n.parse(first)[10] and prover.call_count==1 and n.parse(spend)[4] in joined['state']['ledger']['anchors'],{'txid':ident,'origin_state_height':joined['height'],'proof_count':2})
         bob.mark_attempt(ident);reply=network.broadcast(0,spend);n.need(int(reply['code'])==0,'post-sync broadcast refused')
