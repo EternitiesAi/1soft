@@ -138,3 +138,9 @@ reopening. The imported origin stays outside AppHash and audits only real local
 responses after origin. Production custody, signer recovery, independent hosts,
 pruning/scale, economics and specialist review remain gates. No P7 migration,
 owner-allowance composition, freshness or launch readiness is inferred.
+
+The [protected P8 application workflow](PROTOCOL8_OPERATOR.md) wraps explicit
+configuration pins, new private workspace creation, read-only static diagnosis,
+native store audit and foreground owner-only ABCI service. It provisions no engine
+or keys and chooses no remote trust. Its fresh actual caller/recovery gate must
+pass at a clean named source before this integration receives qualification.
