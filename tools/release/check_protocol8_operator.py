@@ -32,6 +32,11 @@ def check(report, path):
         operator.require(init['status'] == 'initialized' and init['database_created'] is False and
             init['native_startup']['valid_proof_verified'] is True and init['native_startup']['corrupt_proof_refused'] is True,
             'native init differs')
+        operator.require(init['genesis_sha256'] == recovery['genesis_sha256'] and
+            init['native_startup']['binary_sha256'] == recovery['inputs']['worker']['sha256'] and
+            init['native_startup']['kat_sha256'] == recovery['genesis']['kat_sha256'] and
+            init['native_startup']['profile_sha256'] == recovery['genesis']['profile_sha256'] and
+            init['engine_executed'] is False and init['consensus_verified'] is False, 'init pins/authority differ')
         operator.require(doctor['status'] == 'configuration-valid' and doctor['files_unchanged'] is True and
             doctor['database_present'] is False and doctor['native_executed'] is False and
             doctor['store_replay_verified'] is False and doctor['consensus_verified'] is False,
@@ -40,7 +45,7 @@ def check(report, path):
             doctor['pins']['worker_sha256'] == recovery['inputs']['worker']['sha256'] and
             doctor['pins']['engine_sha256'] == recovery['inputs']['engine']['sha256'], 'pins differ')
         operator.require(audit['status'] == 'local-store-replayed' and audit['consensus_verified'] is False and
-            audit['freshness_established'] is False, 'audit authority differs')
+            audit['freshness_established'] is False and audit['initialized'] is True, 'audit authority differs')
         for a in (init['worker_audit'], audit['worker_audit']):
             operator.require(a['call_count'] == a['reaped_count'] and a['timeout_count'] == 0 and a['call_count'] > 0
                 and all(c['process_reaped'] is True for c in a['calls']), 'native calls unreaped')
@@ -56,6 +61,33 @@ def check(report, path):
         all(pid in processes and processes[pid]['role'] == 'application' and
             processes[pid]['executable_sha256'] == script_sha and processes[pid]['exit_code'] == 0 for pid in e['normal_pids']),
         'normal operator application lifecycle differs')
+    runtime = {p:x['sha256'] for p,x in report['source']['files'].items() if
+        (Path(p).parent == Path('src') and p.endswith('.py')) or
+        p in ('scripts/protocol8_worker_exec.py', 'scripts/protocol8_operator.py')}
+    runtime_hash = operator.sha(operator.canonical(runtime))
+    artifacts = target.with_name(target.name+'.artifacts')
+    served = set(); stopped = set()
+    for node in range(5):
+        for line in (artifacts/f'app{node}.log').read_text().splitlines():
+            if not line.startswith('{'): continue
+            row = json.loads(line)
+            if row.get('status') not in ('serving-private-application','application-stopped'): continue
+            pid = row['pid']; process = processes[pid]
+            operator.require(pid in e['normal_pids'] and process['node'] == node and
+                type(row['start_ticks']) is int and row['start_ticks'] == process['start_ticks'],
+                'raw operator process identity differs')
+            operator.require(row['engine_started'] is False and row['consensus_verified'] is False, 'raw authority differs')
+            if row['status'] == 'serving-private-application':
+                operator.require(pid not in served and row['genesis_sha256'] == recovery['genesis_sha256'] and
+                    row['worker_sha256'] == recovery['inputs']['worker']['sha256'] and row['runtime_sha256'] == runtime_hash,
+                    'raw serving pins differ')
+                served.add(pid)
+            else:
+                operator.require(pid in served and pid not in stopped and row['socket_removed'] is True,
+                    'raw clean shutdown differs')
+                stopped.add(pid)
+    operator.require(served == stopped == set(e['normal_pids']) and
+        {processes[pid]['node'] for pid in served} == set(range(5)), 'normal serving stream incomplete')
     expected = next(c['evidence'] for c in recovery['checks'] if c['id'] == 'origin_real_suffix_audited')
     audit = e['audit'][4]
     operator.require(audit['origin_marker'] == expected['origin_marker'] and

@@ -203,6 +203,8 @@ def serve(workspace, genesis_sha256, emit):
             with Server(str(root/'a.sock'), app, request_type=Request, response_type=Response,
                         dispatcher=dispatch) as server:
                 previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+                identity = {'pid': os.getpid(), 'start_ticks': int(
+                    Path('/proc/self/stat').read_text().rsplit(')', 1)[1].split()[19])}
                 stopping = threading.Event()
                 def stop(_signal, _frame):
                     if not stopping.is_set():
@@ -210,7 +212,7 @@ def serve(workspace, genesis_sha256, emit):
                         threading.Thread(target=server.shutdown, daemon=True).start()
                 try:
                     for s in previous: signal.signal(s, stop)
-                    emit({'status': 'serving-private-application', 'pid': os.getpid(),
+                    emit({'status': 'serving-private-application', **identity,
                         'genesis_sha256': config['genesis_sha256'], 'worker_sha256': config['worker_sha256'],
                         'runtime_sha256': sha(canonical(config['runtime_files'])),
                         'engine_started': False, 'consensus_verified': False})
@@ -218,6 +220,6 @@ def serve(workspace, genesis_sha256, emit):
                 finally:
                     for s, handler in previous.items(): signal.signal(s, handler)
             require(not server.failed.is_set(), 'application server failed closed')
-            emit({'status': 'application-stopped', 'height': app.height, 'app_hash': app.app_hash,
+            emit({'status': 'application-stopped', **identity, 'height': app.height, 'app_hash': app.app_hash,
                   'socket_removed': not (root/'a.sock').exists(), 'worker_audit': worker.audit(),
                   'engine_started': False, 'consensus_verified': False})

@@ -11,7 +11,6 @@ import time
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT/'src'))
 import protocol8_operator as operator
 import run_protocol8_recovery as recovery
-from run_protocol8_engine import source
 from run_protocol5_engine import _application_ready, _stop
 from run_devnet import wait_until
 
@@ -28,6 +27,7 @@ class Network(recovery.Network):
                                   'normal_pids': [], 'test_pids': [], 'bad_pin_refused': False,
                                   'duplicate_refused': False}
         report['operator'] = self.operator_evidence
+        self.owned_test_endpoints = {}
     def cli(self, command, i, *, bad_pin=False):
         args = [sys.executable, '-B', str(ROOT/'scripts/protocol8_operator.py'), command,
                 '--workspace', str(self.runtime/f'app{i}'), '--genesis-sha256',
@@ -75,14 +75,15 @@ class Network(recovery.Network):
         if crash is not None:
             super().start_app(i, crash=crash)
             self.operator_evidence['test_pids'].append(self.apps[i].pid)
+            self.owned_test_endpoints[i] = (self.apps[i], (self.runtime/f'app{i}/a.sock').lstat().st_ino)
             return
         endpoint = self.runtime/f'app{i}/a.sock'
         if endpoint.exists():
             # Test-only abrupt exits can leave a socket; remove only the fixture's
             # known terminated test endpoint. The operator CLI never does this.
-            old = self.apps.get(i); mode = endpoint.lstat()
+            old, inode = self.owned_test_endpoints.get(i, (None, None)); mode = endpoint.lstat()
             operator.require(old and old.pid in self.operator_evidence['test_pids'] and old.poll() is not None
-                             and stat.S_ISSOCK(mode.st_mode) and mode.st_uid == os.getuid(),
+                             and mode.st_ino == inode and stat.S_ISSOCK(mode.st_mode) and mode.st_uid == os.getuid(),
                              'unknown operator socket retained')
             endpoint.unlink()
         log = (self.runtime/f'app{i}.log').open('ab'); self.handles.append(log)
@@ -134,7 +135,7 @@ def run(args):
         target.get('origin_marker') == expected.get('origin_marker') and target.get('real_response_heights') == expected.get('real_local_response_heights')
             and 'origin_marker' in target,
         len(e.get('invocations', [])) == 17 and all(x['process_reaped'] and type(x['exit_code']) is int for x in e.get('invocations', [])),
-        source() == r['source']]
+        recovery.source() == r['source']]
     result = {'format': '1soft/protocol8-operator-gate/v1', 'status': 'failed',
         'source': r['source'], 'recovery_report': inner.name, 'recovery_report_sha256': operator.sha(inner.read_bytes()),
         'operator': e, 'checks': [{'id':n,'passed':bool(ok)} for n,ok in zip(CHECKS,checks)],
