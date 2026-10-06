@@ -99,3 +99,14 @@ The [typed P7 client](PROTOCOL7_CERTIFIED_CLIENT.md) now has25-check actual call
 The [P7 developer prover](PROTOCOL7_PROVER.md) now accepts canonical Assignment/Witness inputs, produces an independently randomized proof with the exact frozen identities, and atomically retains the exact payment in the certified journal. The [registered clean-source actual run](../evidence/protocol7-prover/20261005/prover-qualified-01.json) passed16 checks, including four-validator settlement, a deliberately lost acknowledgement, signed exact recovery, cold reopening, refusal of redelivery and validator restart. New prover/journal tests passed10 cases; Rust request/binary tests passed2; the existing real-proof journal regression passed10; adversarial receipt tests passed4.
 
 Next qualify encrypted custody and authenticated import/re-spend of actual P7 restricted change notes. Viewing/disclosure cannot confer spend authority, imported owner sequence is provenance rather than note identity, and merchant-note redemption remains a distinct relation. These are synthetic one-host development receipts, not a complete private wallet or production release.
+
+
+## P8 recipient-controlled spending component
+
+The [separate P8 component](PROTOCOL8_RECIPIENT.md) makes received typed notes
+spendable by their recipient key and conserves value across payment/change/fee.
+The finite native proof/public state milestone is separate from existing P7
+consensus evidence. Next integrate a versioned ABCI verifier and authenticated
+state, then recipient custody/import/recovery and fresh four-validator gates.
+P7 migration, shared owner allowance composition, production privacy and launch
+remain unassessed for this profile.
