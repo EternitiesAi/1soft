@@ -130,5 +130,11 @@ has a [22-check actual receipt](../evidence/protocol8-wallet/20261006/recipient-
 signed exact receive import, encrypted cold reopen, arbitrary native preparation,
 discarded-broadcast-reply exact recovery, private recipient delivery and genuine
 certified conflict holds. The wallet has no network dispatcher or automatic retry.
-P8 state sync and production custody remain gates. No P7 migration, owner-allowance
-composition, independent operators or launch readiness is inferred.
+The separate [P8 node recovery](PROTOCOL8_RECOVERY.md) now has a
+[22-check actual state-sync receipt](../evidence/protocol8-recovery/20261006/state-sync-04.json),
+covering real light-client callbacks, durable snapshot lost-reply/re-offer,
+no invented responses, genuine post-sync recipient spending and same-store
+reopening. The imported origin stays outside AppHash and audits only real local
+responses after origin. Production custody, signer recovery, independent hosts,
+pruning/scale, economics and specialist review remain gates. No P7 migration,
+owner-allowance composition, freshness or launch readiness is inferred.

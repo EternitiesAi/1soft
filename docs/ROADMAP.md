@@ -1,6 +1,6 @@
 # Native-coin roadmap — current development gate
 
-Updated 5 October 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
+Updated 6 October 2026. Acceptance gates, not launch promises or dates. “Implemented” below means source exists and its stated development tests have passed; it does not mean production-ready.
 
 The [October 5 frontier reassessment](FRONTIER_DIRECTION_20261005.md) retains the
 private/native treasury mission and prioritizes safe P7 proving/custody first,
@@ -105,8 +105,12 @@ Next qualify encrypted custody and authenticated import/re-spend of actual P7 re
 
 The [separate P8 component](PROTOCOL8_RECIPIENT.md) makes received typed notes
 spendable by their recipient key and conserves value across payment/change/fee.
-The finite native proof/public state milestone is separate from existing P7
-consensus evidence. Next integrate a versioned ABCI verifier and authenticated
-state, then recipient custody/import/recovery and fresh four-validator gates.
-P7 migration, shared owner allowance composition, production privacy and launch
-remain unassessed for this profile.
+The versioned validator application, encrypted recipient wallet and
+[authenticated node recovery](PROTOCOL8_RECOVERY.md) have separately registered
+native/actual-engine evidence. Recovery includes a real Comet light-client import,
+lost final Apply re-offer, full replay, genuine post-sync recipient spend and
+same-store restart. Existing P7 notes/authority are not reinterpreted.
+Next package the protected developer/operator path and qualify explicit local
+integration without expanding to a public network. Independent operators, signer
+recovery, pruning/scale, P7 migration/shared owner composition, economics,
+production privacy/custody and external specialist review remain distinct gates.
