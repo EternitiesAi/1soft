@@ -4,7 +4,7 @@ The executed source and tree are recorded in source-freeze-02.json. Registration
 adds documentation/evidence only; every runtime file in the selected receipt
 must still match. Use a clean checkout with the required Cargo.lock dependencies
 already available. The recorded environment was Linux x86_64 in local Ubuntu WSL,
-rustc1.97.1(8bab26f4f), cargo1.97.1 and Python3.14.4. No network service or validator
+rustc 1.97.1(8bab26f4f), cargo 1.97.1 and Python 3.14.4. No network service or validator
 is needed. The receipt contains public synthetic bootstrap/state/wires; it is
 not key provisioning or a real wallet.
 
@@ -27,5 +27,5 @@ receipt. Authenticate those pins through a source you already trust; copying
 untrusted report values creates no trust. A rebuilt binary may have another
 digest and must be independently accepted; never waive native profile identity
 checks. Public replay recomputes four actual proofs and two accepted receipts,
-then verifies refusal of a valid competing spend. The finite tree has16 slots;
+then verifies refusal of a valid competing spend. The finite tree has 16 slots;
 this is not a public-network, production-custody or scaling benchmark.

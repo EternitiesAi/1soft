@@ -91,7 +91,7 @@ custody/recovery, economics, external review and public deployment remain gates.
 ## Registered execution
 
 The [selected clean-source run](../evidence/protocol8-recipient/20261006/recipient-qualified-02.json)
-passed24 checks. Its [separate public replay](../evidence/protocol8-recipient/20261006/public-replay-02.log)
+passed 24 checks. Its [separate public replay](../evidence/protocol8-recipient/20261006/public-replay-02.log)
 recomputed four actual proofs, two accepted receipts and refusal of the valid
 competing spend. [Review and reproduction](../evidence/protocol8-recipient/20261006/AI_REVIEW.md)
 record the exact scope and remaining gates. These are one-host synthetic native
