@@ -194,7 +194,7 @@ def run(args):
             rows=c.execute('SELECT count(*) FROM p8_blocks').fetchone()[0];origin=c.execute('SELECT height,app_hash,payload_sha256 FROM p8_snapshot_origin WHERE id=1').fetchone()
         check('origin_no_invented_responses',rows==0 and origin==(h,frozen['app_hash'],descriptor['hash'].hex()),{'origin_height':h,'local_response_rows':rows})
         # Rejoin with the marker-only app still live. Its engine store is intact.
-        _restore_source_peers(network);network.start_engine(3)
+        network.start_engine(3);_restore_source_peers(network)
         network.set_empty_blocks(False,commit_delay='60s')
         joined=network.hold_sources_without_quorum()
         wait_until(lambda:canonical(network.direct_state(4))==canonical(joined),180)
@@ -264,7 +264,7 @@ def run(args):
             try:network.close();check('workers_stopped',all(type(r.get('exit_code')) is int for r in report['processes']))
             except Exception as e:report['cleanup_error']={'type':type(e).__name__,'message':str(e)}
         report['checks'].append({'id':'source_unchanged','passed':source()==before,'evidence':{}})
-        if [c['id'] for c in report['checks']]==list(CHECKS) and all(c['passed'] for c in report['checks']) and not report.get('cleanup_error'):
+        if [c['id'] for c in report['checks']]==list(CHECKS) and all(c['passed'] for c in report['checks']) and not report.get('error') and not report.get('cleanup_error'):
             report['status']='qualified-one-host-recipient-recovery'
         output.write_bytes(canonical(report)+b'\n')
     return 0 if report['status']=='qualified-one-host-recipient-recovery' else 1
