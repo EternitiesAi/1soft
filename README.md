@@ -22,6 +22,13 @@ security review, production custody and economic design remain release gates.
 | Retained authority and preparation status (P7) | Three-payment CHANGE 7 -> 4 -> 1 progression, original-wire recovery, AS-OF inspection and full-state restart certificate | [Authority](docs/PROTOCOL7_RETAINED_AUTHORITY.md), [reconciliation](docs/PROTOCOL7_RECONCILIATION.md), [36-check v2 receipt](evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json) |
 | Certified local purchase fulfillment (P7) | Precommitted exact resource quote, native recipient/amount/expiry opening, encrypted disclosure and same-result recovery after a lost reply | [Merchant guide](docs/PROTOCOL7_MERCHANT.md), [26-check actual receipt](evidence/protocol7-merchant/20261006/merchant-qualified-03.json) |
 
+The separate [P8 recipient component](docs/PROTOCOL8_RECIPIENT.md) adds a new
+key-controlled receive/re-spend relation and bounded public state kernel. Its
+local native proof evidence is separate from P7 validator qualification; P8 has
+no validator, certified-wallet or custody integration yet. Its [24-check native
+receipt](evidence/protocol8-recipient/20261006/recipient-qualified-02.json) includes
+a cryptographically valid competing-spend refusal and separate public replay.
+
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
 P4/P6 state, and it is not the default browser or merchant path. Its developer
 path prepares real proofs, retains encrypted CHANGE/private authority and

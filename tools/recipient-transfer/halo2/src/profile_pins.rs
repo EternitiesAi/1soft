@@ -1,0 +1,2 @@
+pub const PARAMS: &str = "76ebe6b75b5281cb1dcc2eb04888968573758672b521522f62abedf6366bb876";
+pub const VK: &str = "48cbe967ecd7c61141f80b14dfb138d566e2c006991603da26f3dc9f0a59b4d1";
