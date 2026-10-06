@@ -13,7 +13,9 @@ from owner_treasury_wallet import read_input
 
 OPS={'create':set(),'inventory':set(),'import-change':{'txid','opening'},
      'prepare':{'commitment','authority','amount','valid_until','request'},
-     'recover-prepared':{'commitment'},'import-prepared':{'txid'}}
+     'prepare-retained':{'source_txid','amount','valid_until','request'},
+     'inspect-prepared':{'commitment'},'recover-prepared':{'commitment'},'import-prepared':{'txid'}}
+PROVING_OPS={'prepare','prepare-retained'}
 MAX_INPUT=8192
 MAX_OUTPUT=32768 # optional public process receipts, never private requests
 FORMAT='1soft/protocol7-custody-command-result/v1'
@@ -41,7 +43,7 @@ def main(argv=None):
             raise ValueError('closed private command required')
         key=hexbytes(request['key'],32)
         if not any(key):raise ValueError('nonzero external key required')
-        if operation=='prepare':
+        if operation in PROVING_OPS:
             if a.prover is None or a.prover_sha256 is None:raise ValueError('explicit measured prover required')
             hexbytes(a.prover_sha256,32)
         elif a.prover is not None or a.prover_sha256 is not None:raise ValueError('unused prover configuration refused')
@@ -63,13 +65,18 @@ def main(argv=None):
             elif operation=='import-change':
                 commitment=vault.import_change(journal,request['txid'],request['opening'])
                 result={'commitment':commitment,'revision':vault.inventory()['revision']}
-            elif operation=='prepare':
+            elif operation in PROVING_OPS:
                 prover=Prover(a.prover,a.prover_sha256,expected_genesis=rawg,worker=worker)
                 prepare_entered=True
-                ident=vault.prepare_payment(journal,prover,request['commitment'],authority=request['authority'],
-                     amount=request['amount'],valid_until=request['valid_until'],request=request['request'])
+                if operation=='prepare':
+                    ident=vault.prepare_payment(journal,prover,request['commitment'],authority=request['authority'],
+                         amount=request['amount'],valid_until=request['valid_until'],request=request['request'])
+                else:
+                    ident=vault.prepare_retained_change(journal,prover,request['source_txid'],
+                         amount=request['amount'],valid_until=request['valid_until'],request=request['request'])
                 result={'txid':ident,'attempts':journal.status(ident)['attempts'],
                         'request':request['request'],'raw_sha256':digest(journal.export(ident))}
+            elif operation=='inspect-prepared':result=vault.preparation_status(journal,request['commitment'])
             elif operation=='recover-prepared':
                 ident=vault.recover_prepared(journal,request['commitment'])
                 result={'txid':ident,'raw_sha256':digest(journal.export(ident))}
@@ -78,7 +85,7 @@ def main(argv=None):
                 result={'commitment':commitment,'revision':vault.inventory()['revision']}
             if a.execution_receipt:
                 result['execution']={'note_controller':controller.runs}
-                if operation=='prepare':result['execution']['prover']=prover.last_run
+                if operation in PROVING_OPS:result['execution']['prover']=prover.last_run
         response={'format':FORMAT,'status':'completed-local-command','operation':operation,'result':result}
         encoded=canonical(response)
         if len(encoded)>MAX_OUTPUT:raise ValueError('public response bound')

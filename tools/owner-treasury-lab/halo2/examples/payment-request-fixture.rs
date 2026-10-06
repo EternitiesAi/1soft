@@ -9,7 +9,11 @@ use owner_treasury_lab::{
 use std::io::{self, Read, Write};
 
 pub fn assignment(bootstrap: [u8; 32]) -> Assignment {
+    assignment_variant(bootstrap, false)
+}
+pub fn assignment_variant(bootstrap: [u8; 32], custody: bool) -> Assignment {
     let (mut context, mut a, mut b) = fixture_pair_domain(network_domain(bootstrap));
+    if custody { a.witness.grant_cap = 10; }
     for item in [&mut a, &mut b] {
         item.public[16] = F::from(60);
         item.witness.grant_expiry = 64;
@@ -48,9 +52,35 @@ pub fn assignment(bootstrap: [u8; 32]) -> Assignment {
     a
 }
 fn main() {
+    let args: Vec<_> = std::env::args().collect();
+    let custody = match args.as_slice() {
+        [_] => false,
+        [_, flag] if flag == "--custody-grant" => true,
+        _ => panic!("synthetic fixture option refused"),
+    };
     let mut raw = Vec::new();
     io::stdin().take(33).read_to_end(&mut raw).unwrap();
     let bootstrap: [u8; 32] = raw.try_into().expect("synthetic 32byte bootstrap");
-    let request = prover_request::encode(&assignment(bootstrap), bootstrap).unwrap();
+    let request = prover_request::encode(&assignment_variant(bootstrap, custody), bootstrap).unwrap();
     io::stdout().write_all(&request).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use owner_treasury_lab::relation::validate;
+    #[test]
+    fn original_allowance_refuses_ninth_unit_separate_custody_fixture_allows_it() {
+        let mut a = assignment([17;32]);
+        assert_eq!(a.witness.grant_cap,8);
+        a.witness.parent_spent=6; a.witness.grant_spent=6;
+        a.witness.parent_version=3; a.witness.grant_version=3;
+        a.witness.payment=1; a.witness.input_value=4; a.witness.change_value=1;
+        derived(&mut a);
+        assert_eq!(validate(&a),Err("cap"));
+        a.witness.grant_cap=10; derived(&mut a);
+        assert_eq!(validate(&a),Ok(()));
+        assert_eq!(assignment_variant([17;32],true).witness.grant_cap,10);
+        assert_eq!(assignment([17;32]).witness.grant_cap,8);
+    }
 }

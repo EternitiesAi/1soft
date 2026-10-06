@@ -40,23 +40,28 @@ class InputPrivacyTests(unittest.TestCase):
             def __exit__(self,*_):pass
         class Vault:
             def prepare_payment(self,*_,**kw):raise OSError('private diagnostic sentinel '+KEY)
+            prepare_retained_change=prepare_payment
         from io import BytesIO
         class Stream:
             def __init__(self,raw=b''):self.buffer=BytesIO(raw)
             def isatty(self):return False
         private=canonical({'key':KEY,'commitment':numfield(5),'authority':{},'amount':1,'valid_until':20,'request':numfield(9019)})
-        output=Stream();fake_stat=type('S',(),{'st_mode':0o100600,'st_uid':os.geteuid(),'st_nlink':1})()
+        fake_stat=type('S',(),{'st_mode':0o100600,'st_uid':os.geteuid(),'st_nlink':1})()
         # Explicit wrapper fault doubles. Actual persistence/lost-return/process
         # boundaries are exercised by the supplied-origin vault tests.
-        with patch.object(m,'arguments',return_value=Args()),patch.object(m.sys,'stdin',Stream(private)),patch.object(m.sys,'stdout',output),\
-             patch.object(m,'read_input',return_value=b'public'),patch.object(m,'digest',return_value='ab'*32),\
-             patch.object(m,'genesis_shape',return_value={'worker_sha256':'ab'*32}),patch.object(Path,'lstat',return_value=fake_stat),\
-             patch.object(m,'Worker'),patch.object(m,'NoteController'),patch.object(m,'CertifiedTreasuryJournal',return_value=Journal()),\
-             patch.object(m,'ChangeVault',return_value=Vault()),patch.object(m,'Prover'):
-            code=m.main([])
-        self.assertEqual(code,1);raw=output.buffer.getvalue();v=json.loads(raw)
-        self.assertTrue(v['status']=='prepare-not-returned' and v['failure_class']=='unknown' and v['reconcile_required'] is True)
-        self.assertFalse(KEY.encode() in raw or b'private diagnostic sentinel' in raw,'fault diagnostic exposed private content')
+        for operation in ('prepare','prepare-retained'):
+            a=Args();a.operation=operation;output=Stream()
+            data=private if operation=='prepare' else canonical({'key':KEY,'source_txid':'ab'*32,
+                 'amount':1,'valid_until':20,'request':numfield(9019)})
+            with patch.object(m,'arguments',return_value=a),patch.object(m.sys,'stdin',Stream(data)),patch.object(m.sys,'stdout',output),\
+                 patch.object(m,'read_input',return_value=b'public'),patch.object(m,'digest',return_value='ab'*32),\
+                 patch.object(m,'genesis_shape',return_value={'worker_sha256':'ab'*32}),patch.object(Path,'lstat',return_value=fake_stat),\
+                 patch.object(m,'Worker'),patch.object(m,'NoteController'),patch.object(m,'CertifiedTreasuryJournal',return_value=Journal()),\
+                 patch.object(m,'ChangeVault',return_value=Vault()),patch.object(m,'Prover'):
+                code=m.main([])
+            self.assertEqual(code,1);raw=output.buffer.getvalue();v=json.loads(raw)
+            self.assertTrue(v['status']=='prepare-not-returned' and v['failure_class']=='unknown' and v['reconcile_required'] is True)
+            self.assertFalse(KEY.encode() in raw or b'private diagnostic sentinel' in raw,'fault diagnostic exposed private content')
 
     def test_actual_sigterm_during_private_input_is_static_unavailable(self):
         p=subprocess.Popen([sys.executable,'-B',str(CLI),*BASE,'inventory'],stdin=subprocess.PIPE,
