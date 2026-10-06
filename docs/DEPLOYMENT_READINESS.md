@@ -142,5 +142,6 @@ owner-allowance composition, freshness or launch readiness is inferred.
 The [protected P8 application workflow](PROTOCOL8_OPERATOR.md) wraps explicit
 configuration pins, new private workspace creation, read-only static diagnosis,
 native store audit and foreground owner-only ABCI service. It provisions no engine
-or keys and chooses no remote trust. Its fresh actual caller/recovery gate must
-pass at a clean named source before this integration receives qualification.
+or keys and chooses no remote trust. Its [fresh actual caller/recovery receipt](../evidence/protocol8-operator/20261006/operator-02.json)
+passed 11 operator checks and the underlying 22 real recovery checks at clean source
+`c578fee39a484c02328a824c45d107ea43bbc14e`. This is application workflow qualification on one trusted host.

@@ -112,7 +112,7 @@ lost final Apply re-offer, full replay, genuine post-sync recipient spend and
 same-store restart. Existing P7 notes/authority are not reinterpreted.
 The [protected operator workflow](PROTOCOL8_OPERATOR.md) adds an explicit fresh
 workspace, static doctor, native store audit and foreground private application
-launcher. Its actual CLI/recovery journey needs exact-source qualification before
-being described as passed. Independent operators, signer
+launcher. Its [registered fresh actual caller receipt](../evidence/protocol8-operator/20261006/operator-02.json)
+passed 11 operator checks alongside the unchanged 22-check recovery journey. Independent operators, signer
 recovery, pruning/scale, P7 migration/shared owner composition, economics,
 production privacy/custody and external specialist review remain distinct gates.

@@ -349,3 +349,14 @@ spend and survives a same-store restart. Historical engine responses remain
 explicitly absent; only real post-origin execution is retained. This is finite
 one-host synthetic development evidence. Independent operators, signer recovery,
 production privacy/custody, scale/economics and public launch remain gates.
+
+## Protected P8 application workflow
+
+The [P8 operator CLI](docs/PROTOCOL8_OPERATOR.md) now has a
+[fresh actual caller receipt](evidence/protocol8-operator/20261006/operator-02.json):
+five pinned private workspaces, read-only configuration diagnosis, foreground
+application serving and native audit of stopped stores. Eleven operator checks
+passed alongside the unchanged 22-check real recovery/recipient-payment journey.
+It provisions no engine, chooses no trust, generates no keys and repairs no store.
+Independent operators, signer recovery, production custody/privacy and public
+launch remain separate gates.
