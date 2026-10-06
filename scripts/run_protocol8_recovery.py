@@ -191,8 +191,8 @@ def run(args):
         check('trusted_snapshot_full_replay',target==frozen and verify_state(target,signed,raw,w)==cert)
         db=network.runtime/'app4/state.sqlite'
         with sqlite3.connect(db) as c:
-            rows=c.execute('SELECT count(*) FROM p8_blocks').fetchone()[0];origin=c.execute('SELECT height,app_hash,payload_sha256 FROM p8_snapshot_origin WHERE id=1').fetchone()
-        check('origin_no_invented_responses',rows==0 and origin==(h,frozen['app_hash'],descriptor['hash'].hex()),{'origin_height':h,'local_response_rows':rows})
+            rows=c.execute('SELECT count(*) FROM p8_blocks').fetchone()[0];origin_marker=c.execute('SELECT height,app_hash,payload_sha256 FROM p8_snapshot_origin WHERE id=1').fetchone()
+        check('origin_no_invented_responses',rows==0 and origin_marker==(h,frozen['app_hash'],descriptor['hash'].hex()),{'origin_height':h,'local_response_rows':rows,'origin_marker':origin_marker})
         # Rejoin with the marker-only app still live. Its engine store is intact.
         network.start_engine(3);_restore_source_peers(network)
         network.set_empty_blocks(False,commit_delay='60s')
@@ -211,10 +211,10 @@ def run(args):
             def produce(self,r):capture(r);return super().produce(r)
         prover=AuditedProver(args.prover,report['inputs']['prover']['sha256'],expected_genesis=raw,worker=w);controllers.extend([controller,prover])
         original={'origin':field(111),'value':20,'expiry':64,'note_secret':field(32),'blind':field(33)}
-        request,origin=controller.construct(original,field(31),[note.hex()],request=field(21),valid_from=2,valid_until=32,fee=1,
+        request,note_origin=controller.construct(original,field(31),[note.hex()],request=field(21),valid_from=2,valid_until=32,fee=1,
             destination=controller.key(field(41)),payment=12,payment_expiry=60,payment_secret=field(42),payment_blind=field(43),change_secret=field(34),change_blind=field(35))
         capture(request);n.need(request[136:552]==first[8:424],'original received note reproduction differs')
-        received={'origin':origin,'value':12,'expiry':60,'note_secret':field(42),'blind':field(43)}
+        received={'origin':note_origin,'value':12,'expiry':60,'note_secret':field(42),'blind':field(43)}
         private.extend(received[k].encode() for k in ('origin','note_secret','blind'))
         d=network.runtime/'bob-wallet';d.mkdir(mode=0o700);key=os.urandom(32);private.extend([key.hex().encode(),field(41).encode()])
         bob=RecipientWallet(d/'wallet',create=True,key=key,wallet_id=os.urandom(32).hex(),recipient_secret=field(41),controller=controller)
@@ -242,8 +242,8 @@ def run(args):
         with sqlite3.connect(db) as c:
             local=[r[0] for r in c.execute('SELECT height FROM p8_blocks ORDER BY height')]
             marker=c.execute('SELECT height,app_hash,payload_sha256 FROM p8_snapshot_origin WHERE id=1').fetchone()
-        check('origin_real_suffix_audited',local==list(range(h+1,current['height']+1)) and marker==origin,
-              {'origin_height':h,'checkpoint_height':current['height'],'real_local_response_heights':local})
+        check('origin_real_suffix_audited',local==list(range(h+1,current['height']+1)) and marker==origin_marker,
+              {'origin_height':h,'checkpoint_height':current['height'],'real_local_response_heights':local,'origin_marker':marker})
         report['worker_audits'].extend({'node':i,'phase':'final',**network.worker_audit(i)} for i in range(5))
         report['worker_audits'].extend({'node':'host','phase':str(i),**worker.audit()} for i,worker in enumerate(workers))
         report['private_audits']=[c.audit() for c in controllers]

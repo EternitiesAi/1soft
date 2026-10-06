@@ -19,6 +19,9 @@ def check(path):
     assert s['metadata']['app_hash']==s['payload']['app_hash'] and s['payload']['genesis']==r['genesis']
     assert digest(canonical(r['genesis']))==r['genesis_sha256']
     assert checks['origin_no_invented_responses']['local_response_rows']==0
+    expected_marker=[h,s['payload']['app_hash'],s['payload_sha256']]
+    assert checks['origin_no_invented_responses']['origin_marker']==expected_marker
+    assert checks['origin_real_suffix_audited']['origin_marker']==expected_marker
     assert checks['origin_real_suffix_audited']['origin_height']==h
     suffix=checks['origin_real_suffix_audited'];assert suffix['real_local_response_heights']==list(range(h+1,suffix['checkpoint_height']+1))
     offers=[e for e in r['state_sync_events'] if e['kind']=='offer_snapshot' and e['result']==1]
@@ -27,7 +30,11 @@ def check(path):
     for offer in offers:
         identity=(offer['pid'],offer['start_ticks']);rows=[e for e in r['state_sync_events'] if (e['pid'],e['start_ticks'])==identity]
         assert all(type(x) is int and x>0 for x in identity)
-        assert any(e['kind']=='after_snapshot_commit' and e['height']==h for e in rows)
+        offer_index=rows.index(offer)
+        commits=[i for i,e in enumerate(rows) if e['kind']=='after_snapshot_commit' and e['height']==h and e['app_hash']==s['payload']['app_hash']]
+        assert len(commits)==1 and commits[0]>offer_index
+        if offer['pid']!=checks['actual_snapshot_commit_crash']['pid']:
+            assert any(i>commits[0] and e['kind']=='apply_snapshot_chunk' and e['index']==s['chunks']-1 and e['height']==h and e['result']==1 for i,e in enumerate(rows))
     assert any(e['kind']=='apply_snapshot_chunk' and e['index']==s['chunks']-1 and e['height']==h and e['result']==1 and e['pid']!=checks['actual_snapshot_commit_crash']['pid'] for e in r['state_sync_events'])
     assert checks['actual_snapshot_commit_crash']['exit_code']==96
     assert r['light_client']['trust_height']==h-1 and r['light_client']['rpc_sources']==[1,2] and r['light_client']['snapshot_peer']==0
@@ -57,6 +64,10 @@ def check(path):
         p=artifacts/a['name'];b=p.read_bytes();assert p.is_file() and not p.is_symlink() and len(b)==a['bytes'] and digest(b)==a['sha256']
     assert json.loads((artifacts/'fixture-genesis.json').read_bytes())==r['genesis']
     assert txid((artifacts/'fixture-post-sync-spend.tx').read_bytes())==r['post_txid']
+    assert [json.loads(line) for line in (artifacts/'state-sync-events.log').read_bytes().splitlines()]==r['state_sync_events']
+    engine_log=(artifacts/'engine4.log').read_text()
+    assert 'Verified ABCI app' in engine_log and 'Snapshot restored' in engine_log
+    assert ('height='+str(h)) in engine_log and ('appHash='+s['payload']['app_hash'].upper()) in engine_log
     print('P8 recovery closed receipt/artifact gate passed: 22 checks, actual state sync/reoffer, two proofs, AS-OF only')
     return r
 if __name__=='__main__':check(Path(sys.argv[1]))
