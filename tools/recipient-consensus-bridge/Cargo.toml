@@ -1,0 +1,27 @@
+[package]
+name = "recipient-consensus-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[features]
+default = []
+fixtures = ["recipient-transfer/prover"]
+
+[[bin]]
+name = "recipient-consensus-bridge"
+path = "src/main.rs"
+
+[[bin]]
+name = "recipient-consensus-fixture"
+path = "src/fixture.rs"
+required-features = ["fixtures"]
+
+[dependencies]
+recipient-transfer = { path = "../recipient-transfer/halo2", default-features = false }
+ff = "=0.14.0"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

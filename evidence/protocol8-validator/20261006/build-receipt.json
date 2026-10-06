@@ -1,0 +1,64 @@
+{
+  "additive_source_diff": [
+    "M\tSOURCE_MANIFEST.json",
+    "A\tdocs/PROTOCOL8_RECIPIENT_CONSENSUS.md",
+    "A\tdocs/plans/P8_VALIDATOR_MILESTONE.md",
+    "A\tscripts/protocol8_worker_exec.py",
+    "A\tscripts/run_protocol8_engine.py",
+    "A\tscripts/serve_abci_p8.py",
+    "A\tsrc/protocol8_abci_server.py",
+    "A\tsrc/protocol8_application.py",
+    "A\tsrc/protocol8_certificate.py",
+    "A\tsrc/protocol8_consensus.py",
+    "A\tsrc/protocol8_worker.py",
+    "A\ttests/test_protocol8_consensus.py",
+    "A\ttests/test_protocol8_engine_report.py",
+    "A\ttools/recipient-consensus-bridge/Cargo.lock",
+    "A\ttools/recipient-consensus-bridge/Cargo.toml",
+    "A\ttools/recipient-consensus-bridge/src/fixture.rs",
+    "A\ttools/recipient-consensus-bridge/src/main.rs",
+    "A\ttools/release/check_protocol8_engine.py"
+  ],
+  "binary_pins": {
+    "engine": {
+      "bytes": 38639579,
+      "sha256": "218628da07bed5d27e178d38d0bef9ecf46f21b214c8e9fea402fd215fccc024"
+    },
+    "fixture": {
+      "bytes": 530848,
+      "sha256": "a6836cf7722b8b2d3f3e850d826cceb2898af404e58a5bb154d550663ae287b8"
+    },
+    "fixture_feature_mode": "fixtures/prover",
+    "fixtures": {
+      "competing": "ad300930ed68611df1720abe3899b659edf74c830a4b0804e8e7ff56175df106",
+      "duplicate-intent": "ebdefe30fd76b03c43cbef2d7c52ec51bd6a5a153a007cf6017addadecc221bd",
+      "first": "b1054250a071c974f2664e6be0bbbdfc041a208879523677b3f999bd05a0d940",
+      "second": "8cb7d8144ab5ba51845054ddaf76d5695d4db7ccd5ab265b7cd3a93c81c59ee7",
+      "wrong-fee": "1478623e7ff949b44b19dda5ceaa07459c5d280818e94b8c5daf8064fe2e33da"
+    },
+    "prover": {
+      "bytes": 2009136,
+      "sha256": "8ede5b5ca14688609d0d6159c790227110e800c3355aa803fede65e9e2e6b48c"
+    },
+    "verifier_feature_mode": "no-default-features",
+    "worker": {
+      "bytes": 1420984,
+      "sha256": "45a63796d74900c255de3a8596c63ad2f066bd354fb958f274a63e50c602550d"
+    }
+  },
+  "build_observation": "Both explicit offline/locked release builds returned exit0 in this session; original compiler stdout is in task tool history.",
+  "feature_tree_sha256": "80c6a50b90c08c02a7bd82797f819bd6f9537b59418b2642e75830e457355fa3",
+  "features": {
+    "recipient-consensus-bridge": [],
+    "recipient-transfer": []
+  },
+  "fixture_command": "cargo build --manifest-path tools/recipient-consensus-bridge/Cargo.toml --locked --offline --release --features fixtures -j 2 --target-dir /home/xnuonux/1soft-p8-consensus-fixture-target-20261006 --bin recipient-consensus-fixture",
+  "format": "1soft/P8-build-receipt/v1",
+  "legacy_runtime_changes": [],
+  "limitations": "Source/build/dependency identity evidence, not reproducible-build certification or a universal opaque-binary feature proof.",
+  "local_execution": "Ubuntu WSL, x86_64-unknown-linux-gnu",
+  "metadata_sha256": "7f966ae4c5091ba6fff1d3f975fe8700ae67203a6b181f7e9d48999ed322ddcd",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)\nbinary: rustc\ncommit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452\ncommit-date: 2026-07-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.97.1\nLLVM version: 22.1.6",
+  "source_commit": "85ed46ed3c28855178544ffc21cde66ea33fcbc3",
+  "verifier_command": "cargo build --manifest-path tools/recipient-consensus-bridge/Cargo.toml --locked --offline --release --no-default-features -j 2 --target-dir /home/xnuonux/1soft-p8-consensus-verifier-target-20261006 --bin recipient-consensus-bridge"
+}
