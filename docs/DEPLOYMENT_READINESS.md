@@ -112,3 +112,14 @@ ready. Record completed increments and the next action in repository records and
 the private session checkpoint. No background executor or scheduled work is
 implied by a saved plan. An external operator, specialist audit, economics or
 new publication/spending boundary must be named explicitly when reached.
+
+
+## P8 recipient component boundary
+
+[Recipient-controlled notes](PROTOCOL8_RECIPIENT.md) now have a separately
+qualified native receive/re-spend relation and bounded replayed state kernel.
+The synthetic [24-check receipt](../evidence/protocol8-recipient/20261006/recipient-qualified-02.json)
+and public replay do not authenticate live genesis/height or replace P7 validator
+evidence. Required next gates are separately versioned authenticated ABCI/state,
+recipient custody/import/recovery and fresh four-validator qualification. No P7
+merchant-note migration, owner-allowance composition or launch readiness is inferred.

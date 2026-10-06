@@ -25,7 +25,9 @@ security review, production custody and economic design remain release gates.
 The separate [P8 recipient component](docs/PROTOCOL8_RECIPIENT.md) adds a new
 key-controlled receive/re-spend relation and bounded public state kernel. Its
 local native proof evidence is separate from P7 validator qualification; P8 has
-no validator, certified-wallet or custody integration yet.
+no validator, certified-wallet or custody integration yet. Its [24-check native
+receipt](evidence/protocol8-recipient/20261006/recipient-qualified-02.json) includes
+a cryptographically valid competing-spend refusal and separate public replay.
 
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
 P4/P6 state, and it is not the default browser or merchant path. Its developer
