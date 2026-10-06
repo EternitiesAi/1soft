@@ -1,12 +1,15 @@
 # P7 local merchant purchase boundary
 
 This adapter connects an immutable local quote to an exact certified P7 payment
-and one retained public resource result. It uses the native domain604 merchant
+and one retained public resource result. It uses the native domain 604 merchant
 note commitment already constrained by the frozen P7 relation. The circuit,
 profile, parameters, verifying key, P1/P2/P3 bytes and `smt-v1` are unchanged.
 
-The initial implementation needs its own clean-source real-engine qualification;
-the earlier wallet or P4 merchant receipts do not qualify this adapter.
+[The registered 26-check actual gate](../evidence/protocol7-merchant/20261006/merchant-qualified-03.json)
+ran at clean source `0af23f47e4d22274fc64c1f11aa5e26114cfd8c6`.
+All 26 checks passed; strict independent public replay and 19 early tamper subcases
+also passed. Five native tests and six storage tests passed, zero skips. These
+receipts cover this local adapter; the earlier wallet/P4 evidence remains distinct.
 
 ## Agreement before payment
 
@@ -25,7 +28,7 @@ is zero, so the value is less than 2^248 and fits the native field without a
 modulus operation. `quote_sha256` separately hashes the canonical core normally.
 This is a versioned local adapter encoding, not a change to consensus.
 
-The exact purchased resource is a nonempty opaque byte string of at most8192
+The exact purchased resource is a nonempty opaque byte string of at most 8192
 bytes. There is no URL normalization, redirect, HTTP route or external retrieval
 in this milestone. A different resource or nonce produces a different request;
 an existing payment cannot be assigned a new quote after it is observed.
@@ -34,12 +37,12 @@ Quotes are purchase terms, not assertions of current spend authority. A positive
 specified grant generation may become unfulfillable; only independently replayed
 certified execution establishes that the payment had valid authority. Genesis
 metadata is not treated as a fresh observation of a post-rotation grant. The local
-adapter restricts `1 <= valid_from < valid_until <=64` and expiry at least
+adapter restricts `1 <= valid_from < valid_until <= 64` and expiry at least
 `valid_until`; it makes no liveness or latest-state guarantee.
 
 ## Exact execution and explicit disclosure
 
-Enrollment requires the exact P7 execution record, including4168-byte wire,
+Enrollment requires the exact P7 execution record, including 4168-byte wire,
 txid/hash, full-state witness, signed next header, receipt and certificate. It
 checks external genesis/bootstrap/profile/verifier/KAT pins, verifies the native
 proof, independently replays the AS-OF state through `checked_observation`, and
@@ -48,9 +51,9 @@ cannot fulfill a quote.
 
 It then checks the quote-derived request against `p18`, network domain `p1`,
 asset/mission, grant ID/generation, owner epoch and exact validity window. The
-measured native note controller accepts exactly1256 bytes: existing pinned
-request header,30 public fields and the five closed disclosure fields. It maps
-recipient/payment/blind/expiry/note-secret to witness12/13/14/29/30 and calls the
+measured native note controller accepts exactly 1256 bytes: existing pinned
+request header, 30 public fields and the five closed disclosure fields. It maps
+recipient/payment/blind/expiry/note-secret to witness 12/13/14/29/30 and calls the
 existing `relation::merchant_note`:
 
 ```text
@@ -71,14 +74,14 @@ different commitment is a deterministic `MerchantError`.
 
 ## Durable local result and privacy boundary
 
-The merchant book requires an owner0700 directory and regular owner0600 SQLite
-files, no symlink parents/hardlinks, a fixed database identity, external256-bit
+The merchant book requires an owner 0700 directory and regular owner 0600 SQLite
+files, no symlink parents/hardlinks, a fixed database identity, external 256-bit
 AES key, opaque book ID and configured recipient/namespace. Creation is explicit
 and exclusive; opening a missing book does not initialize one accidentally.
 SQLite uses WAL, FULL synchronization, foreign keys and bounded exact schema.
 
 An AES-GCM key check catches the wrong key even before the first payment.
-Disclosures are encrypted with unique12-byte nonces. Associated data binds the
+Disclosures are encrypted with unique 12-byte nonces. Associated data binds the
 complete pins, original request and exact certified-origin digest. The key,
 payment blind and note secret are not stored or exported in plaintext. On cold
 open, retained disclosures are decrypted and checked again against the native
@@ -110,7 +113,7 @@ unknown: inspect retained state; the response does not authorize another payment
 
 The actual gate is `scripts/run_protocol7_merchant.py`; independent public replay
 is `tools/release/check_protocol7_merchant.py`. The gate uses one fresh native
-arbitrary proof on four actual pinned CometBFT0.38.25 validators, actual merchant
+arbitrary proof on four actual pinned CometBFT 0.38.25 validators, actual merchant
 commands, five opening mutations, wrong quote/certificate guards, helper failure,
 encrypted cold open, a deliberate application-return discard, exact duplicate
 recovery, read-only store checks, corruption guards and an authenticated same-store
@@ -120,7 +123,7 @@ are deliberate test injections, not uncontrolled incidents or concurrency stress
 The exported ciphertext is not independently decrypted by the public checker;
 its independent guarantee is public proof/certificate/source/artifact replay.
 Private disclosure checks and decryption are measured behavior of this local run.
-P7 domain604 redemption remains a separate relation/state/wallet gate: ordinary
+P7 domain 604 redemption remains a separate relation/state/wallet gate: ordinary
 and CHANGE input notes do not by themselves permit merchant-note redemption.
 
 No public service, deployment, real funds, paid compute or production keys are
