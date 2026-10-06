@@ -338,3 +338,14 @@ The certified treasury wallet [registered receipt](evidence/protocol6-wallet/202
 The [P7 owner treasury](docs/PROTOCOL7_OWNER_TREASURY.md) has registered fresh-domain rotation, reactivation and enrollment evidence:17 checks per four-validator run. Exact owner/payment client recovery and public-release gates remain separately assessed.
 
 The [P7 encrypted restricted CHANGE vault](docs/PROTOCOL7_VAULT.md) now has a [registered24-check actual four-validator receipt](evidence/protocol7-vault/20261005/vault-qualified-02.json): import, encrypted reopen, real command re-spend, exact lost-return recovery, and spent/revoked-grant refusal. [Custody commands](docs/PROTOCOL7_CUSTODY_CLI.md) use protected stdin and an external key. This remains finite trusted-host development custody; merchant redemption, discovery, rollback protection and production privacy are separate gates.
+
+## P8 authenticated node recovery
+
+The separate [P8 recovery store/server](docs/PROTOCOL8_RECOVERY.md) now has a
+[22-check actual-engine receipt](evidence/protocol8-recovery/20261006/state-sync-04.json):
+a fresh nonvalidator imports replayed recipient state through CometBFT's light
+client, recovers a lost final snapshot reply, rejoins, executes a genuine wallet
+spend and survives a same-store restart. Historical engine responses remain
+explicitly absent; only real post-origin execution is retained. This is finite
+one-host synthetic development evidence. Independent operators, signer recovery,
+production privacy/custody, scale/economics and public launch remain gates.

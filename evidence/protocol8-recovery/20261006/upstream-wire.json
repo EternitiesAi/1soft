@@ -1,0 +1,45 @@
+{
+  "status": "passed",
+  "scope": "actual upstream Go snapshot codec fixtures against P8 Request/Response; source inspection of trusted AppHash; separate from engine qualification",
+  "checks": {
+    "offer_fields": true,
+    "load_request": true,
+    "apply_request": true,
+    "list_response": true,
+    "load_response": true,
+    "apply_response": true
+  },
+  "cometbft": "0.38.25",
+  "go": "go version go1.26.0 linux/amd64",
+  "source_commit": "2d7a001e53530add9950bb345e40db754202c592",
+  "inputs": [
+    {
+      "path": "tools/upstream-wireprobe/go.mod",
+      "bytes": 1245,
+      "sha256": "ade8b44d84018adbcc09c366676b3f18c9d28ed43a92addc6dff0b54831cc2a6"
+    },
+    {
+      "path": "tools/upstream-wireprobe/go.sum",
+      "bytes": 6037,
+      "sha256": "f86b35be81c7d4f3f99a603a105bd9daad85d745fdc40925c9cb1e5a8e43d4ff"
+    },
+    {
+      "path": "tools/upstream-wireprobe/main.go",
+      "bytes": 4336,
+      "sha256": "4d9c5db2be07963cba8ecc38f2863e0f812816a47e5b77462b252b4ea2384a23"
+    },
+    {
+      "path": "CometBFT0.38.25/statesync/syncer.go",
+      "bytes": 16874,
+      "sha256": "99249e557ebdd2c5bb0536745c688ce12ab377d8070b905228f3be80cef5b41c"
+    },
+    {
+      "path": "CometBFT0.38.25/statesync/stateprovider.go",
+      "bytes": 7204,
+      "sha256": "48ea511445a32a3525314e41b17ddb9346d98c00ed0071020f158cdbf9e89f8b"
+    }
+  ],
+  "cached_dependencies_only": true,
+  "go_mod_readonly": true,
+  "trusted_boundary": "upstream stateProvider.AppHash verifies light blocks H+1/H+2, syncer forwards snapshot.trustedAppHash to private OfferSnapshot then verifies application height/AppHash"
+}
