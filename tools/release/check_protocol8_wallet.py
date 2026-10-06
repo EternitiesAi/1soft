@@ -22,7 +22,7 @@ def check(path):
     assert all(x['process_reaped'] and x['start_ticks'] is not None and x['exit_code']==0 for x in r['native_processes'])
     assert all(type(x['exit_code']) is int for x in r['processes'])
     artifacts=path.with_name(path.name+'.artifacts');names={x['name'] for x in r['artifacts']}
-    assert names=={f'node{i}.log' for i in range(4)}|{f'app{i}.log' for i in range(4)}|{
+    assert names=={f'engine{i}.log' for i in range(4)}|{f'app{i}.log' for i in range(4)}|{
         'fixture-first.tx','fixture-wallet-spend.tx','fixture-held-competing.tx','fixture-executed-competing.tx','fixture-genesis.json'}
     assert {p.name for p in artifacts.iterdir()}==names
     for x in r['artifacts']:

@@ -70,7 +70,14 @@ def run(args):
             'pool_id':os.urandom(32).hex(),'asset':field(2),'mission':field(3),'fee':1,'network':field(1),'notes':[]}
         bootstrap=bytes.fromhex(bootstrap_digest(g));domain=preliminary.network_domain(bootstrap)
         private=invoke('fixture','first',bootstrap)
-        first=invoke('prover',None,private);secrets.extend(private[i:i+32].hex().encode() for i in range(552,1160,32))
+        # These are the secret/origin/blind fields. Destination is a public key;
+        # value/expiry/position/path are not credential material. Do not classify
+        # the receiver's public H810 key as a leaked recipient secret.
+        private_slots=(0,1,4,5,14,15,17,18)
+        def capture(request):
+            secrets.append(request.hex().encode())
+            secrets.extend(request[552+i*32:584+i*32].hex().encode() for i in private_slots)
+        capture(private);first=invoke('prover',None,private)
         private=None;note=invoke('fixture','genesis-note',bootstrap)
         g.update(network=domain,notes=[{'kind':'p8-recipient-v1','commitment':note.hex()}],kat_sha256=digest(first));raw=canonical(g)
         fixtures=network.runtime/'proof-fixtures';fixtures.mkdir(mode=0o700);network.paths['fixtures']=fixtures
@@ -79,7 +86,11 @@ def run(args):
         report.update(genesis=g,genesis_sha256=digest(raw),bootstrap_sha256=bootstrap.hex())
         check('fresh_native_receive_proof',genesis_document(raw,w)==g and w.verify(first,domain) and domain!=preliminary.kat_statement[1])
         controller=NoteController(args.helper,report['inputs']['helper']['sha256'],expected_genesis=raw,worker=w)
-        prover=Prover(args.prover,report['inputs']['prover']['sha256'],expected_genesis=raw,worker=w);controllers.extend([controller,prover])
+        class AuditedProver(Prover):
+            def produce(self,request):
+                capture(request)
+                return super().produce(request)
+        prover=AuditedProver(args.prover,report['inputs']['prover']['sha256'],expected_genesis=raw,worker=w);controllers.extend([controller,prover])
         # Exact synthetic first output origin, reproduced using frozen native H816.
         original={'origin':field(111),'value':20,'expiry':64,'note_secret':field(32),'blind':field(33)}
         req,origin=controller.construct(original,field(31),[note.hex()],request=field(21),valid_from=2,valid_until=32,
@@ -142,7 +153,7 @@ def run(args):
         stable=bob.path.read_bytes();result=canonical(recovered);bob=RecipientWallet(bob.path,**bobargs)
         check('recovery_cold_reopen_idempotent',canonical(bob.reconcile(ident))==result and bob.path.read_bytes()==stable and
               bob.inventory()['obligations'][0]['attempts']==1 and refuse(lambda:bob.mark_attempt(ident)) and prover.call_count==2)
-        cdir=network.runtime/'carol-wallet';cdir.mkdir(mode=0o700);ckey=os.urandom(32);secrets.append(ckey.hex().encode())
+        cdir=network.runtime/'carol-wallet';cdir.mkdir(mode=0o700);ckey=os.urandom(32);secrets.extend([ckey.hex().encode(),field(51).encode()])
         delivered=bob.output_opening(ident);secrets.extend(delivered[k].encode() for k in ('origin','note_secret','blind'))
         carolwallet=RecipientWallet(cdir/'wallet',create=True,key=ckey,wallet_id=os.urandom(32).hex(),recipient_secret=field(51),controller=controller)
         carolwallet.observe(spent,spent_header);imported=carolwallet.import_note(delivered,raw=wire)
