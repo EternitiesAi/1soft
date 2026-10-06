@@ -10,7 +10,7 @@ sys.path.insert(0,str(ROOT/'tools/release'));spec.loader.exec_module(check)
 class ReportTests(unittest.TestCase):
     def test_closed_claim_check_source_binary_artifact_process_and_ciphertext_refusals(self):
         path=Path(os.environ['P7_RECONCILIATION_REPORT']);v=check.load(path)
-        for label in ('extra','claim','check','candidate','spent_reason','grant_reason','source','binary','artifact','process','ciphertext','cli','retained_reason','handoff','retry_authority','snapshot_cli'):
+        for label in ('extra','claim','check','candidate','spent_reason','grant_reason','source','binary','artifact','process','ciphertext','cli','retained_reason','handoff','retry_authority','snapshot_cli','restart_state','restart_store','restart_process','restart_certificate'):
             bad=copy.deepcopy(v)
             if label=='extra':bad['unsupported']=True
             elif label=='claim':bad['claims']['rollback_detection']=True
@@ -28,6 +28,10 @@ class ReportTests(unittest.TestCase):
             elif label=='handoff':next(c for c in bad['checks'] if c['id']=='authenticated_handoff_race_refused')['evidence']['prover_calls']=1
             elif label=='retry_authority':bad['preparation_statuses']['second_attempted']['retry_authorized']=True
             elif label=='snapshot_cli':bad['cli_commands'][1]['result']['attempts']=1
+            elif label=='restart_state':bad['restart']['observed']['state']['treasury']['fees']+=1
+            elif label=='restart_store':bad['restart']['after_store']['inode']+=1
+            elif label=='restart_process':bad['restart']['engine']['pid']=1
+            elif label=='restart_certificate':bad['restart']['certificate']['state_height']+=1
             else:bad['cli_commands'][0]['result']['execution']['prover']['exit_code']=1
             with self.subTest(label=label),patch.object(check,'Worker',side_effect=AssertionError('early metadata refusal must precede worker')):
                 with self.assertRaises(ValueError):check.validate(bad,path,os.environ['P7_RECONCILIATION_CHECK_WORKER'])

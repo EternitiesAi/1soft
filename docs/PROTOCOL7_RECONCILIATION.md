@@ -75,3 +75,23 @@ synthetic SQLite rows, including exact corrupted-response refusal. This is
 not a same-store engine restart. Repeated prefix auditing is a likely timeout
 cause; a fresh complete36-check engine run and strict replay remain required
 before qualification or merge.
+
+## Strengthened restart acceptance (qualification pending)
+
+The v2 combined report adds a closed authenticated restart record. The runner
+compares all four complete states at a quorum-held checkpoint, reopens node3's
+same private SQLite inode, records replacement application/engine identities,
+and verifies a signed H+1 header for the complete post-restart state. The strict
+checker independently replays that certificate, binds the checkpoint to the
+final certified payment history and refuses noncanonical prefix substitutions.
+Existing readiness/convergence limits are unchanged. A read-only AI review
+found no remaining restart-specific defect; it is not external certification.
+
+Run02 at c1ec545 was intentionally interrupted early before payment execution
+to replace the receipt-only restart predicate; its raw failed status and logs
+are [preserved separately](../evidence/protocol7-reconciliation-attempts/20261005/aborted-02/REASON.md).
+The focused metadata test uses actual failed-run public history with explicitly
+synthetic process/store identities and rejects seven substitutions despite
+equal receipt lists. It does not prove engine convergence. Fresh complete v2
+execution, independent certificate/proof replay and20 early-tamper subcases
+remain required before qualification or merge.

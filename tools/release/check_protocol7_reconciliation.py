@@ -3,19 +3,54 @@
 import argparse,json,re,subprocess,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2];sys.path.insert(0,str(ROOT/'src'));sys.path.insert(0,str(ROOT/'scripts'))
-from protocol7_treasury import canonical,digest,bootstrap_digest,genesis_document,parse,txid,need,PROFILE,PROFILE_SHA256,field,integer,numfield,ZERO
+from protocol7_treasury import canonical,digest,bootstrap_digest,genesis_document,application_hash,parse,txid,need,PROFILE,PROFILE_SHA256,field,integer,numfield,ZERO
 from protocol7_worker import Worker
 from protocol7_wallet import checked_observation,_resolve
+from protocol7_certificate import verify_state
 from protocol7_vault import ENVELOPE
 from run_protocol7_reconciliation import CHECKS,CLAIMS,SOURCE_NAMES
 from run_protocol7_engine import SOURCE_PREFIXES,ENGINE_SHA256
 from check_protocol7_prover import FIXTURES,load
 
+def validate_restart_metadata(r,processes,rawg):
+    keys={'format','node','before','after','observed','signed_header','certificate','before_store','after_store',
+          'old_application','application','engine','latest_state_guaranteed'}
+    need(type(r) is dict and set(r)==keys and r['format']=='1soft/protocol7-authenticated-restart/v1'
+         and type(r['node']) is int and r['node']==3 and r['latest_state_guaranteed'] is False,'P7 closed authenticated restart required')
+    for name in ('before','after','observed'):
+        s=r[name]
+        need(type(s) is dict and set(s)=={'genesis','height','app_hash','state'} and canonical(s['genesis'])==rawg
+             and type(s['height']) is int and 0<=s['height']<64 and type(s['state']) is dict
+             and set(s['state'])=={'version','treasury','receipts','blocks'} and type(s['state']['version']) is int and s['state']['version']==7
+             and type(s['state']['blocks']) is list and len(s['state']['blocks'])==s['height']
+             and application_hash(s['genesis'],s['height'],s['state'])==s['app_hash'],'P7 restart full state identity differs')
+    before=r['before'];after=r['after']
+    need(canonical(r['observed'])==canonical(after) and after['height']>=before['height']
+         and canonical(after['state']['blocks'][:before['height']])==canonical(before['state']['blocks'])
+         and all(b['transactions']==[] and b['results']==[] for b in after['state']['blocks'][before['height']:])
+         and canonical({**after['state'],'blocks':after['state']['blocks'][:before['height']]})==canonical(before['state']),
+         'P7 restart full checkpoint differs')
+    store=r['before_store']
+    need(type(store) is dict and set(store)=={'device','inode','uid','mode'}
+         and all(type(x) is int and x>=0 for x in store.values()) and store['inode']>0 and store['mode']==0o600
+         and r['after_store']==store,'P7 restart same private store differs')
+    matched={}
+    for name,role in (('old_application','application'),('application','application'),('engine','engine')):
+        p=r[name];need(type(p) is dict and set(p)=={'pid','start_ticks'} and all(type(x) is int and x>0 for x in p.values()),'P7 restart process reference')
+        rows=[row for row in processes if row['role']==role and row['node']==3 and all(row[k]==p[k] for k in p)]
+        need(len(rows)==1,'P7 restart measured process missing');matched[name]=rows[0]
+    need(matched['application']['start_ticks']>matched['old_application']['start_ticks']
+         and matched['engine']['start_ticks']>=matched['application']['start_ticks'],'P7 replacement application/engine order differs')
+    cert=r['certificate'];need(type(cert) is dict and cert.get('state_height')==after['height']
+         and cert.get('header_height')==after['height']+1 and cert.get('app_hash')==after['app_hash'],
+         'P7 restart certificate metadata differs')
+    return r
+
 def validate(v,path,worker_binary):
     keys={'format','status','source','checks','claims','inputs','commands','records','transports','prover_runs',
           'genesis','genesis_sha256','bootstrap_sha256','imported_note','vault_inventory','vault_ciphertext',
-          'controller_runs','artifacts','processes','cli_commands','preparation_statuses'}
-    need(type(v) is dict and set(v)==keys and v['format']=='1soft/protocol7-preparation-reconciliation-engine/v1'
+          'controller_runs','artifacts','processes','cli_commands','preparation_statuses','restart'}
+    need(type(v) is dict and set(v)==keys and v['format']=='1soft/protocol7-preparation-reconciliation-engine/v2'
          and v['status']=='qualified-one-host-preparation-reconciliation','P7 closed completed custody report required')
     need(type(v['claims']) is dict and set(v['claims'])==set(CLAIMS)
          and all(v['claims'][k] is b for k,b in CLAIMS.items()),'P7 custody unsupported claim')
@@ -81,6 +116,9 @@ def validate(v,path,worker_binary):
         need(p['executable_sha256']==want,'P7 process identity differs')
     need(len(byrole['fixture-prover'])==1 and len(byrole['arbitrary-prover'])==3 and len(byrole['custody-cli'])==8
          and roles=={(r,i) for r in ('engine','application') for i in range(4)},'P7 four-validator/prover coverage')
+    restart=validate_restart_metadata(v['restart'],processes,canonical(v['genesis']))
+    need(evidence['same_store_restart_converges']=={'node':3,'full_state':True,'signed_next_header':True,'same_store':True},
+         'P7 full authenticated restart evidence differs')
     runs=v['prover_runs'];need(type(runs) is list and len(runs)==3,'P7 three arbitrary proofs required')
     for run,p in zip(runs,byrole['arbitrary-prover']):
         need(type(run) is dict and set(run)=={'pid','start_ticks','exit_code','binary_sha256','request_bytes','response_bytes'}
@@ -148,6 +186,8 @@ def validate(v,path,worker_binary):
     need(Path(worker_binary).stat().st_size==inputs['worker']['bytes'],'P7 worker size differs');genesis_document(rawg,worker)
     need(g['worker_sha256']==inputs['worker']['sha256'] and digest(rawg)==v['genesis_sha256']
          and bootstrap_digest(g)==v['bootstrap_sha256'] and json.loads(artifacts['fixture-genesis.json'])==g['treasury'],'P7 genesis pins differ')
+    need(verify_state(restart['after'],restart['signed_header'],rawg,worker)==restart['certificate'],
+         'P7 independently replayed restart certificate differs')
     records=v['records'];need(type(records) is dict and set(records)=={'first','other_revoke','second','third','active_revoke'},'P7 exact execution roster')
     observations={};wires={};public={}
     rkeys={'format','genesis','genesis_sha256','profile_sha256','worker_sha256','kat_sha256','bootstrap_sha256',
@@ -172,6 +212,11 @@ def validate(v,path,worker_binary):
     need(type(note) is dict and set(note)=={'commitment','agent_key','nullifier','root','path'} and type(note['path']) is list and len(note['path'])==4,'P7 public imported note shape')
     for x in (note['commitment'],note['agent_key'],note['nullifier'],note['root'],*note['path']):field(x)
     t0=observations['first']['state']['treasury'];t1=observations['other_revoke']['state']['treasury'];t2=observations['second']['state']['treasury'];t3=observations['third']['state']['treasury'];t4=observations['active_revoke']['state']['treasury']
+    final=observations['active_revoke'];before=restart['before']
+    need(before['height']>=final['height'] and canonical(before['state']['blocks'][:final['height']])==canonical(final['state']['blocks'])
+         and all(b['transactions']==[] and b['results']==[] for b in before['state']['blocks'][final['height']:])
+         and canonical({**final['state'],'blocks':before['state']['blocks']})==canonical(before['state']),
+         'P7 restart final certified history differs')
     need(note['commitment']==first[23] and note['agent_key']==first[29] and note['nullifier']==second[21]
          and note['root']==worker.note_root(t0['notes'])==second[20] and t0['notes']==t1['notes'],'P7 actual change input binding differs')
     # The verified second proof checks its private opening and authenticated

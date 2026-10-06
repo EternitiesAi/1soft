@@ -31,7 +31,7 @@ CHECKS=('source_clean','engine_identity','fresh_network_bound_genesis','all_four
         'active_grant_revocation_certified','revoked_grant_refused_before_proving',
         'forged_certificate_preserves_custody','status_operations_are_read_only','four_validator_agreement',
         'same_store_restart_converges','workers_stopped','source_unchanged')
-CLAIMS={'actual_readonly_preparation_reconciliation':True,'retained_private_authority_progression':True,'restricted_change_encrypted_custody':True,'actual_imported_change_respend':True,
+CLAIMS={'authenticated_full_state_restart':True,'actual_readonly_preparation_reconciliation':True,'retained_private_authority_progression':True,'restricted_change_encrypted_custody':True,'actual_imported_change_respend':True,
         'actual_local_custody_caller':True,
         'owner_sequence_is_provenance':True,'exact_journal_recovery':True,
         'one_host_four_validators':True,'synthetic_openings':True,'external_key_required':True,
@@ -43,6 +43,7 @@ SOURCE_NAMES=(*engine.SOURCE_NAMES,'scripts/run_protocol7_reconciliation.py','to
               'tests/test_protocol7_vault.py','tests/test_protocol7_reconciliation_report.py',
               'tests/test_protocol7_custody_cli.py',
               'tests/test_protocol7_retained.py','tests/test_protocol7_preparation_status.py',
+              'tests/test_protocol7_restart_audit.py','tests/test_protocol7_restart_metadata.py',
               'tools/owner-treasury-lab/halo2/tests/note_request.rs')
 
 def source():
@@ -55,7 +56,7 @@ def run(args):
     output=args.output.absolute()
     if output.exists() or output.with_name(output.name+'.artifacts').exists():raise FileExistsError('fresh custody report required')
     before=source();network=journal=controller=None;ciphertext=None;cli_controller_runs=[]
-    report={'format':'1soft/protocol7-preparation-reconciliation-engine/v1','status':'failed','source':before,
+    report={'format':'1soft/protocol7-preparation-reconciliation-engine/v2','status':'failed','source':before,
             'checks':[],'claims':CLAIMS.copy(),'inputs':{},'commands':[],
             'records':{},'transports':{},'prover_runs':[],'cli_commands':[],'preparation_statuses':{}}
     status_readonly=[]
@@ -347,9 +348,34 @@ def run(args):
         check('status_operations_are_read_only',len(status_readonly)==5 and all(status_readonly))
         live=network.direct_state(0)
         check('four_validator_agreement',all(canonical(network.direct_state(i))==canonical(live) for i in range(4)))
+        store=network.runtime/'app3/state.sqlite'
+        def store_identity():
+            st=store.stat();return {'device':st.st_dev,'inode':st.st_ino,'uid':st.st_uid,'mode':st.st_mode&0o777}
+        def process_reference(process):
+            row=next(r for r in network.receipts if r['pid']==process.pid)
+            return {'pid':row['pid'],'start_ticks':row['start_ticks']}
+        old_application=process_reference(network.apps[3]);before_store=store_identity()
         network.start_engine(2);network.start_engine(3);network.stop_node(3);network.start_app(3);network.start_engine(3)
-        wait_until(lambda:len(network.direct_state(3)['state']['receipts'])==5,150)
-        check('same_store_restart_converges',network.direct_state(3)['state']['receipts']==revoked['witness']['state']['receipts'])
+        def full_restart_converged():
+            reference=network.direct_state(0);observed=network.direct_state(3)
+            return observed if reference['height']>=live['height'] and canonical(observed)==canonical(reference) else None
+        wait_until(full_restart_converged,150)
+        after=network.hold_sources_without_quorum();observed=network.direct_state(3)
+        if canonical(observed)!=canonical(after) or not all(canonical(network.direct_state(i))==canonical(after) for i in range(4)):
+            raise AssertionError('post-restart full states differ')
+        application=process_reference(network.apps[3]);after_store=store_identity()
+        network.start_engine(2);network.start_engine(3);restarted_engine=process_reference(network.engines[3])
+        wait_until(lambda:network.height(0)>=after['height']+1,150)
+        signed=rpc(network.http[0],'commit',{'height':str(after['height']+1)})['signed_header']
+        certificate=verify_state(after,signed,rawg,worker)
+        report['restart']={'format':'1soft/protocol7-authenticated-restart/v1','node':3,
+            'before':live,'after':after,'observed':observed,'signed_header':signed,'certificate':certificate,
+            'before_store':before_store,'after_store':after_store,'old_application':old_application,
+            'application':application,'engine':restarted_engine,'latest_state_guaranteed':False}
+        network.hold_sources_without_quorum()
+        check('same_store_restart_converges',before_store==after_store and before_store['mode']==0o600
+              and after['state']['receipts']==revoked['witness']['state']['receipts'],
+              {'node':3,'full_state':True,'signed_next_header':True,'same_store':True})
         report['vault_inventory']=inv;ciphertext=vaultpath.read_bytes()
         report['vault_ciphertext']={'bytes':len(ciphertext),'sha256':digest(ciphertext),'header':json.loads(ciphertext)['header']}
     except Exception as exc:report['error']={'type':type(exc).__name__,'message':str(exc)}

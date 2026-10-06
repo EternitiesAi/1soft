@@ -1,0 +1,24 @@
+P7_VAULT_CHECK source_clean True
+P7_VAULT_CHECK engine_identity True
+P7_VAULT_CHECK fresh_network_bound_genesis True
+P7_VAULT_CHECK workers_stopped True
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/scripts/run_protocol7_reconciliation.py", line 381, in <module>
+    if __name__=='__main__':main()
+                            ~~~~^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/scripts/run_protocol7_reconciliation.py", line 380, in main
+    p.add_argument('--candidate',action='store_true');raise SystemExit(run(p.parse_args()))
+                                                                       ~~~^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/scripts/run_protocol7_reconciliation.py", line 100, in run
+    network.install_genesis(rawg,worker);network.start_sources()
+                                         ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/scripts/run_protocol5_engine.py", line 364, in start_sources
+    self.start_app(index)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/scripts/run_protocol7_client.py", line 49, in start_app
+    wait_until(lambda:_application_ready(self,i,p,socket),90)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/scripts/run_devnet.py", line 103, in wait_until
+    time.sleep(.15)
+    ~~~~~~~~~~^^^^^
+KeyboardInterrupt
