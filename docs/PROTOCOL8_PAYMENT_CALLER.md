@@ -94,8 +94,15 @@ request. A second genuine competing spend must produce a signed conflict hold.
 The fixture also constructs a prepared journal, records an actual encrypted-wallet
 marker through the wallet CLI and observes the resulting incomplete state without
 submission. It does not kill a process at that marker or claim such a crash test.
-The fresh actual gate requires clean-source qualification before being described
-as passed. Closed receipt checks establish consistency; separate native replay
+The [fresh actual caller receipt](../evidence/protocol8-payment-caller/20261006/payment-02.json)
+passed 13 caller checks and all 22 actual wallet checks at clean runtime source
+`a7dc356c640be4f001c5f5772eca35de72e1029e`. All 53 wallet and 15 payment CLI processes were
+reaped. One real node request was forwarded only after its durable markers; the
+reply was discarded and signed exact execution recovered without a second request.
+Thirty altered receipts refused; separate native replay verified four proofs and
+three signed AS-OF states. Thirteen focused methods and 21 wallet/process regressions
+passed without skips. Constructed interruption state used an actual encrypted
+wallet marker and no network send; process termination at that marker was not induced. Closed receipt checks establish consistency; separate native replay
 verifies public proofs/certificates.
 
 The fixture's separate initial funding and genuine competitor transactions use

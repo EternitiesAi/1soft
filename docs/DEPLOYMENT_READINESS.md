@@ -155,4 +155,5 @@ dispatches nothing and adds no production key management or custody claim.
 
 The separate [local payment caller](PROTOCOL8_PAYMENT_CALLER.md) explicitly
 submits once and retains uncertain outcomes for signed reconciliation. Its fresh
-actual gate remains pending; admission does not establish execution or freshness.
+actual receipt passed 13 caller and 22 wallet checks; admission still does not
+establish execution or freshness.

@@ -123,4 +123,5 @@ passed 13 caller checks and the unchanged 22-check actual wallet journey.
 
 The [local P8 payment caller](PROTOCOL8_PAYMENT_CALLER.md) now joins retained
 wallet intent to one explicit loopback submission and signed reconciliation.
-Its new actual caller gate requires clean-source qualification.
+Its [fresh actual caller receipt](../evidence/protocol8-payment-caller/20261006/payment-02.json)
+passed 13 caller checks and all 22 underlying actual wallet checks.
