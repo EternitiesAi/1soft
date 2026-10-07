@@ -17,7 +17,7 @@ they are not retained in public receipts/logs or browser storage. This is a loca
 operator display, not hostile-browser/host confidentiality. No CDN or third-party
 assets/telemetry are loaded. Display values are inserted as text, never HTML.
 
-Each server has a fresh in-memory session token, exact127.0.0.1 origin/Host checks,
+Each server has a fresh in-memory session token, exact `127.0.0.1` origin/Host checks,
 same-origin request checks, no CORS, no-store headers, frame refusal and a strict
 content policy. Duplicate action IDs are claimed before child execution, and
 concurrent actions refuse. A lost HTTP reply never retries an action. The durable
@@ -79,7 +79,8 @@ private opening choose “Private opening” and use a new path named
 In Carol's window, load inputs after Bob's settlement/delivery, authenticate
 state, import the exact output and repeat the example payment back to Bob.
 Use `settle carol`, then signed recovery. Each wallet has its own one-request
-transport budget. There is no automatic broadcast, retry or reconciliation.
+transport budget. There is no automatic broadcast, retry or reconciliation;
+reconciliation is an explicit operator action after the dropped reply.
 This fixture's plaintext inspection is test orchestration only; the wallet
 server itself reads no wallet plaintext and retains protected caller authority.
 
@@ -91,3 +92,84 @@ and remain separately labeled. Qualification requires the native browser gate
 and fresh inherited validator journey; neither a screenshot nor a source manifest
 substitutes for those results. Production custody, browser/host hostility,
 independent operators, current-network freshness and public launch remain open.
+
+## Retained qualification
+
+The [actual browser receipt](../evidence/protocol8-alpha/20261007/alpha-05.json)
+captured clean source `8a8dce9a9973db2ccee0a026babddf13f02ea23f` and passed all
+ten alpha checks. Its 24 protected console actions cover two separate synthetic
+wallet flows. Bob's payment executed, was recovered from a lost reply without a
+second attempt, and was privately delivered. Carol imported that exact output,
+executed a second payment back to Bob, and recovered its exact execution from
+another lost reply. Both deliberate repeated submits refused without additional
+transport I/O. The four validators agreed; all owned processes were stopped.
+Only cleared overview screenshots were retained, at desktop and 390px widths.
+
+The [closed checker and independent native replay](../evidence/protocol8-alpha/20261007/alpha-independent-replay.json)
+validated three distinct public proofs and three signed AS-OF states using the
+actual pinned verifier in a separate run. It binds role, original wire, txid,
+one-forward proxy, signed execution, source membership and process lifecycles.
+The final CLI requires `--worker`; its library's explicit structure-only result
+is weaker and cannot serve as native qualification. New receipt regression tests
+refuse 51 coherent semantic alterations, including the process/source omissions
+found during independent AI review. This is not an external cryptographic audit.
+
+The [inherited fresh guide run](../evidence/protocol8-alpha/20261007/guide-alpha-01.json)
+executed clean source `3a699ae94f76399e520138301a3a2965c42c2e14` with the new worker;
+its guide, journey, console, payment and wallet gates passed. Its recipient
+re-spend remains prepared/exported/natively verified; the second chain execution
+claim comes specifically from the separate browser run. The inherited independent
+replay checked five proofs and three signed states; 215 altered inherited receipts
+were refused. Final focused units passed 150 P8 plus 18 HTTP methods with no skips; the
+HTTP financial child is a labeled stub. Coverage tests passed 32 methods. The
+whole-current-checkout release suite was not run for this milestone.
+
+The [startup measurement](../evidence/protocol8-alpha/20261007/startup-measurement-01.json)
+has three alternating legacy/batch pairs. Their medians were 27.500946096s and
+7.744740465s, a 3.550919 ratio in this bounded one-host component sample. Both
+logical proof checks and actual parameter/key identities remained required;
+malformed/context requests and a wrong binary pin refused, with all workers reaped.
+No end-to-end or hardware-independent performance claim follows.
+
+The [successor preservation receipt](../evidence/protocol8-alpha/20261007/successor-preservation.json)
+binds the 85 prior protected runtime files to merged PR #85. Exactly
+`src/protocol8_worker.py` and `scripts/protocol8_worker_exec.py` change;
+the other 83 and all 829 prior historical evidence files retain their bytes.
+Native verifier/bridge and additive interface/checker/tests are separately
+registered. Historical receipts keep their original captured revisions and are
+not silently requalified. Existing configurations refuse the changed pins.
+
+Negative attempts are retained. Alpha01 refused a hard-linked Cargo worker;
+alpha02 refused a hard-linked fixture before network startup. Owned single-link
+copies with unchanged binary hashes resolved those preflights. Alpha03 exposed a
+Windows-to-WSL loopback readiness race; a bounded read-only GET probe now checks
+each page before browser actions, without retaining HTML/session tokens or
+retrying financial actions. Alpha04 received funds but refused preparation from
+an arbitrary 256-bit request outside the protocol field. Canonical nonzero field
+generation and a corrected public prepare-state assertion resolved it. Alpha05
+passed. No old wallet, global WSL/network configuration or public endpoint changed.
+
+`alpha-native-replay-01.log` retains an initial checker field-path error before
+native replay. The next replay passed but its receipt source-member counter used
+a shadowed artifact-count variable; that historical receipt is
+`alpha-independent-replay-01.json`. The final fresh replay03 and canonical
+`alpha-independent-replay.json` correctly report 252 source members. No proof or
+acceptance check was removed. Registration/checker changes after the executed
+browser revision do not change the executed wallet or native source bytes.
+
+Recheck retained evidence on the trusted Linux host:
+
+```sh
+python -B tools/release/check_protocol8_alpha.py \
+  evidence/protocol8-alpha/20261007/alpha-05.json \
+  --worker /absolute/path/to/owned-pinned-recipient-consensus-bridge \
+  --output /new/private/path/replay.json
+python -B -m unittest discover -s tests -p test_protocol8_alpha_receipt.py -v
+python -B -m unittest discover -s tools/p8-wallet/tests -p test_wallet_app.py -v
+```
+
+The checker requires the recorded worker SHA256. Build the bridge from the
+captured source using the locked release dependency graph; keep a separately
+owned single-link executable for protected callers. Compiled binary reproducibility
+across toolchains is not established. The Windows/WSL browser gate additionally
+requires the explicitly selected local Playwright driver and browser executable.

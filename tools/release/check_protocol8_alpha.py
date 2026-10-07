@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Closed public alpha receipts and optional independent native signed-state replay."""
 import argparse,json,sys
+from collections import Counter
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'tools/release')]
@@ -16,6 +17,16 @@ CLAIMS={'one_trusted_host':True,'synthetic_funds':True,'actual_browser_required'
 CHECKS=('fresh_native_four_validators','actual_browser_two_wallet_flow','two_lost_reply_one_attempts',
  'two_signed_exact_recoveries','recipient_received_funds_used','duplicate_submit_refused_without_io',
  'native_children_reaped','owned_servers_nodes_stopped','known_private_material_absent','source_unchanged')
+SOURCE_PREFIXES=('src/','scripts/','tools/recipient-transfer/','tools/recipient-consensus-bridge/',
+ 'tools/shielded-consensus/halo2/','tools/recipient-wallet/','tools/p8-wallet/')
+SOURCE_FIXED={'tests/test_protocol8_consensus.py','tests/test_protocol8_engine_report.py',
+ 'tools/release/check_protocol8_engine.py','tools/release/check_protocol8_native.py'}
+ENGINE_SHA256='218628da07bed5d27e178d38d0bef9ecf46f21b214c8e9fea402fd215fccc024'
+
+def identity(row):
+    assert type(row['pid']) is int and row['pid']>0
+    assert type(row['start_ticks']) is int and row['start_ticks']>0
+    return row['pid'],str(row['start_ticks'])
 
 def check(path,worker=None):
     raw=path.read_bytes();assert 0<len(raw)<=8*1024**2
@@ -27,9 +38,38 @@ def check(path,worker=None):
     assert r['claims']==CLAIMS and all(type(v) is bool for v in r['claims'].values())
     assert r['source']['clean'] is True and r['source_unchanged'] is True and r['cleanup_errors']==[]
     assert [c['id'] for c in r['checks']]==list(CHECKS) and all(c['passed'] is True for c in r['checks'])
+    # The frozen producer map must have its entire declared membership. The
+    # delivered manifest separately binds checker/tests/docs, including this file.
+    manifest=json.loads((ROOT/'SOURCE_MANIFEST.json').read_bytes())
+    expected_source=SOURCE_FIXED|{row['path'] for row in manifest['files'] if row['path'].startswith(SOURCE_PREFIXES)}
+    assert set(r['source']['files'])==expected_source
     for name,meta in r['source']['files'].items():
         assert not Path(name).is_absolute() and '..' not in Path(name).parts
         data=(ROOT/name).read_bytes();assert len(data)==meta['bytes'] and n.sha(data)==meta['sha256']
+    assert set(r['inputs'])=={'engine','worker','helper','fixture','prover'}
+    assert r['inputs']['engine']['sha256']==ENGINE_SHA256
+    fixture_ids=set()
+    assert [(p['binary'],p['operation']) for p in r['native_processes']]==[
+        ('fixture','first'),('prover','prove'),('fixture','genesis-note')]
+    for p in r['native_processes']:
+        assert set(p)=={'binary','operation','pid','start_ticks','binary_sha256','exit_code','process_reaped'}
+        key=identity(p);assert key not in fixture_ids;fixture_ids.add(key)
+        assert p['binary_sha256']==r['inputs'][p['binary']]['sha256']
+        assert type(p['exit_code']) is int and p['exit_code']==0 and p['process_reaped'] is True
+    network_ids=set();roster=Counter()
+    for p in r['processes']:
+        assert set(p)=={'role','node','pid','start_ticks','executable_sha256','exit_code'}
+        key=identity(p);assert key not in network_ids|fixture_ids;network_ids.add(key)
+        assert p['role'] in ('application','engine') and type(p['node']) is int and p['node'] in range(4)
+        assert type(p['exit_code']) is int and p['exit_code']==(-15 if p['role']=='application' else 0)
+        expected_hash=r['source']['files']['scripts/serve_abci_p8.py']['sha256'] if p['role']=='application' else ENGINE_SHA256
+        assert p['executable_sha256']==expected_hash;roster[(p['role'],p['node'])]+=1
+    assert all(roster[('application',i)]==1 for i in range(4))
+    # Initial start plus global empty-block reset for 0/1. For 2/3 also:
+    # staged receive resume, three signed packets and two settlements. Seven
+    # holds can each add at most seven retry pairs. No inferred worker row.
+    assert roster[('engine',0)]==roster[('engine',1)]==2
+    assert 8<=roster[('engine',2)]==roster[('engine',3)]<=57
     browser=r['browser'];assert browser['status']=='passed-actual-browser-flow'
     assert browser['driver_sha256']==r['source']['files']['tools/p8-wallet/tests/browser_native.test.cjs']['sha256']
     assert set(browser['transport_readiness'])=={'bob','carol'}
@@ -56,7 +96,10 @@ def check(path,worker=None):
         expected=('observe','import-note','guide','prepare','review','submit','status','reconcile','submit','export','deliver','guide')
         assert tuple(a['command'] for a in rows)==expected
         assert [a['status'] for a in rows]==['console-completed']*8+['refused']+['console-completed']*3
-        for a in (rows[4],rows[5],rows[6],rows[7],rows[9],rows[10]):assert a['console_receipt']['view']['txid']==ident
+        review=rows[4]['console_receipt']['view']
+        assert review['review']['txid']==ident and review['can_submit'] is True
+        assert review['review']['attempts']==0 and review['review']['completed'] is False
+        for a in (rows[3],rows[5],rows[6],rows[7],rows[9],rows[10]):assert a['console_receipt']['view']['txid']==ident
         assert rows[5]['console_receipt']['view']['state']==rows[6]['console_receipt']['view']['state']=='attempted-outcome-unknown'
         assert rows[7]['console_receipt']['view']['state']=='executed-exact'
         assert all(rows[i]['console_receipt']['view']['attempts']==1 for i in (5,6,7))
@@ -105,6 +148,8 @@ def check(path,worker=None):
         for c in a['calls']:
             assert c['binary_sha256']==r['inputs'][kind]['sha256'] and c['process_reaped'] is True and c['timed_out'] is False and c['exit_code'] in (0,2)
             key=(c['pid'],str(c['start_ticks']));assert str(c['start_ticks']).isdecimal()
+            assert type(c['pid']) is int and c['pid']>0 and int(c['start_ticks'])>0
+            assert key not in fixture_ids|network_ids
             if key in native_ids:assert native_ids[key]==c
             native_ids[key]=c
     for a in actions:
@@ -121,7 +166,7 @@ def check(path,worker=None):
             assert call['command']==reply['command'] and call['process_reaped'] is True and call['diagnostic_present'] is False
             assert call['stdout_bytes']==len(n.canonical(reply)+b'\n') and call['stdout_sha256']==n.sha(n.canonical(reply)+b'\n')
             assert all(reply[k] is False for k in ('automatic_retry','freshness_established','production_ready'))
-    assert all(type(p['exit_code']) is int for p in r['processes'])
+    assert not {(pid,str(ticks)) for pid,ticks in process_ids}&(fixture_ids|network_ids|set(native_ids))
     replay=None
     if worker is not None:
         assert n.sha(worker.read_bytes())==r['genesis']['worker_sha256']==r['inputs']['worker']['sha256']
@@ -135,6 +180,8 @@ def check(path,worker=None):
     # Only the required replay mode may emit a qualified release result.
     return {'status':'passed-closed-alpha-native-replay' if replay else 'passed-alpha-receipt-structure-only','actual_browser_payments':2,'one_request_proxies':2,
       'unique_native_processes':len(native_ids),'console_processes':len(process_ids),'independent_replay':replay,
+      'fixture_native_processes':len(fixture_ids),'validator_application_processes':len(network_ids),
+      'complete_producer_source_membership':len(expected_source),
       'recognized_fixture_secret_scan':{'patterns_tested':len(needles),'public_small_field_exclusions':len(known)-len(needles),
           'unknown_random_private_keys_available':False,'universal_secret_detection':False},
       'private_review_values_retained':False,'scope':'One trusted host, synthetic disposable browser wallet flow; no production/public-launch certification'}
