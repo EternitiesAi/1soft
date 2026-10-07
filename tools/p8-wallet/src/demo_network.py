@@ -115,7 +115,11 @@ class Demo:
         n.need(self.report['source']['clean'],'committed clean source required for disposable demo')
         for name in ('engine','worker','helper','fixture','prover'):
             p=getattr(self.args,name);n.need(p.is_file() and not p.is_symlink(),'actual native binary required')
-            self.report['inputs'][name]={'bytes':p.stat().st_size,'sha256':n.sha(p.read_bytes())}
+            # Cargo may hard-link its release artifact. The protected CLI
+            # requires a separately owned single-link executable, without
+            # changing any trust rule. Refuse before starting validators.
+            data=cli.read_file(p,(64 if name=='engine' else 32)*1024**2,executable=True)
+            self.report['inputs'][name]={'bytes':len(data),'sha256':n.sha(data)}
         n.need(self.report['inputs']['engine']['sha256']==ENGINE_SHA256 and subprocess.check_output([str(self.args.engine),'version'],text=True).strip()=='0.38.25','frozen actual engine')
         preliminary=Worker(self.args.worker,self.report['inputs']['worker']['sha256'],self.args.kat.read_bytes());self.workers.append(preliminary)
         self.net=gate.Network({'engine':self.args.engine,'worker':self.args.worker},self.output,self.report)
@@ -180,7 +184,8 @@ class Demo:
             opening=self.wallets['bob']['path'].parent/'recipient-opening'
             wire=self.wallets['bob']['path'].parent/'exact-wire'
         recovery=self.settled.get(role,packet)
-        return {'format':'1soft/synthetic-demo-inputs/v1','forms':{
+        return {'format':'1soft/synthetic-demo-inputs/v1',
+          'output_paths':{'export':str(row['path'].parent/'exact-wire'),'deliver':str(row['path'].parent/'recipient-opening')},'forms':{
           'observe-form':{'packet':str(packet)},'import-form':{'opening':str(opening),'source':'received','wire':str(wire),'output_index':'10'},
           'prepare-form':{'destination':json.loads((self.wallets[other]['workspace']/'wallet-cli.json').read_bytes())['wallet_pins']['recipient_key'],
              'payment':'4' if role=='bob' else '2','valid_until':'48','payment_expiry':'56'},
@@ -225,7 +230,7 @@ class Demo:
             self.validate()
             self.report['status']='qualified-one-host-synthetic-browser-alpha'
         except Exception as exc:
-            self.report['status']='failed' if browser else 'stopped-unqualified-interactive-demo'
+            self.report['status']='failed' if browser or 'failure_type' in self.report else 'stopped-unqualified-interactive-demo'
             self.report['qualification_error_type']=type(exc).__name__
         self.output.write_bytes(n.canonical(self.report)+b'\n')
         return {'event':'finished','status':self.report['status'],'evidence':self.output.name}

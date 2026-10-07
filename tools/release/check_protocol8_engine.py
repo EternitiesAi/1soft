@@ -90,6 +90,7 @@ def validate(v,path,binary):
                 call['binary_sha256']==g['worker_sha256'] and call['operation'] in ('verify','note-root','network-domain','identities','startup') and
                 type(call['input_bytes'])is int and 0<=call['input_bytes']<=4096 and type(call['output_bytes'])is int and 0<call['output_bytes']<=256,'P8 actual bounded verifier call')
     need(w.call_count==w.reaped_count and not w.timeout_count,'P8 independent replay worker lifecycle')
+    batch_startup(w.audit())
     return {'qualified':True,'check_count':len(CHECKS),'source_commit':s['commit'],'source_tree':s['tree'],
         'genesis_sha256':v['genesis_sha256'],'state_height':witness['height'],'certificate_header_height':cert['header_height'],
         'actual_fixture_proofs':5,'accepted_txids':expected,'replay_processes_reaped':w.reaped_count,

@@ -1,7 +1,7 @@
 'use strict';
 const $=(id)=>document.getElementById(id);
 const token=document.querySelector('meta[name="1soft-session"]').content;
-let busy=false,reviewed=null,lastView=null;
+let busy=false,reviewed=null,lastView=null,demoOutputs=null;
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);}
 function page(name){
   for(const el of document.querySelectorAll('.page'))el.hidden=el.id!==name;
@@ -55,10 +55,12 @@ if(demo)demo.addEventListener('click',async()=>{
     const response=await fetch('/api/context',{method:'POST',headers:{'Content-Type':'application/json','X-1soft-Session':token},credentials:'omit',cache:'no-store',body:'{}'});
     if(!response.ok)throw new Error('Synthetic inputs unavailable.');
     const v=await response.json();
+    demoOutputs=v.output_paths;
     for(const [form,values] of Object.entries(v.forms))for(const [name,value] of Object.entries(values))$(form).elements[name].value=value;
     notice(v.message); // Only paths/public fixture values. No action, proof or confirmation starts here.
   }catch(e){notice(e.message,true);}
 });
+$('output-form').elements.kind.addEventListener('change',e=>{if(demoOutputs)$('output-form').elements.output.value=demoOutputs[e.target.value];});
 $('commitment').addEventListener('change',prepareInstruction);
 $('txid').addEventListener('input',()=>{reviewed=null;$('review-panel').hidden=true;$('send').disabled=true;});
 $('observe-form').addEventListener('submit',async e=>{e.preventDefault();await action('observe',fields(e.target));});
