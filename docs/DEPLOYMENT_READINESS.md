@@ -152,3 +152,8 @@ Their [fresh actual caller receipt](../evidence/protocol8-wallet-cli/20261006/wa
 passed 13 caller checks and 22 actual wallet checks at clean source
 `051f8397a5bc57ccc21a428b6bd57a8c14f0c141`. The CLI
 dispatches nothing and adds no production key management or custody claim.
+
+The separate [local payment caller](PROTOCOL8_PAYMENT_CALLER.md) explicitly
+submits once and retains uncertain outcomes for signed reconciliation. Its fresh
+actual receipt passed 13 caller and 22 wallet checks; admission still does not
+establish execution or freshness.

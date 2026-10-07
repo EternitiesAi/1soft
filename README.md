@@ -371,3 +371,12 @@ explicit private delivery. Thirteen caller checks passed alongside the unchanged
 22-check four-validator wallet journey. All 57 CLI invocations were reaped.
 The command requires external custody inputs and sends no transaction. Production
 key management, network freshness, independent hosts and public launch remain gates.
+
+## Local P8 payment caller
+
+The [payment caller](docs/PROTOCOL8_PAYMENT_CALLER.md) now submits an exact
+retained wallet wire once to an explicit loopback node, keeps a lost reply
+unknown, and reconciles through signed state. Its [fresh actual receipt](evidence/protocol8-payment-caller/20261006/payment-02.json)
+passed 13 caller checks and the unchanged 22-check four-validator wallet journey.
+The real node admitted one exact request; the caller received no reply and later
+recovered exact execution without resubmission. Public launch remains a separate gate.

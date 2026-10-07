@@ -1,0 +1,793 @@
+I[2026-10-06|20:04:01.910] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:04:01.910] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:01.910] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:01.910] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:01.910] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:01.910] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:04:01.910] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:04:01.911] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:04:01.912] ABCI Handshake App Info                      module=consensus height=0 hash= software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:04:01.912] ABCI Replay Blocks                           module=consensus appHeight=0 storeHeight=0 stateHeight=0
+I[2026-10-06|20:04:01.956] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=0 appHash=683A941B135DD585F548B4EA884EBE82EE167E5FB8AF690B4207DE1E37019538
+I[2026-10-06|20:04:01.956] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:04:01.956] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:04:01.956] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:04:01.956] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:04:01.956] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:04:01.956] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:04:01.956] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:04:01.957] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:04:01.957] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:04:01.957] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:04:01.957] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:04:01.957] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:04:01.957] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:04:01.957] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:04:01.957] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:04:01.957] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:04:01.957] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:04:01.957] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:04:02.275] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:04:02.275] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:04:02.275] Stopping Node                                module=main 
+I[2026-10-06|20:04:02.275] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:04:02.275] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:04:02.275] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:04:02.275] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:04:02.275] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:04:02.275] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+I[2026-10-06|20:04:02.275] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:04:02.275] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+E[2026-10-06|20:04:02.275] Not stopping State service -- has not been started yet module=consensus impl=ConsensusState
+E[2026-10-06|20:04:02.275] Error stopping consensus state               module=consensus err="not started"
+I[2026-10-06|20:04:02.275] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-06|20:04:02.275] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+I[2026-10-06|20:04:02.275] Closing rpc listener                         module=main listener="&{Listener:0x3dab34412b80 sem:0x3dab34231dc0 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x3dab34231e30}"
+E[2026-10-06|20:04:02.275] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:04:02.275] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:04:02.275] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:04:02.275] Closing blockstore                           module=main 
+I[2026-10-06|20:04:02.275] Closing statestore                           module=main 
+I[2026-10-06|20:04:02.275] Closing evidencestore                        module=main 
+I[2026-10-06|20:04:02.347] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:04:02.347] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:02.347] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:02.347] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:02.347] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:04:02.347] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:04:02.347] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:04:02.349] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:04:02.349] ABCI Handshake App Info                      module=consensus height=0 hash= software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:04:02.349] ABCI Replay Blocks                           module=consensus appHeight=0 storeHeight=0 stateHeight=0
+I[2026-10-06|20:04:02.349] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=0 appHash=683A941B135DD585F548B4EA884EBE82EE167E5FB8AF690B4207DE1E37019538
+I[2026-10-06|20:04:02.349] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:04:02.349] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:04:02.351] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:04:02.351] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:04:02.351] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:04:02.351] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:04:02.351] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:04:02.351] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:04:02.351] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:04:02.351] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:04:02.351] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:04:02.351] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:04:02.351] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:04:02.351] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:04:02.351] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:04:02.351] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:04:02.351] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:04:02.351] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:04:02.543] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:32814 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:32814} f80547576b7ba9d196c44020a57f20b644f6e05e in}"
+I[2026-10-06|20:04:02.543] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:32814 msg="Starting MConnection service" impl=MConn{127.0.0.1:32814}
+I[2026-10-06|20:04:03.143] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:32830 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:32830} d0194b3943d611892484f06f2f79622946194397 in}"
+I[2026-10-06|20:04:03.143] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:32830 msg="Starting MConnection service" impl=MConn{127.0.0.1:32830}
+I[2026-10-06|20:04:03.352] Time to switch to consensus reactor!         module=blocksync height=1
+I[2026-10-06|20:04:03.352] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:04:03.352] SwitchToConsensus                            module=consensus 
+I[2026-10-06|20:04:03.352] service start                                module=consensus msg="Starting State service" impl=ConsensusState
+I[2026-10-06|20:04:03.353] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting baseWAL service" impl=baseWAL
+I[2026-10-06|20:04:03.353] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting Group service" impl=Group
+I[2026-10-06|20:04:03.353] service start                                module=consensus msg="Starting TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:04:03.353] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=1 min=0 max=0
+I[2026-10-06|20:04:03.353] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=0 min=0 max=0
+I[2026-10-06|20:04:03.353] Found                                        module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=0 index=0
+I[2026-10-06|20:04:03.353] Catchup by replaying consensus messages      module=consensus height=1
+I[2026-10-06|20:04:03.353] Replay: Done                                 module=consensus 
+I[2026-10-06|20:04:03.698] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:33588 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:33588} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 in}"
+I[2026-10-06|20:04:03.698] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:33588 msg="Starting MConnection service" impl=MConn{127.0.0.1:33588}
+I[2026-10-06|20:05:02.351] Timed out                                    module=consensus dur=58.998002739s height=1 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:05:02.477] received proposal                            module=consensus proposal="Proposal{1/0 (707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C, -1) 02A41329C7E9 @ 2026-10-07T01:05:02.376131402Z}" proposer=14E1EF13A9C27F355CB2411C884894CF369C01C9
+I[2026-10-06|20:05:02.477] received complete proposal block             module=consensus height=1 hash=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573
+I[2026-10-06|20:05:02.678] finalizing commit of block                   module=consensus height=1 hash=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573 root=683A941B135DD585F548B4EA884EBE82EE167E5FB8AF690B4207DE1E37019538 num_txs=0
+I[2026-10-06|20:05:02.731] finalized block                              module=state height=1 num_txs_res=0 num_val_updates=0 block_app_hash=7113432399A7361208F479C649C7897D8DA63E6AC9A9708198FDA9DB0795E3F8
+I[2026-10-06|20:05:02.731] executed block                               module=state height=1 app_hash=7113432399A7361208F479C649C7897D8DA63E6AC9A9708198FDA9DB0795E3F8
+I[2026-10-06|20:05:02.784] committed state                              module=state height=1 block_app_hash=683A941B135DD585F548B4EA884EBE82EE167E5FB8AF690B4207DE1E37019538
+I[2026-10-06|20:05:02.785] indexed block events                         module=txindex height=1
+I[2026-10-06|20:05:02.862] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:32830 conn=MConn{127.0.0.1:32830}
+I[2026-10-06|20:05:02.862] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:32830 msg="Stopping MConnection service" impl=MConn{127.0.0.1:32830}
+E[2026-10-06|20:05:02.862] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:32830} d0194b3943d611892484f06f2f79622946194397 in}" err=EOF
+I[2026-10-06|20:05:02.862] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:32830 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:32830} d0194b3943d611892484f06f2f79622946194397 in}"
+I[2026-10-06|20:05:02.862] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:05:02.866] Error reconnecting to peer. Trying again     module=p2p tries=0 err="auth failure: handshake failed: read tcp 127.0.0.1:49492->127.0.0.1:56127: read: connection reset by peer" addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:05:02.869] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:05:02.869] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:05:02.869] Stopping Node                                module=main 
+I[2026-10-06|20:05:02.869] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:05:02.869] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:05:02.869] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:05:02.869] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:05:02.869] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:32814 msg="Stopping MConnection service" impl=MConn{127.0.0.1:32814}
+E[2026-10-06|20:05:02.869] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:32814} f80547576b7ba9d196c44020a57f20b644f6e05e in}" err="read tcp 127.0.0.1:39579->127.0.0.1:32814: use of closed network connection"
+I[2026-10-06|20:05:02.869] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:32814 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:32814} f80547576b7ba9d196c44020a57f20b644f6e05e in}"
+I[2026-10-06|20:05:02.869] Reconnecting to peer                         module=p2p addr=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341
+E[2026-10-06|20:05:02.869] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:05:02.869] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:33588 msg="Stopping MConnection service" impl=MConn{127.0.0.1:33588}
+E[2026-10-06|20:05:02.869] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:33588} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 in}" err="read tcp 127.0.0.1:39579->127.0.0.1:33588: use of closed network connection"
+I[2026-10-06|20:05:02.869] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:33588 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:33588} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 in}"
+E[2026-10-06|20:05:02.869] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:05:02.869] Reconnecting to peer                         module=p2p addr=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475
+I[2026-10-06|20:05:02.869] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:05:02.869] service stop                                 module=consensus msg="Stopping State service" impl=ConsensusState
+I[2026-10-06|20:05:02.869] service stop                                 module=consensus msg="Stopping TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:05:02.869] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping baseWAL service" impl=baseWAL
+I[2026-10-06|20:05:02.869] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping Group service" impl=Group
+I[2026-10-06|20:05:02.869] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-06|20:05:02.869] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+I[2026-10-06|20:05:02.869] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:05:02.869] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+E[2026-10-06|20:05:02.869] Error stopping pool                          module=blocksync err="already stopped"
+I[2026-10-06|20:05:02.869] Closing rpc listener                         module=main listener="&{Listener:0x3cc4dc1e540 sem:0x3cc4dae9420 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x3cc4dae9490}"
+E[2026-10-06|20:05:02.869] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:05:02.869] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:05:02.869] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:05:02.869] Closing blockstore                           module=main 
+I[2026-10-06|20:05:02.869] Closing statestore                           module=main 
+I[2026-10-06|20:05:02.869] Closing evidencestore                        module=main 
+I[2026-10-06|20:05:03.134] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:05:03.134] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:05:03.134] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:05:03.134] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:05:03.134] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:05:03.134] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:05:03.134] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:05:03.136] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:05:03.136] ABCI Handshake App Info                      module=consensus height=1 hash=7113432399A7361208F479C649C7897D8DA63E6AC9A9708198FDA9DB0795E3F8 software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:05:03.136] ABCI Replay Blocks                           module=consensus appHeight=1 storeHeight=1 stateHeight=1
+I[2026-10-06|20:05:03.136] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=1 appHash=7113432399A7361208F479C649C7897D8DA63E6AC9A9708198FDA9DB0795E3F8
+I[2026-10-06|20:05:03.136] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:05:03.136] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:05:03.138] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:05:03.138] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:05:03.138] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:05:03.138] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:05:03.138] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:05:03.138] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:05:03.138] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:05:03.138] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:05:03.138] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:05:03.138] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:05:03.138] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:05:03.138] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:05:03.138] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:05:03.138] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:05:03.138] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:05:03.138] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:05:03.292] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:05:03.292] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting MConnection service" impl=MConn{127.0.0.1:49341}
+I[2026-10-06|20:05:03.582] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:05:03.582] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting MConnection service" impl=MConn{127.0.0.1:38475}
+I[2026-10-06|20:05:04.139] Time to switch to consensus reactor!         module=blocksync height=2
+I[2026-10-06|20:05:04.139] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:05:04.139] SwitchToConsensus                            module=consensus 
+I[2026-10-06|20:05:04.139] service start                                module=consensus msg="Starting State service" impl=ConsensusState
+I[2026-10-06|20:05:04.139] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting baseWAL service" impl=baseWAL
+I[2026-10-06|20:05:04.139] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting Group service" impl=Group
+I[2026-10-06|20:05:04.139] service start                                module=consensus msg="Starting TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:05:04.139] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=2 min=0 max=0
+I[2026-10-06|20:05:04.139] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=1 min=0 max=0
+I[2026-10-06|20:05:04.139] Found                                        module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=1 index=0
+I[2026-10-06|20:05:04.139] Catchup by replaying consensus messages      module=consensus height=2
+I[2026-10-06|20:05:04.139] Replay: New Step                             module=consensus height=2 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:05:04.139] Replay: Vote                                 module=consensus height=1 round=0 type=SIGNED_MSG_TYPE_PREVOTE blockID=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:05:04.139] Replay: Vote                                 module=consensus height=1 round=0 type=SIGNED_MSG_TYPE_PREVOTE blockID=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:05:04.139] Replay: Vote                                 module=consensus height=1 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:05:04.139] Replay: Vote                                 module=consensus height=1 round=0 type=SIGNED_MSG_TYPE_PREVOTE blockID=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:05:04.139] Replay: Vote                                 module=consensus height=1 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:05:04.139] Replay: Vote                                 module=consensus height=1 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:05:04.140] Replay: Vote                                 module=consensus height=1 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=707B06433D317DFF908FEC485D90DF3426280796122A60263A8B4A5783691573:1:F15861F4B43C peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:05:04.140] Replay: Done                                 module=consensus 
+I[2026-10-06|20:05:04.300] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:05:04.300] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting MConnection service" impl=MConn{127.0.0.1:56127}
+I[2026-10-06|20:06:02.896] received proposal                            module=consensus proposal="Proposal{2/0 (96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B:1:87BC93408672, -1) 25178D4C0271 @ 2026-10-07T01:06:02.795791541Z}" proposer=19FFB36F6BE27AF39C0D57382469A42A8DAEE9B2
+I[2026-10-06|20:06:02.896] received complete proposal block             module=consensus height=2 hash=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B
+I[2026-10-06|20:06:03.138] Timed out                                    module=consensus dur=58.998258814s height=2 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:06:03.168] finalizing commit of block                   module=consensus height=2 hash=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B root=7113432399A7361208F479C649C7897D8DA63E6AC9A9708198FDA9DB0795E3F8 num_txs=1
+I[2026-10-06|20:06:03.247] finalized block                              module=state height=2 num_txs_res=1 num_val_updates=0 block_app_hash=792107867591A07BB4A024606FD3610D145016AA6F1AEB222A4E8ECA85ABB664
+I[2026-10-06|20:06:03.247] executed block                               module=state height=2 app_hash=792107867591A07BB4A024606FD3610D145016AA6F1AEB222A4E8ECA85ABB664
+I[2026-10-06|20:06:03.310] committed state                              module=state height=2 block_app_hash=7113432399A7361208F479C649C7897D8DA63E6AC9A9708198FDA9DB0795E3F8
+I[2026-10-06|20:06:03.310] indexed block events                         module=txindex height=2
+I[2026-10-06|20:06:03.321] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 conn=MConn{127.0.0.1:56127}
+I[2026-10-06|20:06:03.321] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping MConnection service" impl=MConn{127.0.0.1:56127}
+E[2026-10-06|20:06:03.321] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}" err=EOF
+I[2026-10-06|20:06:03.321] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:06:03.321] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:06:03.322] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:06:03.322] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting MConnection service" impl=MConn{127.0.0.1:56127}
+I[2026-10-06|20:06:03.322] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 conn=MConn{127.0.0.1:56127}
+I[2026-10-06|20:06:03.322] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping MConnection service" impl=MConn{127.0.0.1:56127}
+E[2026-10-06|20:06:03.322] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}" err=EOF
+I[2026-10-06|20:06:03.322] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:06:03.322] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:06:03.322] Error reconnecting to peer. Trying again     module=p2p tries=0 err="dial tcp 127.0.0.1:56127: connect: connection refused" addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:06:03.328] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:06:03.328] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:06:03.328] Stopping Node                                module=main 
+I[2026-10-06|20:06:03.328] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:06:03.328] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:06:03.328] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:06:03.328] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:06:03.328] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping MConnection service" impl=MConn{127.0.0.1:49341}
+E[2026-10-06|20:06:03.328] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}" err="read tcp 127.0.0.1:40642->127.0.0.1:49341: use of closed network connection"
+I[2026-10-06|20:06:03.328] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:06:03.328] Reconnecting to peer                         module=p2p addr=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341
+E[2026-10-06|20:06:03.328] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:06:03.328] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping MConnection service" impl=MConn{127.0.0.1:38475}
+E[2026-10-06|20:06:03.328] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}" err="read tcp 127.0.0.1:53888->127.0.0.1:38475: use of closed network connection"
+I[2026-10-06|20:06:03.328] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:06:03.328] Reconnecting to peer                         module=p2p addr=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475
+E[2026-10-06|20:06:03.328] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:06:03.328] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:06:03.328] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+E[2026-10-06|20:06:03.328] Error stopping pool                          module=blocksync err="already stopped"
+I[2026-10-06|20:06:03.328] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:06:03.328] service stop                                 module=consensus msg="Stopping State service" impl=ConsensusState
+I[2026-10-06|20:06:03.328] service stop                                 module=consensus msg="Stopping TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:06:03.328] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping baseWAL service" impl=baseWAL
+I[2026-10-06|20:06:03.328] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping Group service" impl=Group
+I[2026-10-06|20:06:03.328] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-06|20:06:03.328] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+I[2026-10-06|20:06:03.328] Closing rpc listener                         module=main listener="&{Listener:0x208263d44b80 sem:0x208263dfd420 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x208263dfd490}"
+E[2026-10-06|20:06:03.328] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:06:03.328] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:06:03.328] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:06:03.328] Closing blockstore                           module=main 
+I[2026-10-06|20:06:03.328] Closing statestore                           module=main 
+I[2026-10-06|20:06:03.328] Closing evidencestore                        module=main 
+I[2026-10-06|20:06:03.354] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:06:03.354] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:06:03.354] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:06:03.354] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:06:03.354] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:06:03.354] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:06:03.354] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:06:03.355] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:06:03.355] ABCI Handshake App Info                      module=consensus height=2 hash=792107867591A07BB4A024606FD3610D145016AA6F1AEB222A4E8ECA85ABB664 software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:06:03.355] ABCI Replay Blocks                           module=consensus appHeight=2 storeHeight=2 stateHeight=2
+I[2026-10-06|20:06:03.355] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=2 appHash=792107867591A07BB4A024606FD3610D145016AA6F1AEB222A4E8ECA85ABB664
+I[2026-10-06|20:06:03.355] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:06:03.355] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:06:03.360] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:06:03.360] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:06:03.360] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:06:03.360] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:06:03.360] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:06:03.360] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:06:03.360] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:06:03.360] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:06:03.360] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:06:03.360] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:06:03.360] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:06:03.360] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:06:03.360] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:06:03.360] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:06:03.360] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:06:03.360] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:06:03.898] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:06:03.898] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting MConnection service" impl=MConn{127.0.0.1:38475}
+I[2026-10-06|20:06:04.361] Time to switch to consensus reactor!         module=blocksync height=3
+I[2026-10-06|20:06:04.361] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:06:04.361] SwitchToConsensus                            module=consensus 
+I[2026-10-06|20:06:04.361] service start                                module=consensus msg="Starting State service" impl=ConsensusState
+I[2026-10-06|20:06:04.361] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting baseWAL service" impl=baseWAL
+I[2026-10-06|20:06:04.361] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting Group service" impl=Group
+I[2026-10-06|20:06:04.361] service start                                module=consensus msg="Starting TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:06:04.361] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=3 min=0 max=0
+I[2026-10-06|20:06:04.361] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=2 min=0 max=0
+I[2026-10-06|20:06:04.361] Found                                        module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=2 index=0
+I[2026-10-06|20:06:04.361] Catchup by replaying consensus messages      module=consensus height=3
+I[2026-10-06|20:06:04.361] Replay: New Step                             module=consensus height=3 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:06:04.361] Replay: Vote                                 module=consensus height=2 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B:1:87BC93408672 peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:06:04.361] Replay: Vote                                 module=consensus height=2 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B:1:87BC93408672 peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:06:04.362] Replay: Vote                                 module=consensus height=2 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B:1:87BC93408672 peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:06:04.362] Replay: Vote                                 module=consensus height=2 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B:1:87BC93408672 peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:06:04.362] Replay: Vote                                 module=consensus height=2 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B:1:87BC93408672 peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:06:04.362] Replay: Vote                                 module=consensus height=2 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=96E39A2962C07A203C66C8A987E0819EBFE9B0E0746DCDE5884C4B23D668B23B:1:87BC93408672 peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:06:04.362] Replay: Done                                 module=consensus 
+I[2026-10-06|20:06:04.878] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:06:04.878] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting MConnection service" impl=MConn{127.0.0.1:49341}
+I[2026-10-06|20:06:05.139] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:51660 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:51660} d0194b3943d611892484f06f2f79622946194397 in}"
+I[2026-10-06|20:06:05.139] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:51660 msg="Starting MConnection service" impl=MConn{127.0.0.1:51660}
+I[2026-10-06|20:07:03.270] received proposal                            module=consensus proposal="Proposal{3/0 (B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740:1:F0D4723D03DA, -1) F7AFA9F19517 @ 2026-10-07T01:07:03.169318571Z}" proposer=69405C032850CA4F088330EDF23B3C12A2D8483C
+I[2026-10-06|20:07:03.270] received complete proposal block             module=consensus height=3 hash=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740
+I[2026-10-06|20:07:03.360] Timed out                                    module=consensus dur=58.998002852s height=3 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:07:03.560] finalizing commit of block                   module=consensus height=3 hash=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740 root=792107867591A07BB4A024606FD3610D145016AA6F1AEB222A4E8ECA85ABB664 num_txs=0
+I[2026-10-06|20:07:03.639] finalized block                              module=state height=3 num_txs_res=0 num_val_updates=0 block_app_hash=2270C96CEC2A27334E7B9FF8AA6AA93DFD49C491DEEBB2929731B8FF848393F7
+I[2026-10-06|20:07:03.639] executed block                               module=state height=3 app_hash=2270C96CEC2A27334E7B9FF8AA6AA93DFD49C491DEEBB2929731B8FF848393F7
+I[2026-10-06|20:07:03.710] committed state                              module=state height=3 block_app_hash=792107867591A07BB4A024606FD3610D145016AA6F1AEB222A4E8ECA85ABB664
+I[2026-10-06|20:07:03.710] indexed block events                         module=txindex height=3
+I[2026-10-06|20:07:03.786] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:51660 conn=MConn{127.0.0.1:51660}
+I[2026-10-06|20:07:03.786] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:51660 msg="Stopping MConnection service" impl=MConn{127.0.0.1:51660}
+E[2026-10-06|20:07:03.787] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:51660} d0194b3943d611892484f06f2f79622946194397 in}" err=EOF
+I[2026-10-06|20:07:03.787] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:51660 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:51660} d0194b3943d611892484f06f2f79622946194397 in}"
+I[2026-10-06|20:07:03.787] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:07:03.787] Error reconnecting to peer. Trying again     module=p2p tries=0 err="dial tcp 127.0.0.1:56127: connect: connection reset by peer" addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:07:03.794] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:07:03.794] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:07:03.794] Stopping Node                                module=main 
+I[2026-10-06|20:07:03.794] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:07:03.794] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:07:03.794] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:07:03.794] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:07:03.794] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping MConnection service" impl=MConn{127.0.0.1:38475}
+E[2026-10-06|20:07:03.794] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}" err="read tcp 127.0.0.1:33924->127.0.0.1:38475: use of closed network connection"
+I[2026-10-06|20:07:03.794] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:07:03.794] Reconnecting to peer                         module=p2p addr=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475
+E[2026-10-06|20:07:03.794] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:07:03.794] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping MConnection service" impl=MConn{127.0.0.1:49341}
+E[2026-10-06|20:07:03.794] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}" err="read tcp 127.0.0.1:51584->127.0.0.1:49341: use of closed network connection"
+I[2026-10-06|20:07:03.794] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+E[2026-10-06|20:07:03.794] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:07:03.794] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:07:03.794] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+E[2026-10-06|20:07:03.794] Error stopping pool                          module=blocksync err="already stopped"
+I[2026-10-06|20:07:03.794] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:07:03.794] service stop                                 module=consensus msg="Stopping State service" impl=ConsensusState
+I[2026-10-06|20:07:03.794] service stop                                 module=consensus msg="Stopping TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:07:03.794] Reconnecting to peer                         module=p2p addr=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341
+I[2026-10-06|20:07:03.794] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping baseWAL service" impl=baseWAL
+I[2026-10-06|20:07:03.794] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping Group service" impl=Group
+I[2026-10-06|20:07:03.794] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-06|20:07:03.794] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+E[2026-10-06|20:07:03.794] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:07:03.794] Closing rpc listener                         module=main listener="&{Listener:0x280f0bec4740 sem:0x280f0bebd260 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x280f0bebd2d0}"
+I[2026-10-06|20:07:03.794] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:07:03.794] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:07:03.794] Closing blockstore                           module=main 
+I[2026-10-06|20:07:03.794] Closing statestore                           module=main 
+I[2026-10-06|20:07:03.794] Closing evidencestore                        module=main 
+I[2026-10-06|20:20:42.060] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:20:42.060] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:20:42.060] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:20:42.060] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:20:42.060] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:20:42.060] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:20:42.060] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:20:42.063] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:20:42.063] ABCI Handshake App Info                      module=consensus height=3 hash=2270C96CEC2A27334E7B9FF8AA6AA93DFD49C491DEEBB2929731B8FF848393F7 software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:20:42.063] ABCI Replay Blocks                           module=consensus appHeight=3 storeHeight=3 stateHeight=3
+I[2026-10-06|20:20:42.063] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=3 appHash=2270C96CEC2A27334E7B9FF8AA6AA93DFD49C491DEEBB2929731B8FF848393F7
+I[2026-10-06|20:20:42.064] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:20:42.064] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:20:42.064] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:20:42.064] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:20:42.064] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:20:42.065] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:20:42.065] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:20:42.065] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:20:42.065] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:20:42.065] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:20:42.065] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:20:42.065] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:20:42.065] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:20:42.065] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:20:42.066] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:20:42.066] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:20:42.066] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:20:42.066] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:20:42.367] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:20:42.367] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting MConnection service" impl=MConn{127.0.0.1:56127}
+I[2026-10-06|20:20:43.067] Time to switch to consensus reactor!         module=blocksync height=4
+I[2026-10-06|20:20:43.067] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:20:43.067] SwitchToConsensus                            module=consensus 
+I[2026-10-06|20:20:43.067] service start                                module=consensus msg="Starting State service" impl=ConsensusState
+I[2026-10-06|20:20:43.067] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting baseWAL service" impl=baseWAL
+I[2026-10-06|20:20:43.067] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting Group service" impl=Group
+I[2026-10-06|20:20:43.067] service start                                module=consensus msg="Starting TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:20:43.067] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=4 min=0 max=0
+I[2026-10-06|20:20:43.067] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=3 min=0 max=0
+I[2026-10-06|20:20:43.067] Found                                        module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=3 index=0
+I[2026-10-06|20:20:43.067] Catchup by replaying consensus messages      module=consensus height=4
+I[2026-10-06|20:20:43.067] Replay: New Step                             module=consensus height=4 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:20:43.067] Replay: Vote                                 module=consensus height=3 round=0 type=SIGNED_MSG_TYPE_PREVOTE blockID=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740:1:F0D4723D03DA peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:20:43.067] Replay: Vote                                 module=consensus height=3 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740:1:F0D4723D03DA peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:20:43.067] Replay: Vote                                 module=consensus height=3 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740:1:F0D4723D03DA peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:20:43.068] Replay: Vote                                 module=consensus height=3 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740:1:F0D4723D03DA peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:20:43.068] Replay: Vote                                 module=consensus height=3 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740:1:F0D4723D03DA peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:20:43.068] Replay: Vote                                 module=consensus height=3 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=B19F747DDDD8B45A88CCECC9B75F82CE1A8F20ED53527F2C5905FA1F70EA5740:1:F0D4723D03DA peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:20:43.068] Replay: Done                                 module=consensus 
+I[2026-10-06|20:20:43.914] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:20:43.914] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting MConnection service" impl=MConn{127.0.0.1:38475}
+I[2026-10-06|20:20:44.494] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:20:44.494] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting MConnection service" impl=MConn{127.0.0.1:49341}
+I[2026-10-06|20:21:42.065] Timed out                                    module=consensus dur=58.996831923s height=4 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:21:42.192] received proposal                            module=consensus proposal="Proposal{4/0 (6CEDE0652DFF0BF8648298BF68E7A870DF5644372EB0F8AEFC4F5949D139CA29:1:99DDEA5B8B20, -1) 6B2838248471 @ 2026-10-07T01:21:42.191911002Z}" proposer=E41D9C78B2969E59694985A6F9D855EB589E6333
+I[2026-10-06|20:21:42.192] received complete proposal block             module=consensus height=4 hash=6CEDE0652DFF0BF8648298BF68E7A870DF5644372EB0F8AEFC4F5949D139CA29
+I[2026-10-06|20:21:52.318] Timed out                                    module=consensus dur=10s height=4 round=0 step=RoundStepPrevoteWait
+I[2026-10-06|20:22:02.520] Timed out                                    module=consensus dur=10s height=4 round=0 step=RoundStepPrecommitWait
+I[2026-10-06|20:22:02.520] resetting proposal info                      module=consensus height=4 round=1 proposer=14E1EF13A9C27F355CB2411C884894CF369C01C9
+I[2026-10-06|20:22:02.746] received proposal                            module=consensus proposal="Proposal{4/1 (435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F, -1) 52E42BDA78DD @ 2026-10-07T01:22:02.645296361Z}" proposer=14E1EF13A9C27F355CB2411C884894CF369C01C9
+I[2026-10-06|20:22:02.747] received complete proposal block             module=consensus height=4 hash=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049
+I[2026-10-06|20:22:03.185] finalizing commit of block                   module=consensus height=4 hash=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049 root=2270C96CEC2A27334E7B9FF8AA6AA93DFD49C491DEEBB2929731B8FF848393F7 num_txs=1
+I[2026-10-06|20:22:03.283] finalized block                              module=state height=4 num_txs_res=1 num_val_updates=0 block_app_hash=29B7E3A6C03EB67041CFB814E925773CA7CB0B258AEF9FBEAE2D673FCAD9D439
+I[2026-10-06|20:22:03.283] executed block                               module=state height=4 app_hash=29B7E3A6C03EB67041CFB814E925773CA7CB0B258AEF9FBEAE2D673FCAD9D439
+I[2026-10-06|20:22:03.381] committed state                              module=state height=4 block_app_hash=2270C96CEC2A27334E7B9FF8AA6AA93DFD49C491DEEBB2929731B8FF848393F7
+I[2026-10-06|20:22:03.381] indexed block events                         module=txindex height=4
+I[2026-10-06|20:22:03.395] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 conn=MConn{127.0.0.1:56127}
+I[2026-10-06|20:22:03.395] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping MConnection service" impl=MConn{127.0.0.1:56127}
+E[2026-10-06|20:22:03.395] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}" err=EOF
+I[2026-10-06|20:22:03.395] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:22:03.395] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:22:03.396] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:22:03.396] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting MConnection service" impl=MConn{127.0.0.1:56127}
+I[2026-10-06|20:22:03.396] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 conn=MConn{127.0.0.1:56127}
+I[2026-10-06|20:22:03.396] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping MConnection service" impl=MConn{127.0.0.1:56127}
+E[2026-10-06|20:22:03.396] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}" err=EOF
+I[2026-10-06|20:22:03.396] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:22:03.396] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:22:03.396] Error reconnecting to peer. Trying again     module=p2p tries=0 err="dial tcp 127.0.0.1:56127: connect: connection refused" addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:22:03.402] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:22:03.402] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:22:03.402] Stopping Node                                module=main 
+I[2026-10-06|20:22:03.402] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:22:03.402] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:22:03.402] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:22:03.402] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:22:03.402] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping MConnection service" impl=MConn{127.0.0.1:49341}
+E[2026-10-06|20:22:03.402] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}" err="read tcp 127.0.0.1:33900->127.0.0.1:49341: use of closed network connection"
+I[2026-10-06|20:22:03.402] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:22:03.402] Reconnecting to peer                         module=p2p addr=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341
+E[2026-10-06|20:22:03.402] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:22:03.402] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping MConnection service" impl=MConn{127.0.0.1:38475}
+E[2026-10-06|20:22:03.402] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}" err="read tcp 127.0.0.1:47074->127.0.0.1:38475: use of closed network connection"
+I[2026-10-06|20:22:03.402] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:22:03.402] Reconnecting to peer                         module=p2p addr=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475
+E[2026-10-06|20:22:03.402] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:22:03.402] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:22:03.402] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+E[2026-10-06|20:22:03.402] Error stopping pool                          module=blocksync err="already stopped"
+I[2026-10-06|20:22:03.402] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:22:03.402] service stop                                 module=consensus msg="Stopping State service" impl=ConsensusState
+I[2026-10-06|20:22:03.402] service stop                                 module=consensus msg="Stopping TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:22:03.402] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping baseWAL service" impl=baseWAL
+I[2026-10-06|20:22:03.402] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping Group service" impl=Group
+I[2026-10-06|20:22:03.402] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-06|20:22:03.402] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+E[2026-10-06|20:22:03.402] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:22:03.402] Closing rpc listener                         module=main listener="&{Listener:0x47839a2c00 sem:0x47838ee380 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x47838ee3f0}"
+I[2026-10-06|20:22:03.403] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:22:03.403] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:22:03.403] Closing blockstore                           module=main 
+I[2026-10-06|20:22:03.403] Closing statestore                           module=main 
+I[2026-10-06|20:22:03.403] Closing evidencestore                        module=main 
+I[2026-10-06|20:22:03.431] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:22:03.431] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:22:03.431] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:22:03.431] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:22:03.431] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:22:03.431] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:22:03.431] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:22:03.432] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:22:03.433] ABCI Handshake App Info                      module=consensus height=4 hash=29B7E3A6C03EB67041CFB814E925773CA7CB0B258AEF9FBEAE2D673FCAD9D439 software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:22:03.433] ABCI Replay Blocks                           module=consensus appHeight=4 storeHeight=4 stateHeight=4
+I[2026-10-06|20:22:03.433] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=4 appHash=29B7E3A6C03EB67041CFB814E925773CA7CB0B258AEF9FBEAE2D673FCAD9D439
+I[2026-10-06|20:22:03.433] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:22:03.433] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:22:03.435] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:22:03.435] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:22:03.435] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:22:03.436] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:22:03.436] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:22:03.436] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:22:03.436] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:22:03.436] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:22:03.436] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:22:03.436] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:22:03.436] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:22:03.436] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:22:03.436] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:22:03.436] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:22:03.436] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:22:03.436] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:22:04.078] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:22:04.078] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting MConnection service" impl=MConn{127.0.0.1:49341}
+I[2026-10-06|20:22:04.437] Time to switch to consensus reactor!         module=blocksync height=5
+I[2026-10-06|20:22:04.437] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:22:04.437] SwitchToConsensus                            module=consensus 
+I[2026-10-06|20:22:04.437] service start                                module=consensus msg="Starting State service" impl=ConsensusState
+I[2026-10-06|20:22:04.438] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting baseWAL service" impl=baseWAL
+I[2026-10-06|20:22:04.438] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting Group service" impl=Group
+I[2026-10-06|20:22:04.438] service start                                module=consensus msg="Starting TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:22:04.438] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=5 min=0 max=0
+I[2026-10-06|20:22:04.438] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=4 min=0 max=0
+I[2026-10-06|20:22:04.438] Found                                        module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=4 index=0
+I[2026-10-06|20:22:04.438] Catchup by replaying consensus messages      module=consensus height=5
+I[2026-10-06|20:22:04.438] Replay: New Step                             module=consensus height=5 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:22:04.438] Replay: Vote                                 module=consensus height=4 round=1 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:22:04.438] Replay: Vote                                 module=consensus height=4 round=1 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:22:04.438] Replay: Vote                                 module=consensus height=4 round=1 type=SIGNED_MSG_TYPE_PREVOTE blockID=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:22:04.438] Replay: Vote                                 module=consensus height=4 round=1 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:22:04.438] Replay: Vote                                 module=consensus height=4 round=1 type=SIGNED_MSG_TYPE_PREVOTE blockID=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:22:04.438] Replay: Vote                                 module=consensus height=4 round=1 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:22:04.438] Replay: Vote                                 module=consensus height=4 round=1 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=435996F514487513CC26AB754C0C26C2B61D793B7481440379DBE7416A71F049:1:703428724C9F peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:22:04.438] Replay: Done                                 module=consensus 
+I[2026-10-06|20:22:04.969] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:22:04.970] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting MConnection service" impl=MConn{127.0.0.1:38475}
+I[2026-10-06|20:22:05.193] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:22:05.193] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting MConnection service" impl=MConn{127.0.0.1:56127}
+I[2026-10-06|20:23:03.436] Timed out                                    module=consensus dur=58.997144686s height=5 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:23:03.561] received proposal                            module=consensus proposal="Proposal{5/0 (56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B, -1) B2E0F1822024 @ 2026-10-07T01:23:03.460983357Z}" proposer=14E1EF13A9C27F355CB2411C884894CF369C01C9
+I[2026-10-06|20:23:03.561] received complete proposal block             module=consensus height=5 hash=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92
+I[2026-10-06|20:23:03.911] finalizing commit of block                   module=consensus height=5 hash=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92 root=29B7E3A6C03EB67041CFB814E925773CA7CB0B258AEF9FBEAE2D673FCAD9D439 num_txs=0
+I[2026-10-06|20:23:04.001] finalized block                              module=state height=5 num_txs_res=0 num_val_updates=0 block_app_hash=E8F44C649DDC7B8C3A40D6295619BAF4C6B0042986639C17119B361DF3963EA0
+I[2026-10-06|20:23:04.001] executed block                               module=state height=5 app_hash=E8F44C649DDC7B8C3A40D6295619BAF4C6B0042986639C17119B361DF3963EA0
+I[2026-10-06|20:23:04.090] committed state                              module=state height=5 block_app_hash=29B7E3A6C03EB67041CFB814E925773CA7CB0B258AEF9FBEAE2D673FCAD9D439
+I[2026-10-06|20:23:04.090] indexed block events                         module=txindex height=5
+I[2026-10-06|20:23:09.870] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 conn=MConn{127.0.0.1:56127}
+I[2026-10-06|20:23:09.870] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping MConnection service" impl=MConn{127.0.0.1:56127}
+E[2026-10-06|20:23:09.870] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}" err=EOF
+I[2026-10-06|20:23:09.870] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:23:09.870] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:23:09.870] Error reconnecting to peer. Trying again     module=p2p tries=0 err="dial tcp 127.0.0.1:56127: connect: connection refused" addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:23:09.877] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:23:09.877] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:23:09.877] Stopping Node                                module=main 
+I[2026-10-06|20:23:09.877] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:23:09.877] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:23:09.877] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:23:09.877] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:23:09.877] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping MConnection service" impl=MConn{127.0.0.1:49341}
+E[2026-10-06|20:23:09.877] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}" err="read tcp 127.0.0.1:33484->127.0.0.1:49341: use of closed network connection"
+I[2026-10-06|20:23:09.877] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:23:09.877] Reconnecting to peer                         module=p2p addr=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341
+E[2026-10-06|20:23:09.877] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:23:09.877] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping MConnection service" impl=MConn{127.0.0.1:38475}
+E[2026-10-06|20:23:09.877] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}" err="read tcp 127.0.0.1:39206->127.0.0.1:38475: use of closed network connection"
+E[2026-10-06|20:23:09.877] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:23:09.877] Reconnecting to peer                         module=p2p addr=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475
+I[2026-10-06|20:23:09.877] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:23:09.877] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:23:09.877] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+E[2026-10-06|20:23:09.877] Error stopping pool                          module=blocksync err="already stopped"
+I[2026-10-06|20:23:09.877] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:23:09.877] service stop                                 module=consensus msg="Stopping State service" impl=ConsensusState
+I[2026-10-06|20:23:09.877] service stop                                 module=consensus msg="Stopping TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:23:09.877] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping baseWAL service" impl=baseWAL
+I[2026-10-06|20:23:09.877] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping Group service" impl=Group
+I[2026-10-06|20:23:09.877] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-06|20:23:09.877] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+I[2026-10-06|20:23:09.877] Closing rpc listener                         module=main listener="&{Listener:0x32b757873d00 sem:0x32b7576d7420 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x32b7576d7490}"
+I[2026-10-06|20:23:09.877] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:23:09.877] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:23:09.877] Closing blockstore                           module=main 
+E[2026-10-06|20:23:09.877] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:23:09.877] Closing statestore                           module=main 
+I[2026-10-06|20:23:09.877] Closing evidencestore                        module=main 
+I[2026-10-06|20:28:15.687] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:28:15.687] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:28:15.687] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:28:15.687] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:28:15.687] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:28:15.687] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:28:15.687] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:28:15.688] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:28:15.689] ABCI Handshake App Info                      module=consensus height=5 hash=E8F44C649DDC7B8C3A40D6295619BAF4C6B0042986639C17119B361DF3963EA0 software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:28:15.689] ABCI Replay Blocks                           module=consensus appHeight=5 storeHeight=5 stateHeight=5
+I[2026-10-06|20:28:15.689] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=5 appHash=E8F44C649DDC7B8C3A40D6295619BAF4C6B0042986639C17119B361DF3963EA0
+I[2026-10-06|20:28:15.689] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:28:15.689] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:28:15.693] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:28:15.693] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:28:15.693] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:28:15.693] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:28:15.693] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:28:15.694] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:28:15.694] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:28:15.694] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:28:15.694] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:28:15.694] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:28:15.694] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:28:15.694] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:28:15.694] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:28:15.694] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:28:15.694] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:28:15.694] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:28:15.929] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:28:15.929] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting MConnection service" impl=MConn{127.0.0.1:56127}
+I[2026-10-06|20:28:16.544] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:28:16.544] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting MConnection service" impl=MConn{127.0.0.1:49341}
+I[2026-10-06|20:28:16.695] Time to switch to consensus reactor!         module=blocksync height=6
+I[2026-10-06|20:28:16.695] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:28:16.695] SwitchToConsensus                            module=consensus 
+I[2026-10-06|20:28:16.695] service start                                module=consensus msg="Starting State service" impl=ConsensusState
+I[2026-10-06|20:28:16.695] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting baseWAL service" impl=baseWAL
+I[2026-10-06|20:28:16.695] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting Group service" impl=Group
+I[2026-10-06|20:28:16.695] service start                                module=consensus msg="Starting TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:28:16.695] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=6 min=0 max=0
+I[2026-10-06|20:28:16.696] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=5 min=0 max=0
+I[2026-10-06|20:28:16.696] Found                                        module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=5 index=0
+I[2026-10-06|20:28:16.696] Catchup by replaying consensus messages      module=consensus height=6
+I[2026-10-06|20:28:16.696] Replay: New Step                             module=consensus height=6 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PREVOTE blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Vote                                 module=consensus height=5 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=56F54DD242EF58D01ABDE2F298113FFE420FBD7C2206265C43E08EC71C672F92:1:4CDDDC2B105B peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:28:16.696] Replay: Done                                 module=consensus 
+I[2026-10-06|20:28:16.948] received proposal                            module=consensus proposal="Proposal{6/0 (C0916C97E610771DAEF9283201231F9E82B294A621F1FC1038C5381684E95160:1:E1C235E70BB0, -1) CAD3E933162A @ 2026-10-07T01:24:03.88821857Z}" proposer=19FFB36F6BE27AF39C0D57382469A42A8DAEE9B2
+I[2026-10-06|20:28:16.948] received complete proposal block             module=consensus height=6 hash=C0916C97E610771DAEF9283201231F9E82B294A621F1FC1038C5381684E95160
+I[2026-10-06|20:28:17.328] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:28:17.328] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting MConnection service" impl=MConn{127.0.0.1:38475}
+I[2026-10-06|20:28:23.236] finalizing commit of block                   module=consensus height=6 hash=C0916C97E610771DAEF9283201231F9E82B294A621F1FC1038C5381684E95160 root=E8F44C649DDC7B8C3A40D6295619BAF4C6B0042986639C17119B361DF3963EA0 num_txs=0
+I[2026-10-06|20:28:23.360] finalized block                              module=state height=6 num_txs_res=0 num_val_updates=0 block_app_hash=C2F2AA76D09EE9900339653A03435E7C2BBC243694BC79360ABB182568A1D83E
+I[2026-10-06|20:28:23.360] executed block                               module=state height=6 app_hash=C2F2AA76D09EE9900339653A03435E7C2BBC243694BC79360ABB182568A1D83E
+I[2026-10-06|20:28:23.475] committed state                              module=state height=6 block_app_hash=E8F44C649DDC7B8C3A40D6295619BAF4C6B0042986639C17119B361DF3963EA0
+I[2026-10-06|20:28:23.591] indexed block events                         module=txindex height=6
+I[2026-10-06|20:29:23.236] Timed out                                    module=consensus dur=59.644647856s height=7 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:29:23.414] received proposal                            module=consensus proposal="Proposal{7/0 (CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167:1:4FC1504E2FB2, -1) 10C46C0B687F @ 2026-10-07T01:29:23.31278835Z}" proposer=69405C032850CA4F088330EDF23B3C12A2D8483C
+I[2026-10-06|20:29:23.414] received complete proposal block             module=consensus height=7 hash=CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167
+I[2026-10-06|20:29:23.741] finalizing commit of block                   module=consensus height=7 hash=CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167 root=C2F2AA76D09EE9900339653A03435E7C2BBC243694BC79360ABB182568A1D83E num_txs=1
+I[2026-10-06|20:29:23.867] finalized block                              module=state height=7 num_txs_res=1 num_val_updates=0 block_app_hash=0119DAEEE95196C35CC3598A758518B8FF263F64932523571B813C6A192AEAE8
+I[2026-10-06|20:29:23.867] executed block                               module=state height=7 app_hash=0119DAEEE95196C35CC3598A758518B8FF263F64932523571B813C6A192AEAE8
+I[2026-10-06|20:29:23.993] committed state                              module=state height=7 block_app_hash=C2F2AA76D09EE9900339653A03435E7C2BBC243694BC79360ABB182568A1D83E
+I[2026-10-06|20:29:23.993] indexed block events                         module=txindex height=7
+I[2026-10-06|20:29:24.151] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 conn=MConn{127.0.0.1:56127}
+I[2026-10-06|20:29:24.151] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping MConnection service" impl=MConn{127.0.0.1:56127}
+E[2026-10-06|20:29:24.151] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}" err=EOF
+I[2026-10-06|20:29:24.151] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:29:24.151] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:29:24.152] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:29:24.152] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Starting MConnection service" impl=MConn{127.0.0.1:56127}
+I[2026-10-06|20:29:24.158] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping MConnection service" impl=MConn{127.0.0.1:56127}
+E[2026-10-06|20:29:24.158] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}" err="read tcp 127.0.0.1:56134->127.0.0.1:56127: read: connection reset by peer"
+I[2026-10-06|20:29:24.158] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:56127} d0194b3943d611892484f06f2f79622946194397 out}"
+I[2026-10-06|20:29:24.158] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:29:24.158] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:29:24.158] Error reconnecting to peer. Trying again     module=p2p tries=0 err="dial tcp 127.0.0.1:56127: connect: connection refused" addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:29:24.158] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:29:24.158] Stopping Node                                module=main 
+I[2026-10-06|20:29:24.158] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:29:24.158] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:29:24.158] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:29:24.158] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:29:24.159] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping MConnection service" impl=MConn{127.0.0.1:38475}
+E[2026-10-06|20:29:24.159] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}" err="read tcp 127.0.0.1:44974->127.0.0.1:38475: use of closed network connection"
+I[2026-10-06|20:29:24.159] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:29:24.159] Reconnecting to peer                         module=p2p addr=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475
+E[2026-10-06|20:29:24.159] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:29:24.159] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping MConnection service" impl=MConn{127.0.0.1:49341}
+E[2026-10-06|20:29:24.159] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}" err="read tcp 127.0.0.1:33884->127.0.0.1:49341: use of closed network connection"
+I[2026-10-06|20:29:24.159] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:29:24.159] Reconnecting to peer                         module=p2p addr=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341
+E[2026-10-06|20:29:24.159] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:29:24.159] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:29:24.159] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+E[2026-10-06|20:29:24.159] Error stopping pool                          module=blocksync err="already stopped"
+I[2026-10-06|20:29:24.159] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:29:24.159] service stop                                 module=consensus msg="Stopping State service" impl=ConsensusState
+I[2026-10-06|20:29:24.159] service stop                                 module=consensus msg="Stopping TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:29:24.159] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping baseWAL service" impl=baseWAL
+I[2026-10-06|20:29:24.159] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping Group service" impl=Group
+I[2026-10-06|20:29:24.159] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-06|20:29:24.159] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+E[2026-10-06|20:29:24.159] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:29:24.159] Closing rpc listener                         module=main listener="&{Listener:0x25c0407c5440 sem:0x25c0407b9260 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x25c0407b92d0}"
+I[2026-10-06|20:29:24.159] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:29:24.159] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:29:24.159] Closing blockstore                           module=main 
+I[2026-10-06|20:29:24.159] Closing statestore                           module=main 
+I[2026-10-06|20:29:24.159] Closing evidencestore                        module=main 
+I[2026-10-06|20:29:24.188] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-06|20:29:24.188] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:29:24.188] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:29:24.188] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:29:24.188] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-06|20:29:24.188] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-06|20:29:24.188] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-06|20:29:24.189] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-06|20:29:24.189] ABCI Handshake App Info                      module=consensus height=7 hash=0119DAEEE95196C35CC3598A758518B8FF263F64932523571B813C6A192AEAE8 software-version=0.38.25-protocol8-development protocol-version=8
+I[2026-10-06|20:29:24.189] ABCI Replay Blocks                           module=consensus appHeight=7 storeHeight=7 stateHeight=7
+I[2026-10-06|20:29:24.189] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=7 appHash=0119DAEEE95196C35CC3598A758518B8FF263F64932523571B813C6A192AEAE8
+I[2026-10-06|20:29:24.189] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-06|20:29:24.189] This node is a validator                     module=consensus addr=E41D9C78B2969E59694985A6F9D855EB589E6333 pubKey=PubKeyEd25519{71C1F68219897EABBB380C29F52444D1F3F34DBA0D45E26820A471BF8ACAEEB6}
+I[2026-10-06|20:29:24.194] P2P Node ID                                  module=p2p ID=c32d8b3f4f0d049a6e640cea1ad264c25a81a702 file=<private-run>/nodes/node2/config/node_key.json
+I[2026-10-06|20:29:24.194] Adding persistent peers                      module=p2p addrs="[f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127]"
+I[2026-10-06|20:29:24.194] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-06|20:29:24.194] Add our address to book                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json addr=c32d8b3f4f0d049a6e640cea1ad264c25a81a702@127.0.0.1:39579
+I[2026-10-06|20:29:24.194] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-06|20:29:24.195] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:29:24.195] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-06|20:29:24.195] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-06|20:29:24.195] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-06|20:29:24.195] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:29:24.195] Reactor                                      module=consensus waitSync=true
+I[2026-10-06|20:29:24.195] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-06|20:29:24.195] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-06|20:29:24.195] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node2/config/addrbook.json size=3
+I[2026-10-06|20:29:24.195] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:54345"
+I[2026-10-06|20:29:24.195] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:8} DefaultNodeID:c32d8b3f4f0d049a6e640cea1ad264c25a81a702 ListenAddr:tcp://127.0.0.1:39579 Network:one-p8-017791bc6108 Version:0.38.25 Channels:402021222330386061 Moniker:node2 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:54345}}"
+I[2026-10-06|20:29:25.167] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:29:25.167] service start                                module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Starting MConnection service" impl=MConn{127.0.0.1:38475}
+I[2026-10-06|20:29:25.540] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:34054 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:34054} d0194b3943d611892484f06f2f79622946194397 in}"
+I[2026-10-06|20:29:25.540] service start                                module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:34054 msg="Starting MConnection service" impl=MConn{127.0.0.1:34054}
+I[2026-10-06|20:29:26.196] Time to switch to consensus reactor!         module=blocksync height=8
+I[2026-10-06|20:29:26.196] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-06|20:29:26.196] SwitchToConsensus                            module=consensus 
+I[2026-10-06|20:29:26.196] service start                                module=consensus msg="Starting State service" impl=ConsensusState
+I[2026-10-06|20:29:26.196] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting baseWAL service" impl=baseWAL
+I[2026-10-06|20:29:26.196] service start                                module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Starting Group service" impl=Group
+I[2026-10-06|20:29:26.196] service start                                module=consensus msg="Starting TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:29:26.196] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=8 min=0 max=0
+I[2026-10-06|20:29:26.197] Searching for height                         module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=7 min=0 max=0
+I[2026-10-06|20:29:26.198] Found                                        module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal height=7 index=0
+I[2026-10-06|20:29:26.198] Catchup by replaying consensus messages      module=consensus height=8
+I[2026-10-06|20:29:26.198] Replay: New Step                             module=consensus height=8 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:29:26.198] Replay: Vote                                 module=consensus height=7 round=0 type=SIGNED_MSG_TYPE_PREVOTE blockID=CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167:1:4FC1504E2FB2 peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:29:26.198] Replay: Vote                                 module=consensus height=7 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167:1:4FC1504E2FB2 peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:29:26.198] Replay: Vote                                 module=consensus height=7 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167:1:4FC1504E2FB2 peer=f80547576b7ba9d196c44020a57f20b644f6e05e extensionLen=0 extSigLen=0
+I[2026-10-06|20:29:26.198] Replay: Vote                                 module=consensus height=7 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167:1:4FC1504E2FB2 peer=d0194b3943d611892484f06f2f79622946194397 extensionLen=0 extSigLen=0
+I[2026-10-06|20:29:26.198] Replay: Vote                                 module=consensus height=7 round=0 type=SIGNED_MSG_TYPE_PRECOMMIT blockID=CADA2AC26840E5444DD84B3C409BDF54CF5B689A5465C1124671CF4414D56167:1:4FC1504E2FB2 peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153 extensionLen=0 extSigLen=0
+I[2026-10-06|20:29:26.198] Replay: Done                                 module=consensus 
+I[2026-10-06|20:29:26.308] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:29:26.308] service start                                module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Starting MConnection service" impl=MConn{127.0.0.1:49341}
+I[2026-10-06|20:30:24.195] Timed out                                    module=consensus dur=57.995829103s height=8 round=0 step=RoundStepNewHeight
+I[2026-10-06|20:30:24.196] received proposal                            module=consensus proposal="Proposal{8/0 (FFA2F92DA5A1EF736D5D6E6CA18241DBD26C763CFCA3A4F349988DA811E4C850:1:886AFAC96221, -1) CFD888103180 @ 2026-10-07T01:30:24.196111192Z}" proposer=E41D9C78B2969E59694985A6F9D855EB589E6333
+I[2026-10-06|20:30:24.196] received complete proposal block             module=consensus height=8 hash=FFA2F92DA5A1EF736D5D6E6CA18241DBD26C763CFCA3A4F349988DA811E4C850
+I[2026-10-06|20:30:24.607] finalizing commit of block                   module=consensus height=8 hash=FFA2F92DA5A1EF736D5D6E6CA18241DBD26C763CFCA3A4F349988DA811E4C850 root=0119DAEEE95196C35CC3598A758518B8FF263F64932523571B813C6A192AEAE8 num_txs=0
+I[2026-10-06|20:30:24.706] finalized block                              module=state height=8 num_txs_res=0 num_val_updates=0 block_app_hash=1A4BB2348FE56678020100657A969C51CBB7821417ED7ED2BC2AA852668055FF
+I[2026-10-06|20:30:24.706] executed block                               module=state height=8 app_hash=1A4BB2348FE56678020100657A969C51CBB7821417ED7ED2BC2AA852668055FF
+I[2026-10-06|20:30:24.798] committed state                              module=state height=8 block_app_hash=0119DAEEE95196C35CC3598A758518B8FF263F64932523571B813C6A192AEAE8
+I[2026-10-06|20:30:24.798] indexed block events                         module=txindex height=8
+I[2026-10-06|20:30:24.823] Connection is closed @ recvRoutine (likely by the other side) module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:34054 conn=MConn{127.0.0.1:34054}
+I[2026-10-06|20:30:24.823] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:34054 msg="Stopping MConnection service" impl=MConn{127.0.0.1:34054}
+E[2026-10-06|20:30:24.823] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:34054} d0194b3943d611892484f06f2f79622946194397 in}" err=EOF
+I[2026-10-06|20:30:24.823] service stop                                 module=p2p peer=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:34054 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:34054} d0194b3943d611892484f06f2f79622946194397 in}"
+I[2026-10-06|20:30:24.823] Reconnecting to peer                         module=p2p addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:30:24.828] Error reconnecting to peer. Trying again     module=p2p tries=0 err="auth failure: handshake failed: read tcp 127.0.0.1:51562->127.0.0.1:56127: read: connection reset by peer" addr=d0194b3943d611892484f06f2f79622946194397@127.0.0.1:56127
+I[2026-10-06|20:30:24.831] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-06|20:30:24.831] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-06|20:30:24.831] Stopping Node                                module=main 
+I[2026-10-06|20:30:24.831] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-06|20:30:24.831] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-06|20:30:24.831] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-06|20:30:24.831] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-06|20:30:24.831] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping MConnection service" impl=MConn{127.0.0.1:38475}
+E[2026-10-06|20:30:24.831] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}" err="read tcp 127.0.0.1:43992->127.0.0.1:38475: use of closed network connection"
+E[2026-10-06|20:30:24.831] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:30:24.831] Reconnecting to peer                         module=p2p addr=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475
+I[2026-10-06|20:30:24.831] service stop                                 module=p2p peer=ecdc8d15c3bed4a70b39b05bc89fe581b6720153@127.0.0.1:38475 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:38475} ecdc8d15c3bed4a70b39b05bc89fe581b6720153 out}"
+I[2026-10-06|20:30:24.831] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping MConnection service" impl=MConn{127.0.0.1:49341}
+E[2026-10-06|20:30:24.831] Stopping peer for error                      module=p2p peer="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}" err="read tcp 127.0.0.1:52086->127.0.0.1:49341: use of closed network connection"
+I[2026-10-06|20:30:24.831] service stop                                 module=p2p peer=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341 msg="Stopping Peer service" impl="Peer{MConn{127.0.0.1:49341} f80547576b7ba9d196c44020a57f20b644f6e05e out}"
+I[2026-10-06|20:30:24.831] Reconnecting to peer                         module=p2p addr=f80547576b7ba9d196c44020a57f20b644f6e05e@127.0.0.1:49341
+E[2026-10-06|20:30:24.831] error while stopping peer                    module=p2p error="already stopped"
+I[2026-10-06|20:30:24.831] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+I[2026-10-06|20:30:24.831] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-06|20:30:24.831] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+E[2026-10-06|20:30:24.831] Error stopping pool                          module=blocksync err="already stopped"
+I[2026-10-06|20:30:24.831] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+I[2026-10-06|20:30:24.831] service stop                                 module=consensus msg="Stopping State service" impl=ConsensusState
+I[2026-10-06|20:30:24.831] service stop                                 module=consensus msg="Stopping TimeoutTicker service" impl=TimeoutTicker
+I[2026-10-06|20:30:24.831] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping baseWAL service" impl=baseWAL
+I[2026-10-06|20:30:24.831] service stop                                 module=consensus wal=<private-run>/nodes/node2/data/cs.wal/wal msg="Stopping Group service" impl=Group
+I[2026-10-06|20:30:24.831] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+E[2026-10-06|20:30:24.831] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-06|20:30:24.831] Closing rpc listener                         module=main listener="&{Listener:0x18954e6f2d00 sem:0x18954e2df500 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x18954e2df570}"
+I[2026-10-06|20:30:24.831] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:54345: use of closed network connection"
+E[2026-10-06|20:30:24.831] Error serving server                         module=main err="accept tcp 127.0.0.1:54345: use of closed network connection"
+I[2026-10-06|20:30:24.831] Closing blockstore                           module=main 
+I[2026-10-06|20:30:24.831] Closing statestore                           module=main 
+I[2026-10-06|20:30:24.832] Closing evidencestore                        module=main 

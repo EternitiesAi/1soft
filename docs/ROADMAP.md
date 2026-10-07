@@ -120,3 +120,8 @@ production privacy/custody and external specialist review remain distinct gates.
 The [protected P8 wallet CLI](PROTOCOL8_WALLET_CLI.md) adds explicit local custody
 commands over the unchanged encrypted recipient wallet. Its [registered fresh actual caller receipt](../evidence/protocol8-wallet-cli/20261006/wallet-cli-03.json)
 passed 13 caller checks and the unchanged 22-check actual wallet journey.
+
+The [local P8 payment caller](PROTOCOL8_PAYMENT_CALLER.md) now joins retained
+wallet intent to one explicit loopback submission and signed reconciliation.
+Its [fresh actual caller receipt](../evidence/protocol8-payment-caller/20261006/payment-02.json)
+passed 13 caller checks and all 22 underlying actual wallet checks.
