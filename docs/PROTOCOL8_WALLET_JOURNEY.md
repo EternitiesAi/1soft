@@ -83,7 +83,45 @@ configuration/runtime pins remain byte-compatible with that base; console source
 has a new identity. Configurations older than PR83's wallet-review change still
 refuse that changed wallet runtime. No migration or automatic repinning occurs.
 
-The fresh actual journey gate is pending qualification. It preserves the existing
+The [fresh actual journey receipt](../evidence/protocol8-wallet-journey/20261007/journey-03.json)
+passed all 14 journey, 12 console, 13 payment and 22 wallet checks at clean
+runtime `7052610651962e6ab50a309522ca874ca19abb14`. All 35 lifecycle console calls and
+34 actual wallet children were reaped without forced cleanup; cancellation
+started no wallet child and preserved ciphertext/plaintext. Six private
+preparation displays were independently compared with actual fixture requests
+before redaction. Three live preproof holds bind to actual child PID/birth.
+All 16 lifecycle refusals preserved wallet bytes and made no payment request.
+Carol imported the exact delivered output, prepared and exported another native
+wire, and was refused reuse of the held input. Its attempts remain zero; it is
+not submitted, completed or chain-executed. The inherited journey made exactly
+one real local node submission through the protected payment caller, lost the
+reply and recovered signed exact execution without retry. Symlink delivery and
+wrong-genesis observation refused.
+All 75 coherent altered journey, 54 console and 30 payment receipts refused;
+separate native replay verified five proofs and three signed AS-OF states.
+67 focused methods passed without skips. The receipt/output alias unit failure
+was repaired by deferring receipt persistence until preflight succeeds; its
+negative log is preserved. Run01 was interrupted by a WSL restart before final
+receipts; its partial log is unqualified. Run02 producer checks passed, but its
+closed checker guessed conflict height7 instead of the signed witness height6.
+The repaired checker binds each observe stage to its signed witness height and
+apphash. Corrected checker regression and 75 tamper cases passed prior02; those
+results do not transfer. The added tamper fixture initially selected height7,
+which was the legitimate fresh03 height. It now selects actual height+1 and
+requires every altered receipt to differ bytewise from baseline. Its negative
+log is preserved. Wholly fresh03 alone supplies final qualification. No native
+execution failure remains unresolved.
+The [focused-source comparison](../evidence/protocol8-wallet-journey/20261007/focused-compatibility.json)
+records unchanged product/test bytes after the checker-only repair. The
+[member-level evidence audit](../evidence/protocol8-wallet-journey/20261007/evidence-audit.json)
+checks structured private fields, redacted local displays, recognized credential
+patterns and producer secret-needle results. It is not universal secret detection
+or production privacy certification.
+Closed public receipts cannot reconstruct omitted private intent, recompute
+excluded-key journal MACs, or independently establish proof validity; actual
+fixture comparisons and the separate native replay supply those bounded checks.
+
+The fresh gate preserves the existing
 12 console, 13 payment and 22 wallet checks, routes lifecycle commands through real
 console/wallet children, observes live preproof holds, and separately prepares and
 natively verifies a recipient re-spend. That extra wire is not submitted or

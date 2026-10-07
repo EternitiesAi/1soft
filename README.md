@@ -393,5 +393,7 @@ retry or public service; production custody and independent operators remain sep
 The additive [local wallet journey](docs/PROTOCOL8_WALLET_JOURNEY.md) brings
 observation, receive/import, separately confirmed native preparation, exact export
 and private delivery into the console. Wallet/core pins are unchanged from PR83.
-Its new console source is pending a fresh actual journey qualification; no earlier
-receipt is transferred to it.
+Its [fresh actual journey receipt](evidence/protocol8-wallet-journey/20261007/journey-03.json)
+passed 14 journey, 12 console, 13 payment and 22 wallet checks. The recipient
+imported the privately delivered output and prepared a fifth native proof; that
+additional wire was verified and exported, not submitted or chain-executed.

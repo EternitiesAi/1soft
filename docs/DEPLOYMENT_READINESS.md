@@ -166,6 +166,8 @@ disclosure, and public receipts omit intent values. Production custody, independ
 launch remain separate gates.
 
 The additive [local wallet journey](PROTOCOL8_WALLET_JOURNEY.md) composes receive,
-preparation and private delivery over existing protected wallet commands. Its new
-console source is pending a fresh actual journey gate. It changes neither wallet
-pins nor production readiness; additional recipient re-spend is preparation only.
+preparation and private delivery over existing protected wallet commands. Its
+[fresh actual receipt](../evidence/protocol8-wallet-journey/20261007/journey-03.json)
+passed 14 journey, 12 console, 13 payment and 22 wallet checks. It changes neither
+wallet pins nor production readiness; additional recipient re-spend is prepared
+and natively verified without another submission or chain execution.

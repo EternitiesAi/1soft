@@ -10,7 +10,8 @@ profile, custody key generation, public endpoint or automatic recovery send.
 
 The additive [receive-to-delivery journey](PROTOCOL8_WALLET_JOURNEY.md) exposes
 explicit observation, import, independently confirmed preparation, export and
-private delivery. Its changed console source requires its own fresh qualification;
+private delivery. Its changed console source has its own
+[fresh actual journey receipt](../evidence/protocol8-wallet-journey/20261007/journey-03.json);
 the historical receipt below remains scoped to its captured runtime.
 
 Use an initialized protected wallet, an external private credential file and the
