@@ -40,7 +40,7 @@ def wallet_reply(value,inner,runtime,genesis):
     assert all(value[k] is False for k in ('automatic_retry','freshness_established','production_ready'))
     addition={'error_type','reason'} if value['status']=='refused' else {'inventory'}
     assert set(value)==CHILD|addition
-    for name,audit in value['native_audits'].items():native(audit,inner['inputs'][name]['sha256'])
+    for name,audit in value['native_audits'].items():native(audit,inner['inputs'][name]['sha256'],name)
 
 def check(path,*,candidate=False):
     raw=path.read_bytes();r=json.loads(raw)
@@ -124,7 +124,10 @@ def check(path,*,candidate=False):
     reply=profile['wallet_receipt'];assert ident==(reply['pid'],reply['start_ticks'])
     wallet_reply(reply,inner,wallet_runtime,inner['genesis_sha256'])
     assert reply['status']=='authenticated-inventory' and reply['inventory']==pc['expected_inventory']==g['calls'][1]['expected_inventory']
-    assert [x['operation'] for x in reply['native_audits']['worker']['calls'][:3]]==['verify','verify','identities']
+    assert reply['native_audits']['worker']['calls'][0]['operation']=='startup'
+    from protocol8_transfer import PROFILE
+    assert reply['native_audits']['worker']['calls'][0]['startup_checks']=={'valid_proof_verified':True,
+        'corrupt_proof_refused':True,**{k:PROFILE[k] for k in ('parameter_sha256','verifying_key_sha256')}}
     return r
 
 if __name__=='__main__':

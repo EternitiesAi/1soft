@@ -47,6 +47,9 @@ def check(path):
                 assert kind=='wallet' and x['command']=='init' and x['status']=='refused' and x['genesis_sha256']=='ef'*32 and not x['native_audits']
             if x['status']!='refused':assert x['wallet_id']==call['wallet_id']
             for native_kind,a in x['native_audits'].items():
+                if native_kind=='worker':
+                    from check_protocol8_native import batch_startup
+                    batch_startup(a)
                 assert native_kind in ('worker','helper','prover')
                 assert a['call_count']==a['retained_count']==a['reaped_count']==len(a['calls'])<=512 and a['timeout_count']==0
                 for item in a['calls']:
@@ -54,7 +57,12 @@ def check(path):
                     assert type(item['pid']) is int and item['pid']>0
                     identity=(item['pid'],birth);assert identity not in native_ids;native_ids.add(identity)
                     assert item['binary_sha256']==inner['inputs'][native_kind]['sha256'] and item['process_reaped'] is True and item['timed_out'] is False and item['exit_code'] in (0,2)
-                    assert item['operation'] in {'worker':{'verify','identities','network-domain','note-root'},'helper':{'key','inspect-note','construct'},'prover':{'prove'}}[native_kind]
+                    assert item['operation'] in {'worker':{'verify','identities','network-domain','note-root','startup'},'helper':{'key','inspect-note','construct'},'prover':{'prove'}}[native_kind]
+                    if item['operation']=='startup':
+                        from protocol8_transfer import PROFILE
+                        assert native_kind=='worker' and item['input_bytes']==3592 and 0<item['output_bytes']<=256
+                        assert item['startup_checks']=={'valid_proof_verified':True,'corrupt_proof_refused':True,
+                            **{k:PROFILE[k] for k in ('parameter_sha256','verifying_key_sha256')}}
     assert len(wallet['initializations'])==4 and len(wallet['doctors'])==4 and len(wallet['preproof_holds'])==2
     for x in wallet['initializations']:
         assert x in wallet['responses'] and x['status']=='initialized' and x['encrypted_wallet_created'] is True

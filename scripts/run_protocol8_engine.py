@@ -29,7 +29,7 @@ CLAIMS={'one_host_four_validators':True,'native_recipient_proof':True,'recipient
 SOURCE_NAMES=('src/protocol8_consensus.py','src/protocol8_worker.py','src/protocol8_application.py',
     'src/protocol8_abci_server.py','src/protocol8_certificate.py','scripts/protocol8_worker_exec.py',
     'scripts/serve_abci_p8.py','scripts/run_protocol8_engine.py','tests/test_protocol8_consensus.py','tests/test_protocol8_engine_report.py',
-    'tools/release/check_protocol8_engine.py')
+    'tools/release/check_protocol8_engine.py','tools/release/check_protocol8_native.py')
 SOURCE_PREFIXES=('src/','scripts/','tools/recipient-transfer/','tools/recipient-consensus-bridge/','tools/shielded-consensus/halo2/')
 def source():
     def git(*args):return subprocess.check_output(['git','-C',str(ROOT),*args],text=True).strip()

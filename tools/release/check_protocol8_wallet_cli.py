@@ -6,6 +6,7 @@ ROOT=Path(__file__).resolve().parents[2];sys.path[:0]=[str(ROOT/'scripts'),str(R
 from run_protocol8_wallet_cli import CHECKS,EXPECTED_COMMANDS,EXPECTED_REFUSALS
 from protocol8_transfer import canonical,sha,parse,txid,PROFILE_SHA256,PROFILE
 from check_protocol8_wallet import check as wallet_check
+from check_protocol8_native import batch_startup
 
 CLAIMS={'actual_wallet_cli':True,'one_trusted_host':True,'synthetic_funds':True,'broadcast_by_cli':False,
     'automatic_retry':False,'freshness_established':False,'production_ready':False,'public_network':False,
@@ -48,6 +49,7 @@ def check(path):
         if x['genesis_sha256']!=inner['genesis_sha256']:
             assert x['command']=='init' and x['status']=='refused' and x['genesis_sha256']=='ef'*32 and not x['native_audits'];bad.append(x)
         for kind,a in x['native_audits'].items():
+            if kind=='worker':batch_startup(a)
             assert kind in ('worker','helper','prover') and a['call_count']==a['reaped_count']==a['retained_count']==len(a['calls'])<=512 and a['timeout_count']==0
             for n in a['calls']:
                 assert type(n['pid']) is int and n['pid']>0
@@ -55,7 +57,11 @@ def check(path):
                 assert type(birth) is str and birth.isascii() and birth.isdecimal() and int(birth)>0 and birth==str(int(birth))
                 pid=(n['pid'],str(n['start_ticks']));assert pid not in native_ids;native_ids.add(pid)
                 assert n['binary_sha256']==inner['inputs'][kind]['sha256'] and n['process_reaped'] is True and not n['timed_out'] and n['exit_code'] in (0,2)
-                assert n['operation'] in {'worker':{'verify','identities','network-domain','note-root'},'helper':{'key','inspect-note','construct'},'prover':{'prove'}}[kind]
+                assert n['operation'] in {'worker':{'verify','identities','network-domain','note-root','startup'},'helper':{'key','inspect-note','construct'},'prover':{'prove'}}[kind]
+                if n['operation']=='startup':
+                    assert kind=='worker' and n['input_bytes']==3592 and 0<n['output_bytes']<=256
+                    assert n['startup_checks']=={'valid_proof_verified':True,'corrupt_proof_refused':True,
+                        **{k:PROFILE[k] for k in ('parameter_sha256','verifying_key_sha256')}}
         if x['command']=='doctor':assert not x['native_audits']
         if x['status']=='original-wire-retained':prepare.append(x);assert x['native_audits']['prover']['call_count']==1
         if x['status']=='attempt-marked':marks.append(x);assert x['attempts']==1
@@ -64,7 +70,8 @@ def check(path):
     assert len(e['initializations'])==4 and len({x['wallet_id'] for x in e['initializations']})==4
     for x in e['initializations']:
         assert x in responses and x['status']=='initialized' and x['encrypted_wallet_created'] is True
-        startup=x['native_startup'];assert startup['valid_proof_verified'] and startup['corrupt_proof_refused'] and startup['verifier_only']
+        batch_startup(x['native_audits']['worker'])
+        startup=x['native_startup'];assert all(startup[k] is True for k in ('valid_proof_verified','corrupt_proof_refused','verifier_only'))
         assert startup['binary_sha256']==inner['inputs']['worker']['sha256'] and startup['kat_sha256']==inner['genesis']['kat_sha256']
         assert startup['profile_sha256']==PROFILE_SHA256 and all(startup[k]==PROFILE[k] for k in ('parameter_sha256','verifying_key_sha256'))
     assert len(e['doctors'])==4
