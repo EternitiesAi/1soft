@@ -385,6 +385,7 @@ recovered exact execution without resubmission. Public launch remains a separate
 
 The [terminal console](docs/PROTOCOL8_PAYMENT_CONSOLE.md) presents protected original
 intent, requires confirmation of the exact transaction and wire hash, and keeps
-unknown submission, admission and signed execution distinct. Its fresh actual
-console gate remains pending qualification. It adds no automatic retry or public
-service; production custody and independent operators remain separate gates.
+unknown submission, admission and signed execution distinct. Its
+[fresh actual receipt](evidence/protocol8-payment-console/20261006/console-05.json)
+passed 12 console, 13 payment and 22 actual wallet checks. It adds no automatic
+retry or public service; production custody and independent operators remain separate gates.

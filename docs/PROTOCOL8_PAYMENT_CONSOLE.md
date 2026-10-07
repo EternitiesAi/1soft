@@ -71,7 +71,28 @@ credentials and evidence before any separately authorized upgrade.
 Focused tests cover exact confirmation, cancellation, changed review refusal,
 journal/path/endpoint protection, distinct states, receipt collisions and actual
 disposable child identity/reaping. Fake authority tests are labeled and do not
-qualify cryptography. The fresh actual console gate remains pending qualification.
+qualify cryptography. The [fresh actual console receipt](../evidence/protocol8-payment-console/20261006/console-05.json)
+passed all 12 console, 13 inherited payment and 22 inherited wallet checks at
+clean runtime `b5dfabb36504b4fb29e8bf6fa0ca5daf4ef63e11`. All 19 console invocations and their
+protected children were reaped without forced cleanup. Six console refusals and
+all inherited refusal lanes passed; cancellation left wallet bytes unchanged,
+created no journal and made no request. One exact confirmed submission reached
+the real node; the reply was lost, and signed exact execution recovered without
+resending. All 54 altered console and 30 altered payment receipts refused after
+recomputed linkage and stream hashes. Separate native replay verified four proofs
+and three static-quorum signed AS-OF states. Twenty-three console methods and 36
+wallet/payment/envelope/process methods passed without skips. Private rendered
+intent was checked against the actual request before being redacted and discarded.
+The v2 private file hash covers a domain-separated keyed blind that never enters
+public receipts; the gate independently reconstructs its exact digest from fixture
+custody. Raw human stdout receives a discarded random 256-bit blind before hashing.
+Intermediate03 passed at its earlier source; final05 alone qualifies the hardened
+runtime. Failed04 omitted a required refusal-review position in its assertion;
+that negative report remains separate. Final05 requires the literal 19 child-command
+map and all six private reviews, including both fresh-journal refusal paths.
+These commitments do not certify production privacy.
+The public checker cannot reconstruct that private intent or independently
+recompute excluded-key journal MACs; native certificate replay is separate.
 
 The actual gate retains all 22 wallet and 13 payment checks on four real CometBFT
 validators, and adds 12 console checks. It exercises 19 actual console invocations,

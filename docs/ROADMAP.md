@@ -127,6 +127,8 @@ Its [fresh actual caller receipt](../evidence/protocol8-payment-caller/20261006/
 passed 13 caller checks and all 22 underlying actual wallet checks.
 
 The [local P8 terminal console](PROTOCOL8_PAYMENT_CONSOLE.md) adds private original
-intent review, exact confirmation and protected status/reconciliation. Its fresh
-actual console gate remains pending qualification. Next: independent operator
-workflow and production custody qualification, with no inferred public release.
+intent review, exact confirmation and protected status/reconciliation. Its
+[fresh actual receipt](../evidence/protocol8-payment-console/20261006/console-05.json)
+passed 12 console, 13 payment and 22 actual wallet checks. Next: complete the local
+receive, preparation and private delivery interface, then qualify independent
+operators and production custody. No public release is inferred.
