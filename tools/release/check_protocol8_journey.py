@@ -114,7 +114,11 @@ def check(path):
             if call['command']=='observe':
                 assert set(view)==common|{'as_of_height','app_hash'} and view['state']=='signed-state-observed'
                 assert view['as_of_height']==reply['certificate']['state_height'] and view['app_hash']==reply['certificate']['app_hash']
-                assert view['as_of_height']==(2 if i in (1,7,11) else 4 if i in (21,23) else 7)
+                stages={1:'receive_witness',7:'receive_witness',11:'receive_witness',
+                    21:'state_witness',23:'state_witness',26:'conflict_witness'}
+                assert i in stages
+                witness=inner[stages[i]]
+                assert view['as_of_height']==witness['height'] and view['app_hash']==witness['app_hash']
             elif call['command']=='import-note':
                 assert set(view)==common|{'commitment'} and view['state']=='note-imported' and view['commitment']==reply['commitment']
             elif call['command']=='prepare':
