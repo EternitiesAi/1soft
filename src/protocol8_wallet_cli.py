@@ -12,7 +12,7 @@ import protocol8_transfer as n
 from protocol8_consensus import canonical, closed_json, genesis_shape, genesis_document, bootstrap_digest
 from protocol8_notes import NoteController, opening
 from protocol8_prover import Prover
-from protocol8_wallet import RecipientWallet, MAX_FILE, ENVELOPE
+from protocol8_wallet import RecipientWallet, MAX_FILE, ENVELOPE, REVIEW_FORMAT, REVIEW_SCHEME
 from protocol8_worker import Worker
 from protocol8_operator import absolute, parents, directory, read_file, write_new, pin, sha, require
 
@@ -169,7 +169,7 @@ def operate(args,trace):
         if c=='review':
             view={**wallet.review_intent(args.txid),'genesis_sha256':args.genesis_sha256,
                 'runtime_sha256':sha(canonical(runtime_files()))}
-            return {'status':'private-intent-reviewed','txid':args.txid,**private_output(args.output,canonical(view))}
+            return {'status':'private-intent-reviewed','txid':args.txid,'review_commitment_scheme':REVIEW_SCHEME,**private_output(args.output,canonical(view))}
         if c=='deliver':return {'status':'private-opening-delivered','txid':args.txid,
             **private_output(args.output,canonical(wallet.output_opening(args.txid,args.output_index)))}
         raise ValueError('unsupported wallet command')

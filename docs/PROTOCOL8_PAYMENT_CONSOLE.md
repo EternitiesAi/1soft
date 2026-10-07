@@ -29,7 +29,12 @@ python -B scripts/protocol8_console.py \
 it does not invent an available balance. `review` uses the same payment arguments
 and displays the protected original recipient, amount, expiry, fee and validity.
 The private projection is written by the wallet CLI into a temporary owner-only
-file, hash-checked and removed. Those values appear on the local terminal: do not
+file, hash-checked and removed. Its v2 projection includes a stable private blind
+derived through domain-separated HMAC from the wallet AES key and public identity
+context. The blind is omitted from displays and public receipts; its presence
+prevents the retained file SHA from testing guesses about low-entropy intent.
+Repeated reviews remain byte-identical for unchanged intent and authenticated state.
+Those values appear on the local terminal: do not
 record or share its output when it contains private intent.
 
 `submit` requires the complete typed `SUBMIT <txid> <wire_sha256>` confirmation.
@@ -69,12 +74,16 @@ disposable child identity/reaping. Fake authority tests are labeled and do not
 qualify cryptography. The fresh actual console gate remains pending qualification.
 
 The actual gate retains all 22 wallet and 13 payment checks on four real CometBFT
-validators, and adds 10 console checks. It exercises 19 actual console invocations,
+validators, and adds 12 console checks. It exercises 19 actual console invocations,
 six console refusal paths alongside the unchanged six legacy payment refusals,
 private display comparison before redaction, cancellation with unchanged wallet
 bytes/no journal/no RPC, one confirmed submission, a deliberately lost real node
 reply, signed unresolved/exact/conflict states and child reaping. Private human
-stdout is hashed and discarded; only sanitized lines are retained. Native replay
+stdout is committed with a domain-separated SHA256 and fresh random 256-bit blind,
+then both raw stdout and blind are discarded; only sanitized lines are retained.
+This opaque commitment cannot be recomputed from public artifacts. The fixture
+independently reconstructs the keyed private projection from its controlled
+synthetic custody before checking the retained file digest. Native replay
 and altered-receipt checks remain separate evidence.
 
 Scope is finite synthetic funds on one trusted Linux/WSL host. Actual process-kill

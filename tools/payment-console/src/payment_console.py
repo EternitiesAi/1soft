@@ -80,12 +80,14 @@ def review(args,runner):
         reply=runner.run('wallet','review',['--txid',args.txid,'--output',path]);need_success(reply)
         raw=c.read_file(path,8192,private=True)
         c.require(reply['status']=='private-intent-reviewed' and reply['txid']==args.txid and
-            reply['bytes']==len(raw) and reply['sha256']==c.sha(raw) and reply['private_file_created'] is True,'private review bytes differ')
+            reply['bytes']==len(raw) and reply['sha256']==c.sha(raw) and reply['private_file_created'] is True and
+            reply['review_commitment_scheme']==c.REVIEW_SCHEME,'private review bytes differ')
         v=c.closed_json(raw,8192)
         keys={'format','wallet_id','txid','wire_sha256','wire_bytes','destination','payment','payment_expiry',
-            'fee','valid_from','valid_until','attempts','completed','as_of_height','wallet_genesis_sha256','genesis_sha256','runtime_sha256'}
-        c.require(type(v) is dict and set(v)==keys and v['format']=='1soft/protocol8-private-intent-review/v1','closed review required')
-        for key in ('wallet_id','txid','wire_sha256','destination','wallet_genesis_sha256','genesis_sha256','runtime_sha256'):c.pin(v[key])
+            'fee','valid_from','valid_until','attempts','completed','as_of_height','wallet_genesis_sha256','genesis_sha256','runtime_sha256','private_review_blind'}
+        c.require(type(v) is dict and set(v)==keys and v['format']==c.REVIEW_FORMAT,'closed review required')
+        for key in ('wallet_id','txid','wire_sha256','destination','wallet_genesis_sha256','genesis_sha256','runtime_sha256','private_review_blind'):c.pin(v[key])
+        c.require(v['private_review_blind']!='00'*32 and v['wallet_genesis_sha256']==args.genesis_sha256,'private review blind/genesis differs')
         c.require(v['wallet_id']==reply['wallet_id'] and v['txid']==args.txid and v['genesis_sha256']==args.genesis_sha256 and
             v['runtime_sha256']==reply['runtime_sha256'],'private review identity differs')
         c.require(type(v['wire_bytes']) is int and v['wire_bytes']==3560 and type(v['completed']) is bool and
@@ -97,7 +99,7 @@ def review(args,runner):
 
 def public_review(v,digest):
     return {key:v[key] for key in ('wallet_id','txid','wire_sha256','wire_bytes','fee','valid_from','valid_until',
-        'attempts','completed','as_of_height')} | {'review_sha256':digest,'private_intent_omitted':True}
+        'attempts','completed','as_of_height')} | {'review_sha256':digest,'review_commitment_scheme':c.REVIEW_SCHEME,'private_intent_omitted':True}
 
 def review_text(v):
     return ('1soft | Review prepared payment\n'

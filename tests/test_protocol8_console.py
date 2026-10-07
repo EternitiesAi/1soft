@@ -1,5 +1,5 @@
 """Console behavior with labeled fake authority; disposable child-process checks."""
-import io,json,os,sys,tempfile,unittest
+import hmac,io,json,os,sys,tempfile,unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -12,7 +12,7 @@ import protocol8_payment as p
 SHA='ab'*32;TX='cd'*32;WIRE='ef'*32;ID='12'*32
 
 def projection():
-    return {'format':'1soft/protocol8-private-intent-review/v1','wallet_id':ID,'txid':TX,
+    return {'format':c.REVIEW_FORMAT,'private_review_blind':'57'*32,'wallet_id':ID,'txid':TX,
         'wire_sha256':WIRE,'wire_bytes':3560,'destination':'34'*32,'payment':4,'payment_expiry':56,
         'fee':1,'valid_from':2,'valid_until':32,'attempts':0,'completed':False,'as_of_height':1,
         'wallet_genesis_sha256':SHA,'genesis_sha256':SHA,'runtime_sha256':c.sha(c.canonical(c.runtime_files()))}
@@ -82,7 +82,7 @@ class ConsoleTests(unittest.TestCase):
         def fake(kind,command,extra):
             dest=Path(extra[-1]);raw=c.canonical(projection());c.private_output(dest,raw)
             return {'status':'private-intent-reviewed','txid':TX,'wallet_id':ID,'runtime_sha256':projection()['runtime_sha256'],
-                'bytes':len(raw),'sha256':'00'*32,'private_file_created':True}
+                'bytes':len(raw),'sha256':'00'*32,'private_file_created':True,'review_commitment_scheme':c.REVIEW_SCHEME}
         with patch.object(self.runner,'run',side_effect=fake):
             with self.assertRaises(ValueError):console.review(self.args,self.runner)
     def test_refusal_suppresses_private_exception(self):
@@ -97,6 +97,53 @@ class ConsoleTests(unittest.TestCase):
     def test_render_does_not_claim_latest_validity_or_balances(self):
         text=console.review_text(projection());self.assertIn('current network validity is not established',text)
         self.assertNotIn('balance',text.lower());self.assertNotIn('recipient_secret',text)
+
+    def test_keyed_blind_is_stable_domain_separated_and_context_bound(self):
+        from protocol8_wallet import review_blind
+        from protocol8_transfer import Invalid
+        context={'wallet_id':ID,'genesis_sha256':SHA,'txid':TX,'wire_sha256':WIRE}
+        key=b'K'*32
+        derived=hmac.digest(key,b'1soft/protocol8-private-intent-review/key/v2\0','sha256')
+        expected=hmac.digest(derived,c.canonical({'format':'1soft/protocol8-private-intent-review/blind/v2',**context}),'sha256').hex()
+        blind=review_blind(key,**context);self.assertEqual(blind,expected)
+        self.assertEqual(review_blind(key,**context),blind)
+        self.assertNotEqual(review_blind(b'X'*32,**context),blind)
+        for name in context:self.assertNotEqual(review_blind(key,**{**context,name:'98'*32}),blind)
+        for bad in (b'K'*31,bytes(32),'K'*32):
+            with self.assertRaises(Invalid):review_blind(bad,**context)
+        with self.assertRaises(Invalid):review_blind(key,**{**context,'txid':'abc'})
+    def test_private_blind_and_intent_omitted_from_public_review_and_display(self):
+        v=projection();public=console.public_review(v,'56'*32);human=console.review_text(v)
+        self.assertNotIn(v['private_review_blind'],human+c.canonical(public).decode())
+        self.assertNotIn('private_review_blind',public)
+        self.assertEqual(public['review_commitment_scheme'],c.REVIEW_SCHEME)
+        for name in ('destination','payment','payment_expiry'):self.assertNotIn(name,public)
+        missing={k:value for k,value in v.items() if k!='private_review_blind'}
+        self.assertNotEqual(c.sha(c.canonical(v)),c.sha(c.canonical(missing)))
+    def test_private_review_requires_v2_blind_and_both_genesis_pins(self):
+        variants=[{**projection(),'format':'1soft/protocol8-private-intent-review/v1'},
+            {k:v for k,v in projection().items() if k!='private_review_blind'},
+            {**projection(),'private_review_blind':'ab'},
+            {**projection(),'private_review_blind':'00'*32},
+            {**projection(),'wallet_genesis_sha256':'98'*32}]
+        def fake(v):
+            def run(kind,command,extra):
+                raw=c.canonical(v);c.private_output(Path(extra[-1]),raw)
+                return {'status':'private-intent-reviewed','txid':TX,'wallet_id':ID,
+                    'runtime_sha256':v['runtime_sha256'],'bytes':len(raw),'sha256':c.sha(raw),
+                    'private_file_created':True,'review_commitment_scheme':c.REVIEW_SCHEME}
+            return run
+        with patch.object(self.runner,'run',side_effect=fake(projection())):
+            value,digest=console.review(self.args,self.runner)
+        self.assertEqual(value,projection());self.assertEqual(digest,c.sha(c.canonical(value)))
+        for v in variants:
+            with self.subTest(v=v),patch.object(self.runner,'run',side_effect=fake(v)),self.assertRaises(ValueError):
+                console.review(self.args,self.runner)
+    def test_changed_private_blind_refuses_before_dispatch_even_if_digest_repeated(self):
+        later={**projection(),'private_review_blind':'98'*32}
+        with patch.object(console,'review',side_effect=[(projection(),'56'*32),(later,'56'*32)]),patch.object(self.runner,'run') as run:
+            with self.assertRaises(ValueError):console.operate(self.args,self.runner,self.output,io.StringIO('SUBMIT '+TX+' '+WIRE+'\n'))
+        run.assert_not_called()
 
 class ChildTests(unittest.TestCase):
     def test_actual_disposable_child_has_canonical_identity_and_is_reaped(self):

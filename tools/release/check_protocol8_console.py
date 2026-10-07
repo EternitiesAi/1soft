@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'scripts'),str(ROOT/'tools/payment-console/src'),str(ROOT/'tools/release')]
 from protocol8_transfer import canonical,sha
-from run_protocol8_console import EXPECTED,REFUSALS,CHECKS,CLAIMS
+from run_protocol8_console import EXPECTED,REFUSALS,CHECKS,CLAIMS,STDOUT_SCHEME
 from run_protocol8_payment import EXPECTED_PAYMENT_REFUSALS
 from payment_console import STATE_TEXT,render
 from check_protocol8_payment import check as payment_check
@@ -43,7 +43,13 @@ def check(path):
         assert call['receipt_bytes']==len(canonical(response)+b'\n') and call['receipt_sha256']==sha(canonical(response)+b'\n')
         assert call['exit_code']==(1 if response['status']=='refused' else 0)
         assert not response['forced_cleanup'] and response['private_review_values_retained'] is False and call['private_stdout_retained'] is False
-        assert type(call['private_stdout_bytes']) is int and 0<call['private_stdout_bytes']<=16384 and len(bytes.fromhex(call['private_stdout_sha256']))==32
+        assert type(call['private_stdout_bytes']) is int and 0<call['private_stdout_bytes']<=16384
+        assert set(call)=={'command','pid','start_ticks','exit_code','process_reaped','elapsed_seconds','script_sha256',
+            'receipt_bytes','receipt_sha256','private_stdout_bytes','private_stdout_commitment','private_stdout_commitment_scheme',
+            'private_stdout_blind_retained','keyed_private_projection_checked','private_stdout_retained','private_render_checked','sanitized_stdout'}
+        digest=call['private_stdout_commitment'];assert type(digest) is str and len(digest)==64 and all(x in '0123456789abcdef' for x in digest)
+        assert call['private_stdout_commitment_scheme']==STDOUT_SCHEME and call['private_stdout_blind_retained'] is False
+        assert call['keyed_private_projection_checked'] is (ordinal in (7,8,9,12))
         assert all(response[k] is False for k in ('automatic_retry','freshness_established','production_ready'))
         child_calls=response['child_invocations'];child_responses=response['child_responses'];assert len(child_calls)==len(child_responses)
         for child,x in zip(child_calls,child_responses):
@@ -70,7 +76,8 @@ def check(path):
         assert call['private_render_checked'] is (ordinal in (7,8,9))
         if 'review' in view:
             review=view['review'];reviews.append(review)
-            assert set(review)=={'wallet_id','txid','wire_sha256','wire_bytes','fee','valid_from','valid_until','attempts','completed','as_of_height','review_sha256','private_intent_omitted'}
+            assert set(review)=={'wallet_id','txid','wire_sha256','wire_bytes','fee','valid_from','valid_until','attempts','completed','as_of_height','review_sha256','review_commitment_scheme','private_intent_omitted'}
+            assert review['review_commitment_scheme']=='sha256-private-review-v2-with-keyed-blind'
             assert review['private_intent_omitted'] is True and review['attempts']==0 and review['completed'] is False and review['wire_bytes']==3560
             assert review['wallet_id']==parent['payment_caller']['proxy_requests'][0].get('wallet_id',inner['wallet_inventory']['wallet_id'])
         if response['status']=='refused':assert view['state']=='refused'
@@ -82,6 +89,10 @@ def check(path):
             if result is not None:
                 assert view['as_of_height']==result.get('state_height',result.get('as_of_height'))
                 if 'app_hash' in result:assert view['app_hash']==result['app_hash']
+    assert len({x['private_stdout_commitment'] for x in calls})==19
+    for x in responses:
+        for child in x['child_responses']:
+            if child['status']=='private-intent-reviewed':assert child['review_commitment_scheme']=='sha256-private-review-v2-with-keyed-blind'
     selected=[x for i,x in enumerate(parent['payment_caller']['responses'],1) if i not in EXPECTED_PAYMENT_REFUSALS]
     assert payment_successes==selected and len(payment_successes)==9
     assert cs['cancellation']['wallet_sha256_before']==cs['cancellation']['wallet_sha256_after']
@@ -94,7 +105,7 @@ def check(path):
     assert reviews[0]==reviews[1]==reviews[2] and all(x['sha256']==reviews[2]['review_sha256'] for x in responses[8]['child_responses'][:2])
     assert reviews[2]['txid']==parent['payment_caller']['proxy_requests'][0]['txid'] and reviews[2]['wire_sha256']==parent['payment_caller']['proxy_requests'][0]['wire_sha256']
     assert [x['view']['state'] for x in responses[-4:]]==['unresolved-held','executed-exact','executed-exact','conflict-held']
-    print('P8 console closed gate passed: 10 console +13 payment +22 wallet checks; 19 actual console calls; native replay separate')
+    print('P8 console closed gate passed: 12 console +13 payment +22 wallet checks; 19 actual console calls; native replay separate')
     return r
 
 if __name__=='__main__':check(Path(sys.argv[1]))

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Actual terminal console over the unchanged payment/four-validator journey."""
-import argparse,json,subprocess,sys,time
+import argparse,hmac,json,os,subprocess,sys,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'scripts'),str(ROOT/'tools/payment-console/src')]
@@ -19,12 +19,16 @@ REFUSALS={5,6,11,12,13,14}
 CHECKS=('inherited_actual_payment_wallet_gate','exact_console_order','actual_console_child_identity',
     'actual_private_review_rendered_and_redacted','cancel_without_wallet_or_transport_effect',
     'one_confirmed_original_submission','signed_states_rendered_distinctly','all_console_children_reaped',
-    'no_private_intent_values_retained','source_unchanged')
+    'no_private_intent_values_retained','source_unchanged',
+    'keyed_blinded_private_projection_checked','fresh_blinded_private_stdout_commitments')
 CLAIMS={'actual_local_terminal_console':True,'protected_private_intent_projection':True,
     'explicit_exact_wire_confirmation':True,'cancellation_before_payment_child':True,
     'one_actual_payment_rpc_request':True,'synthetic_funds':True,'one_trusted_host':True,
     'automatic_retry':False,'freshness_established':False,'production_ready':False,
-    'actual_process_kill_at_marker':False,'private_review_values_retained':False}
+    'actual_process_kill_at_marker':False,'private_review_values_retained':False,
+    'keyed_blinded_private_projection':True,'random_blinded_private_stdout':True}
+STDOUT_SCHEME='sha256-private-stdout-v2-with-discarded-random-blind'
+STDOUT_DOMAIN=b'1soft/protocol8-console/private-stdout/v2\0'
 
 class Network(payment.Network):
     def __init__(self,*args):
@@ -40,8 +44,12 @@ class Network(payment.Network):
         if command not in ('inventory','doctor'):
             cmd+=['--txid',row['txid'],'--endpoint',endpoint,'--journal',str(journal)]
         if packet is not None:cmd+=['--packet',str(packet)]
-        wire=bytes.fromhex(next(x['raw'] for x in self.plain(wallet)['obligations'] if x['raw'] and n.txid(bytes.fromhex(x['raw']))==row['txid']))
+        plain_before=self.plain(wallet)
+        held_before=next(x for x in plain_before['obligations'] if x['raw'] and n.txid(bytes.fromhex(x['raw']))==row['txid'])
+        wire=bytes.fromhex(held_before['raw'])
         confirmation=b'\n' if cancel else ('SUBMIT '+row['txid']+' '+n.sha(wire)+'\n').encode()
+        stdout_blind=os.urandom(32)
+        n.need(len(stdout_blind)==32,'private stdout blinding entropy unavailable')
         started=time.monotonic();proc=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
         identity=old.process_identity(proc.pid);n.need(identity is not None,'console birth missing');text=err=b''
         try:text,err=proc.communicate(confirmation,timeout=960)
@@ -51,7 +59,36 @@ class Network(payment.Network):
         raw=cli.read_file(receipt,2*1024**2,private=True);value=json.loads(raw)
         n.need(raw==n.canonical(value)+b'\n' and value['pid']==proc.pid and value['start_ticks']==identity[0],'console receipt identity differs')
         plain=self.plain(wallet);held=next(x for x in plain['obligations'] if x['raw']==wire.hex())
-        _,w=statement(bytes.fromhex(held['private_request']),self.report['genesis'])
+        public,w=statement(bytes.fromhex(held['private_request']),self.report['genesis'])
+        # Independently reconstruct the exact private projection from authenticated
+        # fixture custody and the original request; no key/blind/private bytes survive.
+        context={'format':'1soft/protocol8-private-intent-review/blind/v2',
+            'wallet_id':wallet['secret']['wallet_id'],'genesis_sha256':self.genesis_sha256,
+            'txid':row['txid'],'wire_sha256':n.sha(wire)}
+        derived=hmac.digest(bytes.fromhex(wallet['secret']['key']),
+            b'1soft/protocol8-private-intent-review/key/v2\0','sha256')
+        private_blind=hmac.digest(derived,n.canonical(context),'sha256').hex()
+        self.needles.append(private_blind.encode())
+        expected={'format':'1soft/protocol8-private-intent-review/v2',
+            'wallet_id':wallet['secret']['wallet_id'],'txid':row['txid'],'wire_sha256':n.sha(wire),
+            'wire_bytes':len(wire),'destination':w[11],'payment':n.integer(w[12]),
+            'payment_expiry':n.integer(w[13]),'fee':n.integer(public[9]),
+            'valid_from':n.integer(public[7]),'valid_until':n.integer(public[8]),
+            'attempts':held_before['attempts'],'completed':held_before['result'] is not None,
+            'as_of_height':plain_before['observations'][-1]['witness']['height'],
+            'wallet_genesis_sha256':self.genesis_sha256,'genesis_sha256':self.genesis_sha256,
+            'runtime_sha256':cli.sha(cli.canonical(cli.runtime_files())),
+            'private_review_blind':private_blind}
+        review_children=[x for child,x in zip(value['child_invocations'],value['child_responses'])
+            if child['command']=='review' and x['status']=='private-intent-reviewed']
+        projection_checked=bool(review_children)
+        for child in review_children:
+            n.need(child['sha256']==n.sha(n.canonical(expected)) and
+                child['bytes']==len(n.canonical(expected)) and
+                child['review_commitment_scheme']==cli.REVIEW_SCHEME,
+                'keyed private projection differs from actual original intent')
+        n.need(private_blind not in text.decode('utf-8') and private_blind.encode() not in raw,
+            'private review blind disclosed')
         rendered=text.decode('utf-8');private_rendered=False;sanitized=[]
         private_lines={'Recipient: ':w[11],'Amount: ':str(n.integer(w[12]))+' atomic units',
             'Payment expiry: ':str(n.integer(w[13]))+' (protocol height)'}
@@ -67,7 +104,9 @@ class Network(payment.Network):
             'process_reaped':proc.poll() is not None,'elapsed_seconds':round(time.monotonic()-started,6),
             'script_sha256':n.sha((ROOT/'scripts/protocol8_console.py').read_bytes()),
             'receipt_bytes':len(raw),'receipt_sha256':n.sha(raw),'private_stdout_bytes':len(text),
-            'private_stdout_sha256':n.sha(text),'private_stdout_retained':False,
+            'private_stdout_commitment':n.sha(STDOUT_DOMAIN+stdout_blind+text),
+            'private_stdout_commitment_scheme':STDOUT_SCHEME,'private_stdout_blind_retained':False,
+            'keyed_private_projection_checked':projection_checked,'private_stdout_retained':False,
             'private_render_checked':private_rendered,'sanitized_stdout':'\n'.join(sanitized)+'\n'}
         self.cs['invocations'].append(entry);self.cs['responses'].append(value);self.console_raw.append(raw)
         n.need(proc.returncode==(1 if expect_refusal else 0) and (value['status']=='refused')==expect_refusal,'console refusal differs')
@@ -127,7 +166,10 @@ def run(args):
         len(succeeded)==1 and succeeded[0]['view'].get('review_revalidated') is True and len(parent['payment_caller']['proxy_requests'])==1,
         views[-4:]==['unresolved-held','executed-exact','executed-exact','conflict-held'],
         not cs.get('forced_cleanup') and all(not x['forced_cleanup'] and all(c['process_reaped'] for c in x['child_invocations']) for x in responses),
-        all(x['private_review_values_retained'] is False for x in responses),source()==parent['source']]
+        all(x['private_review_values_retained'] is False for x in responses),source()==parent['source'],
+        len(calls)==19 and {i for i,x in enumerate(calls,1) if x['keyed_private_projection_checked']}=={7,8,9,12},
+        len(calls)==19 and len({x['private_stdout_commitment'] for x in calls})==19 and
+            all(x['private_stdout_commitment_scheme']==STDOUT_SCHEME and x['private_stdout_blind_retained'] is False for x in calls)]
     raw=b''.join(ACTIVE.console_raw if ACTIVE else []);log=output.with_name(output.stem+'.console.jsonl');n.need(not log.exists(),'fresh console raw log required');log.write_bytes(raw)
     result={'format':'1soft/protocol8-console-gate/v1','status':'qualified-one-host-payment-console' if all(checks) else 'failed',
         'source':parent['source'],'payment_report':linked.name,'payment_report_sha256':n.sha(linked.read_bytes()),
