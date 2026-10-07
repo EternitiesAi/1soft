@@ -2,13 +2,17 @@
 
 Wallet/crypto/consensus are not qualified here; the native gate covers those.
 """
-import copy, hashlib, json, threading, unittest
+import copy, hashlib, json, threading, unittest, sys, tempfile
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import patch
 import test_protocol8_wallet_cli as wallet_fixture
 import protocol8_payment as p
 import protocol8_wallet_cli as c
 import protocol8_transfer as n
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
+import run_protocol8_payment as runner
+from test_protocol8_consensus import f,wire
 
 class FakeWallet:
     def __init__(self, wire):
@@ -138,6 +142,20 @@ class LoopbackTransportTests(unittest.TestCase):
     def test_actual_http_ambiguous_wrong_hash_redirect_and_oversized_replies(self):
         for response,status in ((b'not-json',200),(self.reply(hash='00'*32),200),(self.reply(code=True),200),
                                 (self.reply(),302),(b'x'*9000,200),(b'{"jsonrpc":"2.0","id":1,"id":2,"result":{}}',200)):
-            with self.subTest(status=status,bytes=len(response)):self.assertEqual(self.invoke(response,status),{'outcome':'unknown','admission_code':None})
+                with self.subTest(status=status,bytes=len(response)):self.assertEqual(self.invoke(response,status),{'outcome':'unknown','admission_code':None})
+
+class GateRoutingTests(unittest.TestCase):
+    def test_funding_and_competitor_fixtures_keep_existing_node_route(self):
+        fields=[f(v) for v in (8,1,2,3,1,5,6,1,32,1,10,11,12)]
+        first=wire(fields);competitor=first[:-1]+bytes([first[-1]^1]);unknown=first[:-1]+bytes([first[-1]^2])
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d);(path/'first.tx').write_bytes(first);(path/'executed-competing.tx').write_bytes(competitor)
+            network=runner.Network.__new__(runner.Network);network.paths={'fixtures':path};network.pending=None;network.p={'fixture_broadcasts':[]}
+            with patch.object(runner.old.Network,'broadcast',return_value={'code':0}) as existing:
+                self.assertEqual(network.broadcast(0,first),{'code':0})
+                network.pending={'txid':n.txid(unknown)};self.assertEqual(network.broadcast(0,competitor),{'code':0})
+                self.assertEqual(existing.call_count,2)
+                with self.assertRaises(ValueError):network.broadcast(1,first)
+            self.assertEqual([x['fixture'] for x in network.p['fixture_broadcasts']],['first.tx','executed-competing.tx'])
 
 if __name__=='__main__':unittest.main()

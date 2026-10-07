@@ -98,6 +98,12 @@ The fresh actual gate requires clean-source qualification before being described
 as passed. Closed receipt checks establish consistency; separate native replay
 verifies public proofs/certificates.
 
+The fixture's separate initial funding and genuine competitor transactions use
+the existing node routing; only the prepared wallet payment uses the new caller.
+Their routes and receipts are recorded separately. Public journal envelopes and
+their hashes bind status/reconciliation evidence; external private credentials
+are excluded, so the closed checker does not independently authenticate their MAC.
+
 Scope is finite synthetic funds on one trusted host. A private-host HMAC is not
 rollback resistance or hostile same-user isolation. Latest-network freshness,
 production credential management/privacy, independent hosts/signers, trust-period

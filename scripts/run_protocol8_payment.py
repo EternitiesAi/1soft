@@ -21,7 +21,7 @@ CHECKS=('inherited_actual_wallet_gate','four_wallet_native_initializations','fou
  'actual_one_request_lost_reply','interrupted_marker_recognized_without_send','original_recovery_and_conflict',
  'all_caller_processes_reaped','all_caller_native_calls_reaped','private_material_absent','source_unchanged')
 CLAIMS={'actual_local_payment_caller':True,'one_trusted_host':True,'synthetic_funds':True,
- 'loopback_only':True,'one_actual_rpc_request':True,'lost_reply_reconciliation':True,
+ 'loopback_only':True,'one_actual_payment_rpc_request':True,'lost_reply_reconciliation':True,
  'constructed_interruption_state':True,'actual_process_kill_at_marker':False,
  'automatic_retry':False,'freshness_established':False,'production_ready':False,'public_network':False,
  'production_key_management':False,'local_rollback_resistance':False}
@@ -46,7 +46,8 @@ class Network(old.Network):
         super().__init__(*args)
         global ACTIVE;ACTIVE=self
         self.payments={};self.pending=None;self.payment_raw=[];self.proxy_reply=None
-        self.p={'invocations':[],'responses':[],'proxy_requests':[],'interruption':{},'forced_cleanup':[]}
+        self.p={'invocations':[],'responses':[],'proxy_requests':[],'fixture_broadcasts':[],
+            'journal_receipts':[],'interruption':{},'forced_cleanup':[]}
         self.report['payment_caller']=self.p
         owner=self
         class Handler(BaseHTTPRequestHandler):
@@ -123,6 +124,13 @@ class Network(old.Network):
             'wallet_attempts_before':0,'wallet_attempts_after':1,'request_count':len(self.p['proxy_requests']),
             'constructed_prepared_journal':True,'actual_wallet_marker_command':True,'process_kill_induced':False}
     def broadcast(self,index,wire):
+        if self.pending is None or n.txid(wire)!=self.pending['txid']:
+            fixtures=self.paths['fixtures']
+            names=[name for name in ('first.tx','executed-competing.tx') if (fixtures/name).exists() and (fixtures/name).read_bytes()==wire]
+            n.need(index==0 and len(names)==1,'only original funding/competitor fixture routing permitted')
+            result=super().broadcast(index,wire)
+            self.p['fixture_broadcasts'].append({'fixture':names[0],'txid':n.txid(wire),'wire_sha256':n.sha(wire),'admission_code':int(result['code'])})
+            return result
         n.need(index==0 and self.pending is not None and n.txid(wire)==self.pending['txid'],'exact original caller binding')
         row=self.pending;reply=self.payment_call(row,'submit')
         n.need(reply['submission_state']=='attempted-outcome-unknown' and not reply['execution_confirmed'] and reply['transport_attempts']==1,'lost reply was not unknown')
@@ -140,6 +148,11 @@ class Network(old.Network):
         return self.proxy_reply
     def close(self):
         try:
+            for row in self.payments.values():
+                if row['journal'].exists():
+                    raw=row['journal'].read_bytes()
+                    self.p['journal_receipts'].append({'wallet_id':row['wallet']['secret']['wallet_id'],
+                        'txid':row['txid'],'bytes':len(raw),'sha256':n.sha(raw),'envelope':json.loads(raw)})
             self.proxy.shutdown();self.thread.join(timeout=5);self.proxy.server_close()
             n.need(not self.thread.is_alive(),'owned proxy did not stop')
             self.p['proxy_stopped']=True
@@ -183,7 +196,7 @@ def run(args):
         len(e.get('doctors',[]))==4 and all(x['files_unchanged'] and not x['native_executed'] for x in e.get('doctors',[])),
         all(e.get(k) is True for k in ('bad_pin_refused','duplicate_owner_refused','early_delivery_refused','output_overwrite_refused')),
         validorder(e.get('invocations',[]),EXPECTED_WALLET,EXPECTED_WALLET_REFUSALS),validorder(p.get('invocations',[]),EXPECTED_PAYMENT,EXPECTED_PAYMENT_REFUSALS),
-        len(proxy)==1 and proxy[0]['wallet_attempts_before_io']==1 and proxy[0]['journal_phase_before_io']=='attempt-marked' and not proxy[0]['reply_forwarded'] and p.get('proxy_stopped') is True and not p.get('proxy_error_type'),
+        len(proxy)==1 and len(p.get('fixture_broadcasts',[]))==2 and proxy[0]['wallet_attempts_before_io']==1 and proxy[0]['journal_phase_before_io']=='attempt-marked' and not proxy[0]['reply_forwarded'] and p.get('proxy_stopped') is True and not p.get('proxy_error_type'),
         interruption.get('before_state')=='prepared-not-attempted' and interruption.get('after_state')=='attempt-record-incomplete' and interruption.get('request_count')==0 and interruption.get('process_kill_induced') is False,
         any(x.get('result')==r.get('recovery') for x in p.get('responses',[])) and any(x.get('result')==r.get('conflict_resolution') for x in p.get('responses',[])),
         not e.get('forced_cleanup') and not p.get('forced_cleanup') and all(x['process_reaped'] and x['exit_code'] in (0,1) for x in e.get('invocations',[])+p.get('invocations',[])),
