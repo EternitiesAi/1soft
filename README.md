@@ -403,3 +403,10 @@ Its [fresh actual journey receipt](evidence/protocol8-wallet-journey/20261007/jo
 passed 14 journey, 12 console, 13 payment and 22 wallet checks. The recipient
 imported the privately delivered output and prepared a fifth native proof; that
 additional wire was verified and exported, not submitted or chain-executed.
+
+The [authenticated wallet guide](docs/PROTOCOL8_WALLET_GUIDE.md) is locally
+qualified over ten real read-only calls in the four-validator journey, with85
+focused methods,215 coherent receipt refusals and separate native replay.
+[Actual evidence](evidence/protocol8-wallet-guide/20261007/guide-01.json) and
+[host measurements](evidence/protocol8-wallet-guide/20261007/latency-receipt.json)
+retain the local synthetic-funds scope and unassessed production boundaries.

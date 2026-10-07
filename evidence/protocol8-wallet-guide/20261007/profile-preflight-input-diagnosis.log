@@ -1,0 +1,15 @@
+{"input_validation_error_type": "OperatorError", "fixed_operator_message": "KAT pin differs", "locations": [["preflight_profile.py", 20], ["protocol8_wallet_cli.py", 41], ["protocol8_operator.py", 38]]}
+Traceback (most recent call last):
+  File "/mnt/c/Users/Dom/Documents/Codex/2026-09-20/godagents-v2-recovery/outputs/1soft-p8-wallet-guide-20261007/preflight_profile.py", line 20, in <module>
+    c.inputs(genesis,c.sha(genesis.read_bytes()),kat,BASE/'recipient-consensus-bridge',
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        BASE/'recipient-wallet-helper',inputs['helper']['sha256'],BASE/'recipient-prover',
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        inputs['prover']['sha256'],credentials,private/'wallet')
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol8_wallet_cli.py", line 41, in inputs
+    require(len(k)==3560 and sha(k)==g['kat_sha256'],'KAT pin differs')
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol8_operator.py", line 38, in require
+    raise OperatorError(message)
+protocol8_operator.OperatorError: KAT pin differs

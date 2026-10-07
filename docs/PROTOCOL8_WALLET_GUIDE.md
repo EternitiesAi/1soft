@@ -94,3 +94,28 @@ latest freshness, independent operators/signers, marker-kill/power loss, hostile
 host rollback, scale/economics/listings, specialist review and public launch remain
 separate. No Actions, paid/public compute, public endpoints/deployment/DNS/site,
 other-project work, real funds, production keys, forcepush or outside messages.
+
+## Retained qualification
+
+The fresh guide run at clean source `29d8fbf3b571bdbbd60b4de86f02e0adc994b57a`
+passed ten actual read-only guide calls, one measured protected inventory and
+the inherited14 journey/12 console/13 payment/22 wallet checks on four local
+validators. All85 focused methods passed without skips. Coherently relinked
+receipts refused56 guide/75 journey/54 console/30 payment alterations. Separate
+native replay verified five proofs and three signed AS-OF state certificates.
+All245 captured runtime files and85 protected wallet runtime files are unchanged
+by this evidence/documentation commit; wallet configuration pins remain compatible.
+
+[Actual guide report](../evidence/protocol8-wallet-guide/20261007/guide-01.json),
+[closed gate log](../evidence/protocol8-wallet-guide/20261007/closed-guide.log),
+[measured phases](../evidence/protocol8-wallet-guide/20261007/latency-receipt.json)
+and [member audit](../evidence/protocol8-wallet-guide/20261007/evidence-audit.json)
+retain the source identity and bounded claims.
+
+In this run, successful guide calls had a22.60-second median. Profiled protected
+inventory took18.594 seconds, with17.848 seconds in Worker constructor/KAT/identity
+and0.036 seconds in binary open/hash over48 calls. Cumulative phases overlap;
+instrumentation overhead is unassessed. These numbers identify work to investigate,
+not an achieved speed improvement. Native validation and all custody checks remain.
+The earlier mismatched genesis/KAT preflight refusal and same-named profiler
+extraction failure are retained beside their repaired final preflight result.
