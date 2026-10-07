@@ -1,6 +1,6 @@
 """Local terminal orchestration; protected wallet/payment CLIs retain authority."""
 from __future__ import annotations
-import os, subprocess, sys, tempfile, time
+import json, os, subprocess, sys, tempfile, time
 from pathlib import Path
 import protocol8_wallet_cli as c
 import protocol8_payment as p
@@ -27,6 +27,14 @@ def runtime_sha():
         files[name]=c.sha(c.read_file(ROOT/name,1024**2))
     return c.sha(c.canonical(dict(sorted(files.items()))))
 
+def operational_reply(raw):
+    # Operational receipts contain measured finite elapsed_seconds floats.
+    # Consensus/private intent JSON continues to use the integer-only decoder.
+    c.require(type(raw) is bytes and 0<len(raw)<=MAX_REPLY and raw.endswith(b'\n'),'one bounded canonical response required')
+    value=json.loads(raw[:-1])
+    c.require(type(value) is dict and raw==c.canonical(value)+b'\n','canonical operational receipt required')
+    return value
+
 class Runner:
     def __init__(self,args):self.args=args;self.calls=[];self.responses=[];self.forced=[]
     def run(self,kind,command,extra=()):
@@ -52,9 +60,7 @@ class Runner:
                         'script_sha256':script_sha,'stdout_bytes':len(raw),'stdout_sha256':c.sha(raw),
                         'diagnostic_present':bool(diagnostic)})
         c.require(not diagnostic and 0<len(raw)<=MAX_REPLY,'bounded canonical child response required')
-        c.require(raw.endswith(b'\n'),'one canonical response line required')
-        value=c.closed_json(raw[:-1],MAX_REPLY)
-        c.require(raw==c.canonical(value)+b'\n' and type(value) is dict,'canonical child response required')
+        value=operational_reply(raw)
         c.require(type(value.get('pid')) is int and type(value.get('start_ticks')) is int and
             (value['pid'],value['start_ticks'])==(proc.pid,identity[0]),'child identity differs')
         c.require(value.get('format')==(c.FORMAT if kind=='wallet' else p.FORMAT) and

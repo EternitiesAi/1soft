@@ -50,7 +50,6 @@ class Network(payment.Network):
         n.need(not err and len(text)<=16384,'console human output bound')
         raw=cli.read_file(receipt,2*1024**2,private=True);value=json.loads(raw)
         n.need(raw==n.canonical(value)+b'\n' and value['pid']==proc.pid and value['start_ticks']==identity[0],'console receipt identity differs')
-        n.need(proc.returncode==(1 if expect_refusal else 0) and (value['status']=='refused')==expect_refusal,'console refusal differs')
         plain=self.plain(wallet);held=next(x for x in plain['obligations'] if x['raw']==wire.hex())
         _,w=statement(bytes.fromhex(held['private_request']),self.report['genesis'])
         rendered=text.decode('utf-8');private_rendered=False;sanitized=[]
@@ -71,6 +70,7 @@ class Network(payment.Network):
             'private_stdout_sha256':n.sha(text),'private_stdout_retained':False,
             'private_render_checked':private_rendered,'sanitized_stdout':'\n'.join(sanitized)+'\n'}
         self.cs['invocations'].append(entry);self.cs['responses'].append(value);self.console_raw.append(raw)
+        n.need(proc.returncode==(1 if expect_refusal else 0) and (value['status']=='refused')==expect_refusal,'console refusal differs')
         return value
     def interrupted(self,wallet,ident):
         row={'wallet':wallet,'txid':ident,'journal':self.io/'alice-interrupted'}

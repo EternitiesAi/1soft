@@ -105,13 +105,21 @@ class ChildTests(unittest.TestCase):
             script=root/'scripts/protocol8_wallet.py'
             script.write_text("import os,json\nfrom pathlib import Path\nv="+repr({'format':c.FORMAT,'command':'inventory','genesis_sha256':SHA,
                 'runtime_sha256':c.sha(c.canonical(c.runtime_files())),'status':'authenticated-inventory',
-                'automatic_retry':False,'freshness_established':False,'production_ready':False})+
+                'automatic_retry':False,'freshness_established':False,'production_ready':False,
+                'native_audits':{'worker':{'calls':[{'elapsed_seconds':0.125}]}}})+
                 "\nv.update(pid=os.getpid(),start_ticks=int(Path('/proc/self/stat').read_text().rsplit(')',1)[1].split()[19]))\nprint(json.dumps(v,sort_keys=True,separators=(',',':')))\n")
             args=SimpleNamespace(workspace=root/'config',credentials=root/'credentials',genesis_sha256=SHA)
             runner=console.Runner(args)
             with patch.object(console,'ROOT',root):reply=runner.run('wallet','inventory')
             self.assertEqual(reply['pid'],runner.calls[0]['pid']);self.assertTrue(runner.calls[0]['process_reaped'])
+            self.assertEqual(reply['native_audits']['worker']['calls'][0]['elapsed_seconds'],0.125)
             self.assertFalse(runner.forced);self.assertFalse(runner.calls[0]['diagnostic_present'])
+    def test_operational_receipts_reject_noncanonical_duplicate_and_nonfinite_json(self):
+        for raw in (b'{"x":1,"x":2}\n',b'{"x":NaN}\n',b'{"x":Infinity}\n',
+                    b'{"x":1e400}\n',b'{"x":0.125}',b'{"x":0.125}\n\n'):
+            with self.subTest(raw=raw),self.assertRaises(ValueError):console.operational_reply(raw)
+        self.assertEqual(console.operational_reply(b'{"x":0.125}\n'),{'x':0.125})
+
     def test_actual_child_diagnostics_are_suppressed_and_reaped(self):
         with tempfile.TemporaryDirectory() as name:
             root=Path(name);(root/'scripts').mkdir();(root/'scripts/protocol8_wallet.py').write_text("import sys\nsys.stderr.write('PRIVATE-SENTINEL')\n")
