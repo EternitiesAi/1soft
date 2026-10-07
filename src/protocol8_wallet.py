@@ -5,7 +5,7 @@ original payment obligations. No network dispatcher, retry, discovery or key
 recovery. Local rollback and a hostile host remain outside this qualification.
 """
 from __future__ import annotations
-import contextlib, copy, fcntl, os, stat, threading
+import contextlib, copy, fcntl, hmac, os, stat, threading
 from pathlib import Path
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -24,6 +24,19 @@ MAX_NOTES=8
 MAX_OBLIGATIONS=8
 MAX_OBSERVATIONS=8
 MAX_REVISIONS=96
+REVIEW_FORMAT='1soft/protocol8-private-intent-review/v2'
+REVIEW_SCHEME='sha256-private-review-v2-with-keyed-blind'
+REVIEW_KEY_DOMAIN=b'1soft/protocol8-private-intent-review/key/v2\0'
+
+def review_blind(key,*,wallet_id,genesis_sha256,txid,wire_sha256):
+    """Private deterministic blind; never disclose it with the public file hash."""
+    n.need(type(key) is bytes and len(key)==32 and any(key),'P8 review key required')
+    context={'format':'1soft/protocol8-private-intent-review/blind/v2','wallet_id':wallet_id,
+        'genesis_sha256':genesis_sha256,'txid':txid,'wire_sha256':wire_sha256}
+    for value in (wallet_id,genesis_sha256,txid,wire_sha256):hex32(value)
+    derived=hmac.digest(key,REVIEW_KEY_DOMAIN,'sha256')
+    return hmac.digest(derived,canonical(context),'sha256').hex()
+
 def random_field():
     for _ in range(128):
         raw=os.urandom(32)
@@ -246,6 +259,22 @@ class RecipientWallet:
         n.need(row is not None,'P8 original retained wire absent');return row
     def export(self,ident):
         with self._locked():return bytes.fromhex(self._find(self._read(),ident)['raw'])
+    def review_intent(self,ident):
+        """Explicit minimal private operator view; no keys, openings or dispatch."""
+        with self._locked():
+            payload=self._read();row=self._find(payload,ident)
+            raw=bytes.fromhex(row['raw']);public,witness=statement(bytes.fromhex(row['private_request']),self.g)
+            n.need(public==n.parse(raw) and n.txid(raw)==ident,'P8 review original wire differs')
+            return {'format':REVIEW_FORMAT,'wallet_id':self.wallet_id,
+                'private_review_blind':review_blind(self.key,wallet_id=self.wallet_id,
+                    genesis_sha256=self.pins['genesis_sha256'],txid=ident,wire_sha256=n.sha(raw)),
+                'txid':ident,'wire_sha256':n.sha(raw),'wire_bytes':len(raw),
+                'destination':witness[11],'payment':n.integer(witness[12]),
+                'payment_expiry':n.integer(witness[13]),'fee':n.integer(public[9]),
+                'valid_from':n.integer(public[7]),'valid_until':n.integer(public[8]),
+                'attempts':row['attempts'],'completed':row['result'] is not None,
+                'as_of_height':payload['observations'][-1]['witness']['height'],
+                'wallet_genesis_sha256':self.pins['genesis_sha256']}
     def mark_attempt(self,ident):
         """One local caller attempt marker; never a retry authorization or dispatch."""
         with self._locked():

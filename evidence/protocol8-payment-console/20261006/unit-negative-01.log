@@ -1,0 +1,33 @@
+test_actual_disposable_child_has_canonical_identity_and_is_reaped (test_protocol8_console.ChildTests.test_actual_disposable_child_has_canonical_identity_and_is_reaped) ... ERROR
+
+======================================================================
+ERROR: test_actual_disposable_child_has_canonical_identity_and_is_reaped (test_protocol8_console.ChildTests.test_actual_disposable_child_has_canonical_identity_and_is_reaped)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol8_consensus.py", line 42, in closed_json
+    try: return decode_canonical_json(raw, max_bytes=bound)
+                ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol5_encoding.py", line 125, in decode_canonical_json
+    _need(canonical_json(value) == raw, "noncanonical JSON bytes")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol5_encoding.py", line 70, in _need
+    raise EncodingError(message)
+protocol5_encoding.EncodingError: noncanonical JSON bytes
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol8_console.py", line 112, in test_actual_disposable_child_has_canonical_identity_and_is_reaped
+    with patch.object(console,'ROOT',root):reply=runner.run('wallet','inventory')
+                                                 ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tools/payment-console/src/payment_console.py", line 55, in run
+    value=c.closed_json(raw,MAX_REPLY)
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/src/protocol8_consensus.py", line 43, in closed_json
+    except EncodingError as e: raise StateError('P8 canonical JSON required') from e
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+protocol8_transfer.Invalid: P8 canonical JSON required
+
+----------------------------------------------------------------------
+Ran 1 test in 0.026s
+
+FAILED (errors=1)
