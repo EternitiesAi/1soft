@@ -35,6 +35,12 @@ exact received-note import, arbitrary native spending, discarded-reply original
 recovery, private recipient delivery and certified conflict holds. P8 state sync,
 production custody and public deployment remain separate gates; no P7 notes migrate.
 
+The [local P8 wallet guide](docs/PROTOCOL8_WALLET_GUIDE.md) adds authenticated
+identifier selection and redacted continuation templates over the existing
+[receive-to-delivery console](docs/PROTOCOL8_WALLET_JOURNEY.md). It performs no
+effect or automatic retry. Separate host profiling measures the unchanged
+protected inventory path; performance improvement remains unestablished.
+
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
 P4/P6 state, and it is not the default browser or merchant path. Its developer
 path prepares real proofs, retains encrypted CHANGE/private authority and
@@ -397,3 +403,10 @@ Its [fresh actual journey receipt](evidence/protocol8-wallet-journey/20261007/jo
 passed 14 journey, 12 console, 13 payment and 22 wallet checks. The recipient
 imported the privately delivered output and prepared a fifth native proof; that
 additional wire was verified and exported, not submitted or chain-executed.
+
+The [authenticated wallet guide](docs/PROTOCOL8_WALLET_GUIDE.md) is locally
+qualified over ten real read-only calls in the four-validator journey, with85
+focused methods,215 coherent receipt refusals and separate native replay.
+[Actual evidence](evidence/protocol8-wallet-guide/20261007/guide-01.json) and
+[host measurements](evidence/protocol8-wallet-guide/20261007/latency-receipt.json)
+retain the local synthetic-funds scope and unassessed production boundaries.
