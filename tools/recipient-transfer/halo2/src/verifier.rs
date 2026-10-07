@@ -11,6 +11,11 @@ pub struct Verifier {
     pub(crate) vk: VerifyingKey<EqAffine>,
 }
 impl Verifier {
+    /// Inspect the actual parameters/key already checked by `new`.
+    /// This does not construct another verifier or bypass the profile pins.
+    pub fn identities(&self) -> Result<(String, String), &'static str> {
+        identities(&self.params, &self.vk)
+    }
     pub fn inspect() -> Result<(String, String), &'static str> {
         let params = Params::new(K);
         let vk = keygen_vk(&params, &TransferCircuit::default()).map_err(|_| "keygen")?;

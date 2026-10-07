@@ -17,6 +17,7 @@ security review, production custody and economic design remain release gates.
 | Path | What works | Entry point and evidence |
 |---|---|---|
 | Local browser product (P4 durable alpha) | Native public-ledger payments, spending review, invoices, merchant resources and retained recovery | [First-run guide](docs/LOCAL_DEMO_GUIDE.md), [durable alpha](docs/DURABLE_ALPHA.md), [release architecture](docs/LOCAL_DEVELOPER_RELEASE.md) |
+| Private recipient wallet (P8 local alpha) | Two actual browser payments, recipient spending, one-attempt lost-reply recovery and private delivery on four disposable validators | [Wallet and demo](docs/PROTOCOL8_LOCAL_ALPHA.md), [actual browser receipt](evidence/protocol8-alpha/20261007/alpha-05.json), [independent native replay](evidence/protocol8-alpha/20261007/alpha-independent-replay.json) |
 | Proof-backed owner treasury (P7) | Fresh-network enrollment/revocation/rotation, atomic payment/shared allowance, exact owner/payment recovery after lost acknowledgements | [Owner profile](docs/PROTOCOL7_OWNER_TREASURY.md), [prepared-wire client](docs/PROTOCOL7_CERTIFIED_CLIENT.md), [actual caller receipt](evidence/protocol7-client/20261005/client-qualified-01.json) |
 | Encrypted restricted CHANGE custody (P7) | Exact certified import, encrypted reopen, protected-input re-spend and original-wire recovery | [Custody guide](docs/PROTOCOL7_VAULT.md), [commands](docs/PROTOCOL7_CUSTODY_CLI.md), [24-check receipt](evidence/protocol7-vault/20261005/vault-qualified-02.json) |
 | Retained authority and preparation status (P7) | Three-payment CHANGE 7 -> 4 -> 1 progression, original-wire recovery, AS-OF inspection and full-state restart certificate | [Authority](docs/PROTOCOL7_RETAINED_AUTHORITY.md), [reconciliation](docs/PROTOCOL7_RECONCILIATION.md), [36-check v2 receipt](evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json) |
@@ -38,8 +39,23 @@ production custody and public deployment remain separate gates; no P7 notes migr
 The [local P8 wallet guide](docs/PROTOCOL8_WALLET_GUIDE.md) adds authenticated
 identifier selection and redacted continuation templates over the existing
 [receive-to-delivery console](docs/PROTOCOL8_WALLET_JOURNEY.md). It performs no
-effect or automatic retry. Separate host profiling measures the unchanged
-protected inventory path; performance improvement remains unestablished.
+effect or automatic retry. Its historical host profiling measures the unchanged
+protected inventory path and did not establish an end-to-end speedup.
+
+The new [P8 local browser wallet](docs/PROTOCOL8_LOCAL_ALPHA.md) now completes
+receive, prepare, original review, one send, signed recovery and private delivery
+through the protected callers. In its fresh two-wallet demonstration, Carol
+actually executed a payment using Bob's delivered funds. Both node admission
+replies were deliberately dropped; both wallets recovered signed exact execution
+with one attempt, and further sends were refused. The [actual desktop view](evidence/protocol8-alpha/20261007/wallet-actual-desktop.png)
+and [mobile view](evidence/protocol8-alpha/20261007/wallet-actual-mobile.png) show
+authenticated identifiers, without inferred balances or retained private review.
+
+Native startup now batches the same valid/corrupt proof and profile checks in
+one ephemeral verifier. Three alternating pairs on this host measured median
+startup of 27.50 seconds before and 7.74 seconds after. This measures the startup
+component only. Changed runtime/worker pins refuse existing wallets; the alpha
+accepts fresh disposable wallets and performs no custody migration or repinning.
 
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
 P4/P6 state, and it is not the default browser or merchant path. Its developer

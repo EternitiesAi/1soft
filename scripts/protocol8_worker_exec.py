@@ -4,7 +4,7 @@ import os
 import resource
 import sys
 
-if len(sys.argv) != 3 or sys.argv[2] not in ('verify', 'note-root', 'network-domain', 'identities'):
+if len(sys.argv) != 3 or sys.argv[2] not in ('verify', 'note-root', 'network-domain', 'identities', 'startup'):
     raise SystemExit(2)
 fd = int(sys.argv[1])
 os.fstat(fd)

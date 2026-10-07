@@ -17,8 +17,13 @@ import time
 from pathlib import Path
 import protocol8_transfer as native
 
+def _closed_object(pairs):
+    if len(pairs) != len(dict(pairs)):
+        raise ValueError('duplicate native response field')
+    return dict(pairs)
+
 class Worker:
-    def __init__(self, binary, expected_sha256, kat):
+    def __init__(self, binary, expected_sha256, kat, *, startup_mode='batch'):
         self.binary = Path(binary).absolute()
         native.need(type(expected_sha256) is str and len(expected_sha256) == 64 and
                     all(c in '0123456789abcdef' for c in expected_sha256), 'P8 binary digest')
@@ -29,18 +34,34 @@ class Worker:
         self.cache = OrderedDict()
         self.calls = deque(maxlen=512)
         self.call_count = self.reaped_count = self.timeout_count = 0
-        if not self.verify(kat, self.kat_statement[1]):
-            raise native.Unavailable('P8 known-answer proof refused')
-        bad = bytearray(kat); bad[-1] ^= 1
-        if self.verify(bytes(bad), self.kat_statement[1]):
-            raise native.Unavailable('P8 corrupt known-answer proof accepted')
+        native.need(startup_mode in ('batch', 'legacy'), 'P8 explicit startup mode')
+        # Legacy is an explicit development comparison, never an automatic
+        # fallback when a pinned binary refuses the new startup operation.
+        if startup_mode == 'legacy':
+            if not self.verify(kat, self.kat_statement[1]):
+                raise native.Unavailable('P8 known-answer proof refused')
+            bad = bytearray(kat); bad[-1] ^= 1
+            if self.verify(bytes(bad), self.kat_statement[1]):
+                raise native.Unavailable('P8 corrupt known-answer proof accepted')
         try:
-            ids = json.loads(self.call('identities', b''))
+            if startup_mode == 'legacy':
+                ids = json.loads(self.call('identities', b''), object_pairs_hook=_closed_object)
+            else:
+                value = json.loads(self.call('startup', native.field(self.kat_statement[1]) + kat), object_pairs_hook=_closed_object)
+                native.need(type(value) is dict and set(value) == {'valid', 'corrupt',
+                    'parameter_sha256', 'verifying_key_sha256'}, 'P8 closed startup response')
+                native.need(value['valid'] is True and value['corrupt'] is False,
+                    'P8 startup known-answer checks refused')
+                ids = {k: value[k] for k in ('parameter_sha256', 'verifying_key_sha256')}
         except (ValueError, TypeError) as e:
             raise native.Unavailable('P8 malformed profile identity') from e
         expected = {k: native.PROFILE[k] for k in ('parameter_sha256', 'verifying_key_sha256')}
         if type(ids) is not dict or ids != expected:
             raise native.Unavailable('P8 native profile identity differs')
+        if startup_mode == 'batch':
+            self.cache[kat] = True
+            self.calls[-1]['startup_checks'] = {'valid_proof_verified': True,
+                'corrupt_proof_refused': True, **ids}
         self.startup = {'binary_sha256': expected_sha256, 'kat_sha256': self.kat_sha256,
                         'profile_sha256': native.PROFILE_SHA256, **ids,
                         'valid_proof_verified': True, 'corrupt_proof_refused': True,
@@ -69,7 +90,7 @@ class Worker:
         fd = self._open(); os.close(fd)
 
     def call(self, op, raw):
-        native.need(op in ('verify', 'note-root', 'network-domain', 'identities') and
+        native.need(op in ('verify', 'note-root', 'network-domain', 'identities', 'startup') and
                     type(raw) is bytes and len(raw) <= 4096, 'P8 bounded bridge request')
         fd = self._open()
         process = None

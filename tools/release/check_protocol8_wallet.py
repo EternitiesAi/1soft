@@ -16,6 +16,9 @@ def check(path):
     assert r['conflict_resolution']['automatic_retry'] is False
     assert len(r['wallet_inventory']['obligations'])==1 and r['wallet_inventory']['obligations'][0]['attempts']==1
     for a in r['worker_audits']+r['private_worker_audits']:
+        if a in r['worker_audits']:
+            from check_protocol8_native import batch_startup
+            batch_startup(a)
         assert a['call_count']==a['reaped_count'] and a['timeout_count']==0
         assert len(a['calls'])==a['retained_count'] and a['retained_count']<=a['retention_limit']
         assert all(x['process_reaped'] and x['start_ticks'] is not None and x['exit_code'] in (0,2) and not x['timed_out'] for x in a['calls'])

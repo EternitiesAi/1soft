@@ -9,10 +9,12 @@ from run_protocol8_journey import CHECKS,CLAIMS,EXPECTED,LINKED,REFUSALS,PREPARE
 from run_protocol8_console import STDOUT_SCHEME
 from payment_console import render,STATE_TEXT
 from check_protocol8_console import check as console_check
+from check_protocol8_native import batch_startup
 
 def pin(value):assert type(value) is str and len(value)==64 and all(x in '0123456789abcdef' for x in value)
 def positive(value):assert type(value) is int and value>0
-def native(audit,binary):
+def native(audit,binary,kind=None):
+    if kind=='worker':batch_startup(audit)
     assert audit['call_count']==audit['retained_count']==audit['reaped_count']==len(audit['calls'])<=512 and audit['timeout_count']==0
     for call in audit['calls']:
         positive(call['pid']);birth=call['start_ticks']
@@ -88,7 +90,7 @@ def check(path):
             assert reply['format']=='1soft/protocol8-wallet-cli/v1' and reply['runtime_sha256']==wallet_runtime and reply['genesis_sha256']==genesis
             assert reply['broadcast_calls']==0 and all(reply[k] is False for k in ('automatic_retry','freshness_established','production_ready'))
             assert set(reply)==child_base|additions[reply['status']]
-            for name,audit in reply['native_audits'].items():native(audit,inner['inputs'][name]['sha256'])
+            for name,audit in reply['native_audits'].items():native(audit,inner['inputs'][name]['sha256'],name)
             if i not in REFUSALS:assert reply['wallet_id']==call['wallet_id']
             if LINKED[i-1] is not None:
                 k=LINKED[i-1]-1;assert reply==payment['wallet_cli']['responses'][k]
@@ -150,8 +152,11 @@ def check(path):
         assert hold['wire_absent'] is True and hold['attempts']==0;pin(hold['encrypted_file_sha256'])
         assert hold['request']==request.to_bytes(32,'little').hex() and reply['native_audits']['prover']['call_count']==1
     assert parse(wire)[6]==(91).to_bytes(32,'little').hex() and parse(wire)[1]==inner['genesis']['network']
-    native(respend['native_audit'],inner['inputs']['worker']['sha256'])
-    a=respend['native_audit'];assert a['call_count']==4 and tuple(x['operation'] for x in a['calls'])==('verify','verify','identities','verify')
+    native(respend['native_audit'],inner['inputs']['worker']['sha256'],'worker')
+    a=respend['native_audit'];assert a['call_count']==2 and tuple(x['operation'] for x in a['calls'])==('startup','verify')
+    from protocol8_transfer import PROFILE
+    assert a['calls'][0]['startup_checks']=={'valid_proof_verified':True,'corrupt_proof_refused':True,
+        **{k:PROFILE[k] for k in ('parameter_sha256','verifying_key_sha256')}}
     assert a['calls'][-1]['input_bytes']==3592 and a['calls'][-1]['output_bytes']==3 and a['calls'][-1]['exit_code']==0
     assert j['late_refusals']=={'delivery_symlink_refused':True,'symlink_unchanged':True,'target_absent':True,'wrong_genesis_refused':True}
     assert not responses[-1]['child_responses'][0]['native_audits']

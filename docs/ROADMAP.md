@@ -139,3 +139,15 @@ delivery. Its [fresh actual receipt](../evidence/protocol8-wallet-journey/202610
 passed all 14 journey, 12 console, 13 payment and 22 wallet checks. Wallet/core
 runtime remains byte-compatible with PR83. The recipient re-spend is prepared,
 exported and natively verified; no second chain execution is claimed.
+
+The separate [P8 local browser alpha](PROTOCOL8_LOCAL_ALPHA.md) now has a
+[fresh two-wallet actual receipt](../evidence/protocol8-alpha/20261007/alpha-05.json)
+and [independent three-proof, three-signed-state native replay](../evidence/protocol8-alpha/20261007/alpha-independent-replay.json).
+Both synthetic payments executed on the disposable four-validator network;
+Carol's second payment used Bob's delivered funds. Both one-attempt lost replies
+were recovered through signed AS-OF state, with repeat sends refused before I/O.
+The new batch startup preserves circuit/wire/profile/monetary rules while changing
+two protected startup files and worker/runtime pins. Existing wallets refuse;
+no existing custody is repinned or migrated. Local startup improvement is a
+separate component measurement. Independent operators, production custody,
+hostile-host/browser privacy, freshness and public deployment remain open.

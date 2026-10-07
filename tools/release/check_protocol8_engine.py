@@ -81,13 +81,16 @@ def validate(v,path,binary):
     audits=v['worker_audits'];need(type(audits)is list and len(audits)==7 and
         {(r['node'],r['phase']) for r in audits}=={(3,'before-restart'),('host','fresh'),('host','bootstrap')}|{(i,'final') for i in range(4)},'P8 worker audit roster')
     for row in audits:
+        from check_protocol8_native import batch_startup
+        batch_startup(row)
         need(type(row['call_count'])is int and row['call_count']==row['reaped_count'] and row['call_count']>0 and row['timeout_count']==0 and
             row['retention_limit']==512 and row['retained_count']==len(row['calls'])==min(row['call_count'],512),'P8 bounded native lifecycle counters')
         for call in row['calls']:
             need(call['process_reaped'] is True and call['timed_out'] is False and call['exit_code']==0 and call['start_ticks'] is not None and
-                call['binary_sha256']==g['worker_sha256'] and call['operation'] in ('verify','note-root','network-domain','identities') and
+                call['binary_sha256']==g['worker_sha256'] and call['operation'] in ('verify','note-root','network-domain','identities','startup') and
                 type(call['input_bytes'])is int and 0<=call['input_bytes']<=4096 and type(call['output_bytes'])is int and 0<call['output_bytes']<=256,'P8 actual bounded verifier call')
     need(w.call_count==w.reaped_count and not w.timeout_count,'P8 independent replay worker lifecycle')
+    batch_startup(w.audit())
     return {'qualified':True,'check_count':len(CHECKS),'source_commit':s['commit'],'source_tree':s['tree'],
         'genesis_sha256':v['genesis_sha256'],'state_height':witness['height'],'certificate_header_height':cert['header_height'],
         'actual_fixture_proofs':5,'accepted_txids':expected,'replay_processes_reaped':w.reaped_count,
