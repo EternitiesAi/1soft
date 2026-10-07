@@ -125,6 +125,7 @@ def payment_view(value):
     return view
 
 def render(view):
+    if view['state']=='guided-inventory':return render_guide(view)
     lines=['1soft | '+view['state'],view['message']]
     for key,label in (('txid','Transaction'),('submission_state','Submission record'),('attempts','Wallet attempts'),
         ('as_of_height','Signed AS-OF height'),('app_hash','AppHash'),('commitment','Note commitment'),
@@ -136,6 +137,87 @@ def render(view):
 def fresh_journal(args):
     path=c.parents(args.journal);c.directory(path.parent,private=True)
     c.require(not path.exists() and not path.is_symlink(),'existing journal; reconcile only')
+
+def guide_view(inv,wallet_id,genesis,*,commitment=None,txid=None):
+    """Authenticated identifiers, not inferred spending or delivery capabilities."""
+    from protocol8_wallet import FORMAT as WALLET_FORMAT, MAX_NOTES, MAX_OBLIGATIONS, MAX_REVISIONS
+    c.require(type(inv) is dict and set(inv)=={'format','wallet_id','recipient_key','revision','as_of_height',
+        'notes','obligations','freshness_established','automatic_retry'} and inv['format']==WALLET_FORMAT,
+        'closed authenticated inventory required')
+    c.pin(wallet_id);c.pin(genesis);c.pin(inv['recipient_key'])
+    c.require(inv['wallet_id']==wallet_id and all(inv[k] is False for k in ('freshness_established','automatic_retry')),
+        'inventory context/claims differ')
+    c.require(type(inv['revision']) is int and 0<=inv['revision']<=MAX_REVISIONS and
+        (inv['as_of_height'] is None or type(inv['as_of_height']) is int and 0<inv['as_of_height']<2**64),
+        'inventory revision/height differs')
+    notes=inv['notes'];rows=inv['obligations']
+    c.require(type(notes) is list and len(notes)<=MAX_NOTES and type(rows) is list and len(rows)<=MAX_OBLIGATIONS,
+        'bounded inventory required')
+    for ident in notes:c.pin(ident)
+    c.require(len(set(notes))==len(notes),'duplicate note commitment')
+    obligations=[];seen=set()
+    for row in rows:
+        c.require(type(row) is dict and set(row)=={'input','request','txid','attempts','completed'},'closed obligation required')
+        c.pin(row['input']);c.pin(row['request'])
+        c.require(type(row['attempts']) is int and row['attempts'] in (0,1) and type(row['completed']) is bool,
+            'obligation flags differ')
+        if row['txid'] is not None:
+            c.pin(row['txid']);c.require(row['txid'] not in seen,'duplicate retained transaction');seen.add(row['txid'])
+        else:c.require(row['attempts']==0 and row['completed'] is False,'missing wire cannot confer completion')
+        obligations.append({k:row[k] for k in ('input','txid','attempts','completed')})
+    c.require(commitment is None or txid is None,'select one identifier explicitly')
+    if commitment is not None:c.pin(commitment);c.require(commitment in notes,'selected note absent from authenticated inventory')
+    if txid is not None:c.pin(txid);c.require(txid in seen,'selected transaction absent from authenticated inventory')
+    base=['python3','-B','scripts/protocol8_console.py','--workspace','<PRIVATE_WORKSPACE>',
+        '--genesis-sha256',genesis,'--credentials','<PRIVATE_CREDENTIALS_FILE>']
+    def template(command,extra):return {'command':command,'argv':base+[command,*extra]}
+    templates=[
+        template('observe',['--packet','<SIGNED_STATE_PACKET_PATH>']),
+        template('import-note',['--opening','<PRIVATE_OPENING_PATH>','--wire','<PRIVATE_ORIGIN_WIRE_PATH>',
+            '--output-index','<SELECT_10_OR_11>']),
+        template('import-note',['--opening','<PRIVATE_GENESIS_OPENING_PATH>','--genesis-note',
+            '--output-index','<SELECT_10_OR_11>'])]
+    selected=None
+    if commitment is not None:
+        selected={'kind':'commitment','identifier':commitment}
+        templates.append(template('prepare',['--commitment',commitment,'--request','<NEW_REQUEST_ID>',
+            '--destination','<PRIVATE_RECIPIENT_PUBLIC_KEY>','--payment','<PRIVATE_AMOUNT_ATOMIC_UNITS>',
+            '--valid-until','<VALIDITY_END_HEIGHT>','--payment-expiry','<PRIVATE_PAYMENT_EXPIRY_HEIGHT>']))
+    if txid is not None:
+        selected={'kind':'txid','identifier':txid}
+        payment=['--txid',txid,'--endpoint','<EXPLICIT_LOOPBACK_ENDPOINT>','--journal','<PRIVATE_ORIGINAL_JOURNAL_PATH>']
+        templates.extend([template('review',payment),template('status',payment),
+            template('reconcile',payment+['--packet','<SIGNED_STATE_PACKET_PATH>']),
+            template('export',['--txid',txid,'--output','<NEW_PRIVATE_WIRE_PATH>']),
+            template('deliver',['--txid',txid,'--output-index','<SELECT_10_OR_11>','--output','<NEW_PRIVATE_OPENING_PATH>'])])
+    return {'state':'guided-inventory','format':'1soft/protocol8-wallet-guide/v1','wallet_id':wallet_id,
+        'revision':inv['revision'],'as_of_height':inv['as_of_height'],'notes':list(notes),'obligations':obligations,
+        'selection':selected,'templates':templates,'can_submit':False,'freshness_established':False,
+        'automatic_retry':False,'selection_confers_authority':False,'effectful_commands_started':False,
+        'private_parameters_omitted':True,
+        'message':'Read-only authenticated identifiers. Select explicitly; templates do not authorize an effect.'}
+
+def render_guide(view):
+    lines=['1soft | Wallet guide',view['message'],'Wallet: '+view['wallet_id'],
+        'Local revision: '+str(view['revision']),
+        'Observed signed AS-OF height: '+('none recorded' if view['as_of_height'] is None else str(view['as_of_height'])),
+        '', 'Authenticated note commitments (availability is not inferred):']
+    lines.extend('  '+x for x in view['notes'])
+    if not view['notes']:lines.append('  none recorded')
+    lines+=['','Retained obligations (flags alone do not establish execution or delivery authority):']
+    for row in view['obligations']:
+        lines.append('  '+(row['txid'] or 'no retained wire recorded')+' | attempts '+str(row['attempts'])+
+            ' | wallet completion flag '+str(row['completed']).lower())
+    if not view['obligations']:lines.append('  none recorded')
+    selected=view['selection']
+    lines+=['','Explicit selection: '+(selected['kind']+' '+selected['identifier'] if selected else 'none'),
+        'Templates are argument arrays, not shell commands. Replace every placeholder locally.']
+    for item in view['templates']:lines.append('  '+json.dumps(item['argv'],separators=(',',':')))
+    lines+=['','Preparation and submission remain separate, explicitly confirmed commands.',
+        'Use protected review/status/reconcile for authority; the guide cannot authorize send or delivery.',
+        'No ownership, balance or current-network validity is inferred.',
+        'Automatic retry: disabled','Scope: local development; current network freshness is not established']
+    return '\n'.join(lines)+'\n'
 
 def lifecycle(args,runner,stream,input_stream):
     command=args.command;extra=[]
@@ -196,6 +278,14 @@ def lifecycle(args,runner,stream,input_stream):
 
 def operate(args,runner,stream,input_stream):
     c.pin(args.genesis_sha256);c.absolute(args.workspace);c.absolute(args.credentials)
+    if args.command=='guide':
+        commitment=getattr(args,'commitment',None);txid=getattr(args,'txid',None)
+        c.require(commitment is None or txid is None,'select one identifier explicitly')
+        for ident in (commitment,txid):
+            if ident is not None:c.pin(ident)
+        value=runner.run('wallet','inventory');need_success(value)
+        c.require(value['status']=='authenticated-inventory','authenticated inventory required')
+        return guide_view(value['inventory'],value['wallet_id'],args.genesis_sha256,commitment=commitment,txid=txid)
     if args.command in LIFECYCLE:return lifecycle(args,runner,stream,input_stream)
     if args.command in ('inventory','doctor'):
         value=runner.run('wallet',args.command);need_success(value)

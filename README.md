@@ -35,6 +35,12 @@ exact received-note import, arbitrary native spending, discarded-reply original
 recovery, private recipient delivery and certified conflict holds. P8 state sync,
 production custody and public deployment remain separate gates; no P7 notes migrate.
 
+The [local P8 wallet guide](docs/PROTOCOL8_WALLET_GUIDE.md) adds authenticated
+identifier selection and redacted continuation templates over the existing
+[receive-to-delivery console](docs/PROTOCOL8_WALLET_JOURNEY.md). It performs no
+effect or automatic retry. Separate host profiling measures the unchanged
+protected inventory path; performance improvement remains unestablished.
+
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
 P4/P6 state, and it is not the default browser or merchant path. Its developer
 path prepares real proofs, retains encrypted CHANGE/private authority and
