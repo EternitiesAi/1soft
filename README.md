@@ -360,3 +360,14 @@ passed alongside the unchanged 22-check real recovery/recipient-payment journey.
 It provisions no engine, chooses no trust, generates no keys and repairs no store.
 Independent operators, signer recovery, production custody/privacy and public
 launch remain separate gates.
+
+## Protected P8 wallet commands
+
+The [local wallet CLI](docs/PROTOCOL8_WALLET_CLI.md) now has a
+[fresh actual caller receipt](evidence/protocol8-wallet-cli/20261006/wallet-cli-03.json):
+four encrypted wallets, authenticated receive/import, durable preparation before
+proving, exact wire export, one-attempt marking, lost-response reconciliation and
+explicit private delivery. Thirteen caller checks passed alongside the unchanged
+22-check four-validator wallet journey. All 57 CLI invocations were reaped.
+The command requires external custody inputs and sends no transaction. Production
+key management, network freshness, independent hosts and public launch remain gates.

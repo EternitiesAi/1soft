@@ -116,3 +116,7 @@ launcher. Its [registered fresh actual caller receipt](../evidence/protocol8-ope
 passed 11 operator checks alongside the unchanged 22-check recovery journey. Independent operators, signer
 recovery, pruning/scale, P7 migration/shared owner composition, economics,
 production privacy/custody and external specialist review remain distinct gates.
+
+The [protected P8 wallet CLI](PROTOCOL8_WALLET_CLI.md) adds explicit local custody
+commands over the unchanged encrypted recipient wallet. Its [registered fresh actual caller receipt](../evidence/protocol8-wallet-cli/20261006/wallet-cli-03.json)
+passed 13 caller checks and the unchanged 22-check actual wallet journey.

@@ -1,0 +1,46 @@
+"""Actual disposable POSIX process failure cleanup; no crypto or engine claim."""
+import os,subprocess,sys,tempfile,unittest
+from unittest.mock import patch
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
+from run_protocol8_wallet_cli import abort_owned_tree,process_identity
+from run_devnet import wait_until
+
+class CleanupTests(unittest.TestCase):
+    def test_scheduler_state_change_does_not_change_process_ownership(self):
+        proc=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+        real_identity=process_identity
+        reads=0
+        def changing_state(pid):
+            nonlocal reads
+            identity=real_identity(pid)
+            if pid==proc.pid and identity is not None:
+                reads+=1
+                return identity[0], 'R' if reads==1 else identity[1]
+            return identity
+        try:
+            wait_until(lambda:real_identity(proc.pid)[1]=='S',5)
+            with patch('run_protocol8_wallet_cli.process_identity',side_effect=changing_state):
+                records=abort_owned_tree(proc)
+            self.assertGreaterEqual(reads,2)
+            self.assertEqual([r['pid'] for r in records],[proc.pid])
+            self.assertTrue(records[0]['stopped']);self.assertEqual(proc.poll(),-9)
+        finally:
+            if proc.poll() is None:abort_owned_tree(proc)
+
+    def test_new_session_native_descendant_stops_with_owned_cli(self):
+        with tempfile.TemporaryDirectory() as d:
+            receipt=Path(d)/'child-pid'
+            code='import subprocess,sys,time;from pathlib import Path;p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"],start_new_session=True);Path(sys.argv[1]).write_text(str(p.pid));time.sleep(60)'
+            proc=subprocess.Popen([sys.executable,'-c',code,str(receipt)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+            try:
+                wait_until(receipt.exists,5);child=int(receipt.read_text());identity=process_identity(child)
+                self.assertIsNotNone(identity);self.assertEqual(os.getpgid(child),child)
+                records=abort_owned_tree(proc)
+                self.assertEqual({r['pid'] for r in records},{proc.pid,child})
+                self.assertTrue(all(r['stopped'] for r in records));self.assertEqual(proc.poll(),-9)
+                self.assertTrue(process_identity(child) in (None,(identity[0],'Z')) or process_identity(child)[0]!=identity[0])
+            finally:
+                if proc.poll() is None:abort_owned_tree(proc)
+
+if __name__=='__main__':unittest.main()
