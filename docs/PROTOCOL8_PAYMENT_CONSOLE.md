@@ -8,6 +8,12 @@ profile, custody key generation, public endpoint or automatic recovery send.
 
 ## Inspect, review and submit
 
+The additive [receive-to-delivery journey](PROTOCOL8_WALLET_JOURNEY.md) exposes
+explicit observation, import, independently confirmed preparation, export and
+private delivery. Its changed console source has its own
+[fresh actual journey receipt](../evidence/protocol8-wallet-journey/20261007/journey-03.json);
+the historical receipt below remains scoped to its captured runtime.
+
 Use an initialized protected wallet, an external private credential file and the
 full trusted genesis SHA. A new payment journal belongs in a separate existing
 owner-only directory. The engine/application are separately started and owned.

@@ -13,6 +13,18 @@ def parser():
     p.add_argument('--receipt',type=Path,help='Optional new owner-only public metadata receipt; no private intent values')
     sub=p.add_subparsers(dest='command',required=True)
     for name in ('inventory','doctor'):sub.add_parser(name)
+    observe=sub.add_parser('observe');observe.add_argument('--packet',type=Path,required=True)
+    imp=sub.add_parser('import-note');imp.add_argument('--opening',type=Path,required=True)
+    source=imp.add_mutually_exclusive_group(required=True)
+    source.add_argument('--wire',type=Path);source.add_argument('--genesis-note',action='store_true')
+    imp.add_argument('--output-index',type=int,choices=(10,11),default=10)
+    prep=sub.add_parser('prepare')
+    for name in ('commitment','request','destination'):prep.add_argument('--'+name,required=True)
+    for name in ('payment','valid-until','payment-expiry'):prep.add_argument('--'+name,type=int,required=True)
+    for name in ('export','deliver'):
+        cmd=sub.add_parser(name);cmd.add_argument('--txid',required=True)
+        cmd.add_argument('--output',type=Path,required=True)
+        if name=='deliver':cmd.add_argument('--output-index',type=int,choices=(10,11),default=10)
     for name in ('review','submit','status','reconcile'):
         cmd=sub.add_parser(name);cmd.add_argument('--txid',required=True)
         cmd.add_argument('--endpoint',required=True);cmd.add_argument('--journal',type=Path,required=True)

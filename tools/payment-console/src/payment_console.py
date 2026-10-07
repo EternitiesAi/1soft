@@ -9,6 +9,7 @@ from run_protocol8_wallet_cli import process_identity, abort_owned_tree
 ROOT=Path(__file__).resolve().parents[3]
 FORMAT='1soft/protocol8-payment-console/v1'
 MAX_REPLY=384*1024
+LIFECYCLE=('observe','import-note','prepare','export','deliver')
 STATE_TEXT={
     'prepared-not-attempted':'Prepared locally. No submission attempt is recorded.',
     'attempt-record-incomplete':'The wallet recorded its attempt; the caller record is incomplete. Do not submit again.',
@@ -19,7 +20,8 @@ STATE_TEXT={
     'executed-exact':'Signed AS-OF state confirms this exact retained transaction.',
     'conflict-held':'A certified conflicting spend exists. The original obligation remains held.',
     'refused':'Command refused. Preserve the original obligation and reconcile; private diagnostics are suppressed.',
-    'cancelled':'Submission cancelled before the payment caller started.'}
+    'cancelled':'Submission cancelled before the payment caller started.',
+    'preparation-cancelled':'Preparation cancelled before the protected wallet child started.'}
 
 def runtime_sha():
     files=c.runtime_files()
@@ -125,7 +127,8 @@ def payment_view(value):
 def render(view):
     lines=['1soft | '+view['state'],view['message']]
     for key,label in (('txid','Transaction'),('submission_state','Submission record'),('attempts','Wallet attempts'),
-        ('as_of_height','Signed AS-OF height'),('app_hash','AppHash')):
+        ('as_of_height','Signed AS-OF height'),('app_hash','AppHash'),('commitment','Note commitment'),
+        ('output_sha256','Private file SHA256'),('output_bytes','Private file bytes')):
         if key in view:lines.append(label+': '+str(view[key]))
     lines+=['Automatic retry: disabled','Scope: local development; current network freshness is not established']
     return '\n'.join(lines)+'\n'
@@ -134,8 +137,66 @@ def fresh_journal(args):
     path=c.parents(args.journal);c.directory(path.parent,private=True)
     c.require(not path.exists() and not path.is_symlink(),'existing journal; reconcile only')
 
+def lifecycle(args,runner,stream,input_stream):
+    command=args.command;extra=[]
+    if command=='observe':extra=['--packet',args.packet]
+    elif command=='import-note':
+        extra=['--opening',args.opening,'--output-index',args.output_index]
+        extra+=['--genesis-note'] if args.genesis_note else ['--wire',args.wire]
+    elif command=='prepare':
+        for key in ('commitment','request','destination'):c.pin(getattr(args,key))
+        for key in ('payment','valid_until','payment_expiry'):
+            v=getattr(args,key);c.require(type(v) is int and 0<v<2**64,'bounded preparation integer required')
+        stream.write('1soft | Prepare a payment\nInput commitment: '+args.commitment+'\n'
+            'Recipient: '+args.destination+'\nAmount: '+str(args.payment)+' atomic units\n'
+            'Payment expiry: '+str(args.payment_expiry)+' (protocol height)\n'
+            'Validity ends at: '+str(args.valid_until)+' (protocol height)\n'
+            'Preparation retains a held original transaction. It does not submit.\n')
+        token='PREPARE '+args.commitment
+        stream.write('Type '+token+' to prepare, or press Enter to cancel:\n');stream.flush()
+        if input_stream.readline(100).rstrip('\r\n')!=token:
+            return {'state':'preparation-cancelled','message':STATE_TEXT['preparation-cancelled'],
+                'can_submit':False,'confirmation':'cancelled','wallet_child_started':False,
+                'payment_child_started':False,'prepared_not_sent':True}
+        for key in ('commitment','request','destination','payment','valid_until','payment_expiry'):
+            extra+=['--'+key.replace('_','-'),getattr(args,key)]
+    elif command in ('export','deliver'):
+        c.pin(args.txid);extra=['--txid',args.txid,'--output',args.output]
+        if command=='deliver':extra+=['--output-index',args.output_index]
+    else:raise ValueError('unsupported lifecycle command')
+    value=runner.run('wallet',command,extra);need_success(value);c.pin(value['wallet_id'])
+    expected={'observe':'signed-state-observed','import-note':'note-imported',
+        'prepare':'original-wire-retained','export':'exact-wire-exported','deliver':'private-opening-delivered'}
+    c.require(value['status']==expected[command],'wallet lifecycle status differs')
+    view={'state':value['status'],'wallet_id':value['wallet_id'],'can_submit':False,
+        'payment_child_started':False,'opening_values_omitted':True}
+    if command=='observe':
+        cert=value['certificate'];height=cert['state_height'];c.pin(cert['app_hash'])
+        c.require(type(height) is int and height>0 and cert['header_height']==height+1 and
+            cert['genesis_sha256']==args.genesis_sha256,'signed observation context differs')
+        view.update(message='Signed AS-OF state authenticated. Current network freshness is not established.',
+            as_of_height=height,app_hash=cert['app_hash'])
+    elif command=='import-note':
+        c.pin(value['commitment']);view.update(commitment=value['commitment'],
+            message='Recipient-controlled note imported from the explicit source. No balance is inferred.')
+    elif command=='prepare':
+        c.pin(value['txid']);view.update(state='prepared-not-attempted',message=STATE_TEXT['prepared-not-attempted'],
+            txid=value['txid'],commitment=args.commitment,confirmation='exact-input-commitment',prepared_not_sent=True)
+    else:
+        c.require(value['txid']==args.txid and value['private_file_created'] is True,'private output identity differs')
+        limit=3560 if command=='export' else 1024
+        raw=c.read_file(args.output,limit,private=True)
+        c.require(type(value['bytes']) is int and value['bytes']==len(raw) and value['sha256']==c.sha(raw),'private output bytes differ')
+        if command=='export':c.require(len(raw)==3560 and c.n.txid(raw)==args.txid,'exported original wire differs')
+        else:c.opening(c.closed_json(raw,1024))
+        view.update(txid=args.txid,output_sha256=value['sha256'],output_bytes=len(raw),private_file_created=True,
+            message='Exact retained wire exported to the explicit private file.' if command=='export' else
+                'Selected opening saved to the explicit private file after certified exact execution. No delivery is sent.')
+    return view
+
 def operate(args,runner,stream,input_stream):
     c.pin(args.genesis_sha256);c.absolute(args.workspace);c.absolute(args.credentials)
+    if args.command in LIFECYCLE:return lifecycle(args,runner,stream,input_stream)
     if args.command in ('inventory','doctor'):
         value=runner.run('wallet',args.command);need_success(value)
         if args.command=='doctor':return {'state':'configuration-valid','message':'Configuration checked. Encrypted wallet authentication was not performed.','can_submit':False}
@@ -169,13 +230,16 @@ def operate(args,runner,stream,input_stream):
     return payment_view(runner.run('payment',args.command,extra))
 
 def execute(args,stream=sys.stdout,input_stream=sys.stdin):
-    runner=Runner(args);code=0
+    runner=Runner(args);code=0;receipt_ready=False
     try:
         if args.receipt is not None:
             target=c.parents(args.receipt);c.directory(target.parent,private=True)
             workspace=c.absolute(args.workspace)
             c.require(workspace not in target.parents and target!=workspace and target!=c.absolute(args.credentials) and
-                target!=getattr(args,'journal',None) and not target.exists() and not target.is_symlink(),'fresh separate receipt required')
+                target!=getattr(args,'journal',None) and
+                (getattr(args,'output',None) is None or target!=c.absolute(args.output)) and
+                not target.exists() and not target.is_symlink(),'fresh separate receipt required')
+            receipt_ready=True
         view=operate(args,runner,stream,input_stream)
     except (Exception,KeyboardInterrupt):
         view={'state':'refused','message':STATE_TEXT['refused'],'can_submit':False};code=1
@@ -185,7 +249,7 @@ def execute(args,stream=sys.stdout,input_stream=sys.stdin):
         'runtime_sha256':runtime_sha(),'view':view,'child_invocations':runner.calls,'child_responses':runner.responses,
         'forced_cleanup':runner.forced,'automatic_retry':False,'freshness_established':False,'production_ready':False,
         'private_review_values_retained':False}
-    if args.receipt is not None:
+    if args.receipt is not None and receipt_ready:
         try:c.private_output(args.receipt,c.canonical(receipt)+b'\n')
         except Exception:
             stream.write('Public receipt could not be saved. Preserve the original obligation; do not resend.\n');code=1

@@ -132,3 +132,10 @@ intent review, exact confirmation and protected status/reconciliation. Its
 passed 12 console, 13 payment and 22 actual wallet checks. Next: complete the local
 receive, preparation and private delivery interface, then qualify independent
 operators and production custody. No public release is inferred.
+
+The additive [local wallet journey](PROTOCOL8_WALLET_JOURNEY.md) now exposes
+observation, import, separate preparation confirmation, exact export and private
+delivery. Its [fresh actual receipt](../evidence/protocol8-wallet-journey/20261007/journey-03.json)
+passed all 14 journey, 12 console, 13 payment and 22 wallet checks. Wallet/core
+runtime remains byte-compatible with PR83. The recipient re-spend is prepared,
+exported and natively verified; no second chain execution is claimed.

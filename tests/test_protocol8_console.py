@@ -98,6 +98,78 @@ class ConsoleTests(unittest.TestCase):
         text=console.review_text(projection());self.assertIn('current network validity is not established',text)
         self.assertNotIn('balance',text.lower());self.assertNotIn('recipient_secret',text)
 
+    def preparing(self):
+        self.args.command='prepare';self.args.commitment=TX;self.args.request='23'*32
+        self.args.destination='34'*32;self.args.payment=4;self.args.valid_until=32;self.args.payment_expiry=56
+    def test_prepare_cancel_starts_no_child_or_journal(self):
+        self.preparing()
+        with patch.object(self.runner,'run') as run:
+            view=console.operate(self.args,self.runner,self.output,io.StringIO('\n'))
+        run.assert_not_called();self.assertEqual(view['state'],'preparation-cancelled')
+        self.assertFalse(view['wallet_child_started']);self.assertFalse(view['payment_child_started'])
+        self.assertFalse(self.args.journal.exists());self.assertIn('Amount: 4 atomic units',self.output.getvalue())
+    def test_prepare_wrong_input_confirmation_cancels(self):
+        self.preparing()
+        with patch.object(self.runner,'run') as run:
+            view=console.operate(self.args,self.runner,self.output,io.StringIO('PREPARE '+WIRE+'\n'))
+        run.assert_not_called();self.assertEqual(view['state'],'preparation-cancelled')
+    def test_prepare_confirmed_calls_only_wallet_and_omits_private_fields(self):
+        self.preparing()
+        reply={'status':'original-wire-retained','wallet_id':ID,'txid':WIRE}
+        with patch.object(self.runner,'run',return_value=reply) as run:
+            view=console.operate(self.args,self.runner,self.output,io.StringIO('PREPARE '+TX+'\n'))
+        self.assertEqual(run.call_count,1);kind,command,extra=run.call_args.args
+        self.assertEqual((kind,command),('wallet','prepare'));self.assertEqual(extra[1],TX)
+        self.assertFalse(view['can_submit']);self.assertFalse(view['payment_child_started'])
+        self.assertTrue(view['prepared_not_sent']);self.assertEqual(view['txid'],WIRE)
+        for key in ('destination','payment','payment_expiry','request'):self.assertNotIn(key,view)
+    def test_prepare_numeric_and_pin_rejection_precedes_child(self):
+        self.preparing()
+        for key,bad in (('payment',True),('valid_until',0),('payment_expiry',2**64),('commitment','abc')):
+            original=getattr(self.args,key);setattr(self.args,key,bad)
+            with patch.object(self.runner,'run') as run,self.assertRaises(ValueError):
+                console.operate(self.args,self.runner,self.output,io.StringIO('PREPARE '+TX+'\n'))
+            run.assert_not_called();setattr(self.args,key,original)
+    def test_observe_uses_signed_child_height_without_endpoint(self):
+        self.args.command='observe';self.args.packet=self.root/'packet'
+        reply={'status':'signed-state-observed','wallet_id':ID,'certificate':
+            {'state_height':4,'header_height':5,'genesis_sha256':SHA,'app_hash':WIRE}}
+        with patch.object(self.runner,'run',return_value=reply) as run,patch.object(p,'endpoint_port') as endpoint:
+            view=console.operate(self.args,self.runner,self.output,io.StringIO())
+        run.assert_called_once_with('wallet','observe',['--packet',self.args.packet]);endpoint.assert_not_called()
+        self.assertEqual(view['as_of_height'],4);self.assertEqual(view['app_hash'],WIRE);self.assertFalse(view['can_submit'])
+        reply['certificate']['genesis_sha256']=TX
+        with patch.object(self.runner,'run',return_value=reply),self.assertRaises(ValueError):
+            console.operate(self.args,self.runner,self.output,io.StringIO())
+    def test_import_keeps_opening_in_file_and_source_forms_separate(self):
+        self.args.command='import-note';self.args.opening=self.root/'opening';self.args.wire=self.root/'wire'
+        self.args.output_index=11;self.args.genesis_note=False
+        for genesis in (False,True):
+            self.args.genesis_note=genesis
+            with patch.object(self.runner,'run',return_value={'status':'note-imported','wallet_id':ID,'commitment':TX}) as run:
+                view=console.operate(self.args,self.runner,self.output,io.StringIO())
+            kind,command,extra=run.call_args.args;self.assertEqual((kind,command),('wallet','import-note'))
+            self.assertEqual(extra[:4],['--opening',self.args.opening,'--output-index',11])
+            self.assertEqual(extra[4:],['--genesis-note'] if genesis else ['--wire',self.args.wire])
+            self.assertEqual(view['commitment'],TX);self.assertTrue(view['opening_values_omitted'])
+    def test_delivery_verifies_private_output_hash_and_omits_opening(self):
+        self.args.command='deliver';self.args.output=self.root/'opening';self.args.output_index=10
+        opening={'origin':'01'*32,'note_secret':'02'*32,'blind':'03'*32,'value':4,'expiry':56}
+        raw=c.canonical(opening);c.private_output(self.args.output,raw)
+        reply={'status':'private-opening-delivered','wallet_id':ID,'txid':TX,'private_file_created':True,'bytes':len(raw),'sha256':c.sha(raw)}
+        with patch.object(self.runner,'run',return_value=reply):
+            view=console.operate(self.args,self.runner,self.output,io.StringIO())
+        self.assertEqual(view['output_sha256'],c.sha(raw));self.assertEqual(view['output_bytes'],len(raw))
+        self.assertNotIn(opening['blind'],json.dumps(view)+console.render(view));self.assertNotIn('value',view)
+        reply['sha256']=WIRE
+        with patch.object(self.runner,'run',return_value=reply),self.assertRaises(ValueError):
+            console.operate(self.args,self.runner,self.output,io.StringIO())
+    def test_receipt_alias_private_output_refuses_before_any_child(self):
+        self.args.command='deliver';self.args.output=self.root/'same';self.args.receipt=self.args.output
+        with patch.object(console,'operate') as operate:
+            _,code=console.execute(self.args,self.output,io.StringIO())
+        self.assertEqual(code,1);operate.assert_not_called();self.assertFalse(self.args.output.exists())
+
     def test_keyed_blind_is_stable_domain_separated_and_context_bound(self):
         from protocol8_wallet import review_blind
         from protocol8_transfer import Invalid
