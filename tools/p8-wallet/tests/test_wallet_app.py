@@ -1,8 +1,9 @@
 """Actual local HTTP/session guards; protected financial child is a labeled stub."""
 import http.client,json,secrets,sys,tempfile,threading,unittest
+from unittest.mock import patch
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3];sys.path.insert(0,str(ROOT/'tools/p8-wallet/src'))
-from wallet_app import Service,Server,Duplicate
+from wallet_app import Service,Server,Duplicate,n
 
 class HTTP(unittest.TestCase):
     def setUp(self):
@@ -56,7 +57,17 @@ class HTTP(unittest.TestCase):
         confirmation='PREPARE '+values['commitment'];self.assertEqual(self.post(self.action('prepare',values,confirmation))[0],200)
         command,argv,token=self.executed[0];self.assertEqual(command,'prepare');self.assertEqual(token,confirmation)
         mapped=dict(zip(argv[::2],argv[1::2]));self.assertEqual(mapped['--payment'],'4');self.assertRegex(mapped['--request'],r'^[0-9a-f]{64}$')
+        self.assertGreater(int.from_bytes(bytes.fromhex(mapped['--request']),'little'),0)
+        self.assertLess(int.from_bytes(bytes.fromhex(mapped['--request']),'little'),n.MODULUS)
         self.assertNotIn('destination',str(self.service.events));self.assertNotIn(values['destination'],str(self.service.events))
+    def test_prepare_request_is_canonical_at_both_entropy_extremes(self):
+        values={'commitment':'11'*32,'destination':'22'*32,'payment':'4','valid_until':'32','payment_expiry':'56'}
+        for entropy,expected in ((0,1),(n.MODULUS-2,n.MODULUS-1)):
+            with self.subTest(entropy=entropy),patch('wallet_app.secrets.randbelow',return_value=entropy) as random:
+                argv=self.service.arguments('prepare',values)
+                random.assert_called_once_with(n.MODULUS-1)
+                request=dict(zip(argv[::2],argv[1::2]))['--request']
+                self.assertEqual(int.from_bytes(n.field(request),'little'),expected)
     def test_submit_maps_original_journal_and_endpoint(self):
         ident='11'*32;confirmation='SUBMIT '+ident+' '+'22'*32
         self.assertEqual(self.post(self.action('submit',{'txid':ident},confirmation))[0],200)

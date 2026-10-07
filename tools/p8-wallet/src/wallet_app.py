@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'scripts'),str(ROOT/'tools/payment-console/src')]
 import protocol8_wallet_cli as c
+import protocol8_transfer as n
 from protocol8_payment import endpoint_port
 from run_protocol8_wallet_cli import process_identity,abort_owned_tree
 
@@ -50,7 +51,8 @@ class Service:
         elif command=='prepare':
             for name in ('commitment','destination'):c.pin(fields[name]);extra+=['--'+name,fields[name]]
             for name in ('payment','valid_until','payment_expiry'):extra+=['--'+name.replace('_','-'),integer(fields[name])]
-            extra+=['--request',secrets.token_hex(32)]
+            # The intent is a nonzero canonical protocol field, not a digest.
+            extra+=['--request',(secrets.randbelow(n.MODULUS-1)+1).to_bytes(32,'little').hex()]
         elif command in ('review','submit','status','reconcile'):
             c.pin(fields['txid']);extra=['--txid',fields['txid'],'--endpoint',self.endpoint,'--journal',str(self.journal)]
             if command=='reconcile' and fields['packet']!='':extra+=['--packet',field(fields['packet'])]

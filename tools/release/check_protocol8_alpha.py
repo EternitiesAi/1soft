@@ -62,6 +62,9 @@ def check(path,worker=None):
         assert all(rows[i]['console_receipt']['view']['attempts']==1 for i in (5,6,7))
         assert rows[8]['wallet_sha256_before']==rows[8]['wallet_sha256_after']
         prepare=rows[3]['console_receipt']['child_responses'][0]
+        view=rows[3]['console_receipt']['view']
+        assert prepare['status']=='original-wire-retained' and view['state']=='prepared-not-attempted'
+        assert view['prepared_not_sent'] is True and view['can_submit'] is False and view['payment_child_started'] is False
         assert prepare['txid']==ident and prepare['native_audits']['prover']['call_count']==1
     packets=r['signed_packets'];assert [p['phase'] for p in packets]==['receive','bob-executed','carol-executed']
     assert [len(p['witness']['state']['ledger']['receipts']) for p in packets]==[1,2,3]

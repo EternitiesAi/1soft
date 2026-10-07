@@ -57,7 +57,12 @@ async function flow(page,role,amount){
   const commitment=await page.locator('#commitment').inputValue();assert.match(commitment,/^[0-9a-f]{64}$/);
   await page.locator('#prepare-form [name=confirmation]').fill('PREPARE '+commitment);
   value=await action(page,role,'prepare',()=>page.getByRole('button',{name:'Prepare this payment',exact:true}).click());
-  assert.equal(value.console_receipt.view.state,'original-wire-retained');
+  assert.equal(value.status,'console-completed');
+  assert.equal(value.console_receipt.view.state,'prepared-not-attempted');
+  assert.equal(value.console_receipt.view.prepared_not_sent,true);
+  assert.equal(value.console_receipt.view.can_submit,false);
+  assert.equal(value.console_receipt.view.payment_child_started,false);
+  assert.equal(value.console_receipt.child_responses[0].status,'original-wire-retained');
   const txid=value.console_receipt.view.txid;assert.match(txid,/^[0-9a-f]{64}$/);
   await page.getByRole('button',{name:'Review & recovery',exact:true}).click();
   value=await action(page,role,'review',()=>page.getByRole('button',{name:'Review original payment',exact:true}).click());
