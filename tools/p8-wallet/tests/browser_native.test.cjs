@@ -98,10 +98,39 @@ async function flow(page,role,amount){
   await action(page,role,'guide',()=>page.getByRole('button',{name:'Authenticate wallet',exact:true}).click());
   return txid;
 }
+// Read-only Windows-to-WSL page readiness. Never call an action or retain HTML.
+const alphaHttp=require('http');
+async function waitWalletPage(origin){
+  assert.match(origin,/^http:\/\/127\.0\.0\.1:[1-9][0-9]*$/);
+  const started=Date.now(),attempts=[];
+  function probe(){return new Promise(resolve=>{
+    let done=false;const finish=v=>{if(!done){done=true;resolve(v);}};
+    const request=alphaHttp.get(origin+'/',response=>{
+      let body='',bytes=0;
+      response.on('data',chunk=>{bytes+=chunk.length;if(bytes>16384){request.destroy();finish({error:'page-bound'});}else body+=chunk;});
+      response.on('end',()=>finish({http_status:response.statusCode,
+        wallet_page:response.statusCode===200&&body.includes('<title>1soft | Local wallet</title>')&&
+          response.headers['cache-control']==='no-store'&&response.headers['x-frame-options']==='DENY'}));
+      response.on('error',e=>finish({error:e.code||'read-failed'}));
+    });
+    request.on('error',e=>finish({error:e.code||'connection-failed'}));
+    request.setTimeout(1000,()=>{request.destroy();finish({error:'readiness-timeout'});});
+  });}
+  do{
+    const value=await probe();attempts.push({...value,since_ready_ms:Date.now()-started});
+    if(value.http_status===200&&value.wallet_page)return {attempts,read_only_gets:true,page_html_or_token_retained:false};
+    if(value.http_status!==undefined)throw new Error('Local wallet page readiness refused: HTTP '+value.http_status);
+    await new Promise(resolve=>setTimeout(resolve,250));
+  }while(Date.now()-started<30000);
+  throw new Error('Windows-to-WSL wallet page readiness timed out; no financial action started.');
+}
+
 async function main(){
   let browser=null,context=null;
   try{
     const ready=await event('ready');assert.equal(ready.synthetic_funds,true);
+    const transport_readiness={};
+    for(const role of ['bob','carol'])transport_readiness[role]=await waitWalletPage(ready.wallets[role]);
     browser=await playwright.chromium.launch({executablePath:process.env.ONE_BROWSER_EXECUTABLE,headless:true});
     context=await browser.newContext({viewport:{width:1280,height:900}});
     const pages={};
@@ -119,6 +148,7 @@ async function main(){
     for(const page of Object.values(pages))assert(await page.evaluate(()=>localStorage.length===0&&sessionStorage.length===0));
     assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
     const value={status:'passed-actual-browser-flow',browser:browser.version(),trace,txids,
+      transport_readiness,driver_sha256:require('crypto').createHash('sha256').update(fs.readFileSync(__filename)).digest('hex'),
       actual_receive_prepare_review_send_recovery_delivery:true,recipient_received_funds_used:true,
       two_explicit_one_attempt_sends:true,two_replay_refusals:true,private_display_checked_in_memory:true,
       private_display_retained:false,browser_storage_empty:true,private_display_cleared:true,

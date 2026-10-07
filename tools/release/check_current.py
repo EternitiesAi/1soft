@@ -29,7 +29,7 @@ COMPONENTS = (
     'protocol4-receipts', 'protocol4-recovery', 'protocol4-wallet',
     'receipt-archive', 'release', 'validator-registry', 'validator-transition',
     'wallet-account', 'wallet-delivery', 'shielded-note-lab',
-    'privacy-proof-benchmark',
+    'privacy-proof-benchmark', 'p8-wallet',
 )
 COMMON = (['tools/validator-transition/src', 'src', 'tests', 'scripts', 'tools/release']
           + [f'tools/{name}/src' for name in COMPONENTS]
@@ -67,6 +67,7 @@ JAVASCRIPT_SCENARIOS = (
     'tools/private-payments/tests/browser_comet.test.cjs',
     'tools/private-payments/tests/alpha_invoice_browser.test.cjs',
     'tools/private-payments/tests/alpha_resource_browser.test.cjs',
+    'tools/p8-wallet/tests/browser_native.test.cjs',
 )
 
 PYTHON_ENGINE_SCENARIOS = tuple(dict(

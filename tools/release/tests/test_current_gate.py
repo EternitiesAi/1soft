@@ -21,7 +21,8 @@ JS_SCENARIOS = ['tools/local-platform/tests/browser_service.test.cjs',
                 'tools/local-platform/tests/merchant_resource_browser.test.cjs',
                 'tools/private-payments/tests/browser_comet.test.cjs',
                 'tools/private-payments/tests/alpha_invoice_browser.test.cjs',
-                'tools/private-payments/tests/alpha_resource_browser.test.cjs']
+                'tools/private-payments/tests/alpha_resource_browser.test.cjs',
+                'tools/p8-wallet/tests/browser_native.test.cjs']
 
 
 class CurrentCoverageTests(unittest.TestCase):

@@ -83,7 +83,7 @@ transport budget. There is no automatic broadcast, retry or reconciliation.
 This fixture's plaintext inspection is test orchestration only; the wallet
 server itself reads no wallet plaintext and retains protected caller authority.
 
-The actual browser gate is `tools/p8-wallet/tests/browser_native.cjs`. It drives
+The actual browser gate is `tools/p8-wallet/tests/browser_native.test.cjs`. It drives
 these real UI actions, checks the private review in memory, exercises a deliberate
 correct-confirmation replay refusal, and retains sanitized receipts and overview
 screenshots only. The preview gate and HTTP unit tests stub the financial child
