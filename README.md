@@ -389,3 +389,9 @@ unknown submission, admission and signed execution distinct. Its
 [fresh actual receipt](evidence/protocol8-payment-console/20261006/console-05.json)
 passed 12 console, 13 payment and 22 actual wallet checks. It adds no automatic
 retry or public service; production custody and independent operators remain separate gates.
+
+The additive [local wallet journey](docs/PROTOCOL8_WALLET_JOURNEY.md) brings
+observation, receive/import, separately confirmed native preparation, exact export
+and private delivery into the console. Wallet/core pins are unchanged from PR83.
+Its new console source is pending a fresh actual journey qualification; no earlier
+receipt is transferred to it.
