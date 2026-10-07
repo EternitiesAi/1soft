@@ -148,5 +148,7 @@ passed 11 operator checks and the underlying 22 real recovery checks at clean so
 
 The [protected P8 wallet commands](PROTOCOL8_WALLET_CLI.md) expose authenticated
 import, retained native preparation, one-attempt marking and exact reconciliation.
-Their fresh actual caller journey requires clean-source qualification. The CLI
+Their [fresh actual caller receipt](../evidence/protocol8-wallet-cli/20261006/wallet-cli-03.json)
+passed 13 caller checks and 22 actual wallet checks at clean source
+`051f8397a5bc57ccc21a428b6bd57a8c14f0c141`. The CLI
 dispatches nothing and adds no production key management or custody claim.

@@ -79,7 +79,16 @@ one external caller submission with a discarded response, signed exact recovery,
 private delivery and genuine competing-spend reconciliation. The closed checker
 checks receipt consistency; separate native replay verifies public evidence.
 
-The fresh actual CLI journey requires clean-source qualification before it is
-described as passed. Scope remains one trusted host and synthetic funds. No latest
+The [fresh actual CLI journey](../evidence/protocol8-wallet-cli/20261006/wallet-cli-03.json)
+passed 13 caller checks and the unchanged 22 actual wallet checks at clean source
+`051f8397a5bc57ccc21a428b6bd57a8c14f0c141`. All 57 CLI invocations were reaped; 21 altered caller
+receipts refused. Separate native replay verified four public proofs and three
+signed AS-OF states. Twelve labeled fake-native CLI methods, seven wallet
+regressions and two actual disposable process tests passed without skips.
+Run01 was cancelled before qualification to correct a cleanup ownership race.
+Run02 passed the underlying wallet checks but failed the outer expected-command
+list, which omitted the recipient inventory check. The corrected exact list
+requires all 57 calls. Both earlier attempts are retained in the delivery ZIP
+and neither supplies the final caller qualification. Scope remains one trusted host and synthetic funds. No latest
 state, hostile-host/rollback resistance, independent operators, scalable custody,
 hardware/key recovery, production privacy/funds or public launch is qualified.
