@@ -246,6 +246,20 @@ class RecipientWallet:
         n.need(row is not None,'P8 original retained wire absent');return row
     def export(self,ident):
         with self._locked():return bytes.fromhex(self._find(self._read(),ident)['raw'])
+    def review_intent(self,ident):
+        """Explicit minimal private operator view; no keys, openings or dispatch."""
+        with self._locked():
+            payload=self._read();row=self._find(payload,ident)
+            raw=bytes.fromhex(row['raw']);public,witness=statement(bytes.fromhex(row['private_request']),self.g)
+            n.need(public==n.parse(raw) and n.txid(raw)==ident,'P8 review original wire differs')
+            return {'format':'1soft/protocol8-private-intent-review/v1','wallet_id':self.wallet_id,
+                'txid':ident,'wire_sha256':n.sha(raw),'wire_bytes':len(raw),
+                'destination':witness[11],'payment':n.integer(witness[12]),
+                'payment_expiry':n.integer(witness[13]),'fee':n.integer(public[9]),
+                'valid_from':n.integer(public[7]),'valid_until':n.integer(public[8]),
+                'attempts':row['attempts'],'completed':row['result'] is not None,
+                'as_of_height':payload['observations'][-1]['witness']['height'],
+                'wallet_genesis_sha256':self.pins['genesis_sha256']}
     def mark_attempt(self,ident):
         """One local caller attempt marker; never a retry authorization or dispatch."""
         with self._locked():

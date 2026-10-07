@@ -125,3 +125,8 @@ The [local P8 payment caller](PROTOCOL8_PAYMENT_CALLER.md) now joins retained
 wallet intent to one explicit loopback submission and signed reconciliation.
 Its [fresh actual caller receipt](../evidence/protocol8-payment-caller/20261006/payment-02.json)
 passed 13 caller checks and all 22 underlying actual wallet checks.
+
+The [local P8 terminal console](PROTOCOL8_PAYMENT_CONSOLE.md) adds private original
+intent review, exact confirmation and protected status/reconciliation. Its fresh
+actual console gate remains pending qualification. Next: independent operator
+workflow and production custody qualification, with no inferred public release.

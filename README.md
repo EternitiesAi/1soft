@@ -380,3 +380,11 @@ unknown, and reconciles through signed state. Its [fresh actual receipt](evidenc
 passed 13 caller checks and the unchanged 22-check four-validator wallet journey.
 The real node admitted one exact request; the caller received no reply and later
 recovered exact execution without resubmission. Public launch remains a separate gate.
+
+## Local P8 payment console
+
+The [terminal console](docs/PROTOCOL8_PAYMENT_CONSOLE.md) presents protected original
+intent, requires confirmation of the exact transaction and wire hash, and keeps
+unknown submission, admission and signed execution distinct. Its fresh actual
+console gate remains pending qualification. It adds no automatic retry or public
+service; production custody and independent operators remain separate gates.

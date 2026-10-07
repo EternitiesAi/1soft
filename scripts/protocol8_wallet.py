@@ -24,9 +24,9 @@ def parser():
     prep=sub.add_parser('prepare')
     for name in ('commitment','request','destination'):prep.add_argument('--'+name,required=True)
     for name in ('payment','valid-until','payment-expiry'):prep.add_argument('--'+name,type=int,required=True)
-    for name in ('mark-attempt','reconcile','export','deliver'):
+    for name in ('mark-attempt','reconcile','export','deliver','review'):
         cmd=sub.add_parser(name);cmd.add_argument('--txid',required=True)
-        if name in ('export','deliver'):cmd.add_argument('--output',type=Path,required=True)
+        if name in ('export','deliver','review'):cmd.add_argument('--output',type=Path,required=True)
         if name=='deliver':cmd.add_argument('--output-index',type=int,choices=(10,11),default=10)
     return p
 

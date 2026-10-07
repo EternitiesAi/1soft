@@ -166,6 +166,10 @@ def operate(args,trace):
         if c=='mark-attempt':wallet.mark_attempt(args.txid);return {'status':'attempt-marked','txid':args.txid,'attempts':1}
         if c=='reconcile':return {'status':'original-reconciled','result':wallet.reconcile(args.txid)}
         if c=='export':return {'status':'exact-wire-exported','txid':args.txid,**private_output(args.output,wallet.export(args.txid))}
+        if c=='review':
+            view={**wallet.review_intent(args.txid),'genesis_sha256':args.genesis_sha256,
+                'runtime_sha256':sha(canonical(runtime_files()))}
+            return {'status':'private-intent-reviewed','txid':args.txid,**private_output(args.output,canonical(view))}
         if c=='deliver':return {'status':'private-opening-delivered','txid':args.txid,
             **private_output(args.output,canonical(wallet.output_opening(args.txid,args.output_index)))}
         raise ValueError('unsupported wallet command')

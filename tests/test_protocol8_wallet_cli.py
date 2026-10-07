@@ -97,5 +97,21 @@ class WalletCommandTests(unittest.TestCase):
         secret='never-print-this-private-payload'
         with patch.object(c,'operate',side_effect=ValueError(secret)):r,code=self.call('inventory')
         self.assertEqual(code,1);self.assertNotIn(secret,p.canonical(r).decode());self.assertEqual(r['broadcast_calls'],0)
+    def test_unknown_review_preserves_wallet_and_creates_no_output(self):
+        self.init();before=self.blob.read_bytes();target=self.data/'review'
+        result,code=self.call('review',txid=f(999),output=target)
+        self.assertEqual(code,1);self.assertEqual(result['status'],'refused')
+        self.assertEqual(before,self.blob.read_bytes());self.assertFalse(target.exists())
+    def test_private_review_projection_never_prints_intent_or_overwrites(self):
+        self.init();before=self.blob.read_bytes();target=self.data/'review'
+        projection={'destination':f(51),'payment':4,'payment_expiry':56,'txid':f(71)}
+        with patch.object(c.RecipientWallet,'review_intent',return_value=projection):
+            result,code=self.call('review',txid=f(71),output=target)
+            self.assertEqual(code,0,result);raw=target.read_bytes()
+            self.assertEqual(result['sha256'],c.sha(raw));self.assertEqual(result['bytes'],len(raw))
+            self.assertNotIn(f(51).encode(),p.canonical(result));self.assertNotIn(b'"payment":',p.canonical(result))
+            self.assertEqual(target.stat().st_mode&0o777,0o600);self.assertEqual(before,self.blob.read_bytes())
+            self.assertEqual(self.call('review',txid=f(71),output=target)[1],1)
+            self.assertEqual(raw,target.read_bytes());self.assertEqual(before,self.blob.read_bytes())
 
 if __name__=='__main__':unittest.main()

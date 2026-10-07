@@ -157,3 +157,9 @@ The separate [local payment caller](PROTOCOL8_PAYMENT_CALLER.md) explicitly
 submits once and retains uncertain outcomes for signed reconciliation. Its fresh
 actual receipt passed 13 caller and 22 wallet checks; admission still does not
 establish execution or freshness.
+
+The [local P8 terminal console](PROTOCOL8_PAYMENT_CONSOLE.md) adds explicit human
+review and confirmation around the protected caller. Its fresh actual console gate
+remains pending qualification; private display is local disclosure, and public
+receipts omit intent values. Production custody, independent operators and public
+launch remain separate gates.
