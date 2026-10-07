@@ -145,6 +145,30 @@ class ConsoleTests(unittest.TestCase):
             with self.assertRaises(ValueError):console.operate(self.args,self.runner,self.output,io.StringIO('SUBMIT '+TX+' '+WIRE+'\n'))
         run.assert_not_called()
 
+    def test_frozen_review_paths_include_both_fresh_journal_refusals(self):
+        from run_protocol8_console import projection_paths_checked,EXPECTED_CHILD_COMMANDS
+        calls=[{'keyed_private_projection_checked':i in (6,7,8,9,12)} for i in range(1,20)]
+        responses=[{'child_invocations':[{'command':x} for x in names],
+            'child_responses':[{'status':'private-intent-reviewed' if x=='review' else 'fake-other'} for x in names]}
+            for names in EXPECTED_CHILD_COMMANDS]
+        self.assertTrue(projection_paths_checked(calls,responses))
+        for ordinal in (6,12):
+            calls[ordinal-1]['keyed_private_projection_checked']=False
+            self.assertFalse(projection_paths_checked(calls,responses))
+            calls[ordinal-1]['keyed_private_projection_checked']=True
+    def test_frozen_child_map_rejects_omitted_refusal_review_and_reordered_submit(self):
+        from run_protocol8_console import projection_paths_checked,EXPECTED_CHILD_COMMANDS
+        from copy import deepcopy
+        calls=[{'keyed_private_projection_checked':i in (6,7,8,9,12)} for i in range(1,20)]
+        responses=[{'child_invocations':[{'command':x} for x in names],
+            'child_responses':[{'status':'private-intent-reviewed' if x=='review' else 'fake-other'} for x in names]}
+            for names in EXPECTED_CHILD_COMMANDS]
+        for ordinal in (6,12):
+            wrong=deepcopy(responses);wrong[ordinal-1]={'child_invocations':[],'child_responses':[]}
+            self.assertFalse(projection_paths_checked(calls,wrong))
+        wrong=deepcopy(responses);wrong[8]['child_invocations'].reverse()
+        self.assertFalse(projection_paths_checked(calls,wrong))
+
 class ChildTests(unittest.TestCase):
     def test_actual_disposable_child_has_canonical_identity_and_is_reaped(self):
         with tempfile.TemporaryDirectory() as name:

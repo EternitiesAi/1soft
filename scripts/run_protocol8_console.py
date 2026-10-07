@@ -16,6 +16,17 @@ EXTRA=('tools/payment-console/src/payment_console.py','tools/release/check_proto
 EXPECTED=('inventory','doctor','status','status','submit','submit','review','submit','submit','status',
     'submit','submit','status','status','status','reconcile','reconcile','reconcile','reconcile')
 REFUSALS={5,6,11,12,13,14}
+# Derived from interrupted Alice and submitted Bob control flow: both fresh-journal
+# refusal paths authenticate a private review before refusing without display.
+EXPECTED_CHILD_COMMANDS=(('inventory',),('doctor',),('status',),('status',),(),('review',),
+    ('review',),('review',),('review','review','submit'),('status',),(),('review',),
+    ('status',),('status',),('status',),('reconcile',),('reconcile',),('reconcile',),('reconcile',))
+REVIEW_ORDINALS={6,7,8,9,12}
+def projection_paths_checked(calls,responses):
+    return len(calls)==len(responses)==19 and \
+        {i for i,x in enumerate(calls,1) if x['keyed_private_projection_checked']}==REVIEW_ORDINALS and \
+        tuple(tuple(x['command'] for x in r['child_invocations']) for r in responses)==EXPECTED_CHILD_COMMANDS and \
+        sum(x['status']=='private-intent-reviewed' for r in responses for x in r['child_responses'])==6
 CHECKS=('inherited_actual_payment_wallet_gate','exact_console_order','actual_console_child_identity',
     'actual_private_review_rendered_and_redacted','cancel_without_wallet_or_transport_effect',
     'one_confirmed_original_submission','signed_states_rendered_distinctly','all_console_children_reaped',
@@ -89,16 +100,17 @@ class Network(payment.Network):
                 'keyed private projection differs from actual original intent')
         n.need(private_blind not in text.decode('utf-8') and private_blind.encode() not in raw,
             'private review blind disclosed')
-        rendered=text.decode('utf-8');private_rendered=False;sanitized=[]
+        rendered=text.decode('utf-8');private_rendered=False;sanitized=[];rendered_prefixes=[]
         private_lines={'Recipient: ':w[11],'Amount: ':str(n.integer(w[12]))+' atomic units',
             'Payment expiry: ':str(n.integer(w[13]))+' (protocol height)'}
         for line in rendered.splitlines():
             matched=next((prefix for prefix in private_lines if line.startswith(prefix)),None)
             if matched:
                 n.need(line==matched+private_lines[matched],'private intent rendered from wrong data')
-                sanitized.append(matched+'[private intent omitted]');private_rendered=True
+                sanitized.append(matched+'[private intent omitted]');private_rendered=True;rendered_prefixes.append(matched)
             else:sanitized.append(line)
-        n.need(not private_rendered or command in ('review','submit'),'unexpected private rendering')
+        n.need(not private_rendered or (command in ('review','submit') and rendered_prefixes==list(private_lines)),
+            'missing, duplicated or reordered private intent rendering')
         n.need('Automatic retry: disabled' in rendered and (value['view']['can_submit'] is False or command=='review'),'console retry view differs')
         entry={'command':command,'pid':proc.pid,'start_ticks':identity[0],'exit_code':proc.returncode,
             'process_reaped':proc.poll() is not None,'elapsed_seconds':round(time.monotonic()-started,6),
@@ -167,7 +179,7 @@ def run(args):
         views[-4:]==['unresolved-held','executed-exact','executed-exact','conflict-held'],
         not cs.get('forced_cleanup') and all(not x['forced_cleanup'] and all(c['process_reaped'] for c in x['child_invocations']) for x in responses),
         all(x['private_review_values_retained'] is False for x in responses),source()==parent['source'],
-        len(calls)==19 and {i for i,x in enumerate(calls,1) if x['keyed_private_projection_checked']}=={7,8,9,12},
+        projection_paths_checked(calls,responses),
         len(calls)==19 and len({x['private_stdout_commitment'] for x in calls})==19 and
             all(x['private_stdout_commitment_scheme']==STDOUT_SCHEME and x['private_stdout_blind_retained'] is False for x in calls)]
     raw=b''.join(ACTIVE.console_raw if ACTIVE else []);log=output.with_name(output.stem+'.console.jsonl');n.need(not log.exists(),'fresh console raw log required');log.write_bytes(raw)

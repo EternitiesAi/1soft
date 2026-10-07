@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'scripts'),str(ROOT/'tools/payment-console/src'),str(ROOT/'tools/release')]
 from protocol8_transfer import canonical,sha
-from run_protocol8_console import EXPECTED,REFUSALS,CHECKS,CLAIMS,STDOUT_SCHEME
+from run_protocol8_console import EXPECTED,REFUSALS,CHECKS,CLAIMS,STDOUT_SCHEME,EXPECTED_CHILD_COMMANDS,REVIEW_ORDINALS
 from run_protocol8_payment import EXPECTED_PAYMENT_REFUSALS
 from payment_console import STATE_TEXT,render
 from check_protocol8_payment import check as payment_check
@@ -49,9 +49,10 @@ def check(path):
             'private_stdout_blind_retained','keyed_private_projection_checked','private_stdout_retained','private_render_checked','sanitized_stdout'}
         digest=call['private_stdout_commitment'];assert type(digest) is str and len(digest)==64 and all(x in '0123456789abcdef' for x in digest)
         assert call['private_stdout_commitment_scheme']==STDOUT_SCHEME and call['private_stdout_blind_retained'] is False
-        assert call['keyed_private_projection_checked'] is (ordinal in (7,8,9,12))
+        assert call['keyed_private_projection_checked'] is (ordinal in REVIEW_ORDINALS)
         assert all(response[k] is False for k in ('automatic_retry','freshness_established','production_ready'))
         child_calls=response['child_invocations'];child_responses=response['child_responses'];assert len(child_calls)==len(child_responses)
+        assert tuple(x['command'] for x in child_calls)==EXPECTED_CHILD_COMMANDS[ordinal-1]
         for child,x in zip(child_calls,child_responses):
             assert type(child['pid']) is int and child['pid']>0 and type(child['start_ticks']) is int and child['start_ticks']>0
             assert (child['pid'],child['start_ticks'])==(x['pid'],x['start_ticks'])
@@ -74,6 +75,8 @@ def check(path):
         human=call['sanitized_stdout'];assert render(view) in human
         assert 'Recipient: [private intent omitted]' in human if call['private_render_checked'] else 'Recipient:' not in human
         assert call['private_render_checked'] is (ordinal in (7,8,9))
+        for label in ('Recipient: ','Amount: ','Payment expiry: '):
+            assert human.count(label+'[private intent omitted]')==(1 if ordinal in (7,8,9) else 0)
         if 'review' in view:
             review=view['review'];reviews.append(review)
             assert set(review)=={'wallet_id','txid','wire_sha256','wire_bytes','fee','valid_from','valid_until','attempts','completed','as_of_height','review_sha256','review_commitment_scheme','private_intent_omitted'}
@@ -90,6 +93,7 @@ def check(path):
                 assert view['as_of_height']==result.get('state_height',result.get('as_of_height'))
                 if 'app_hash' in result:assert view['app_hash']==result['app_hash']
     assert len({x['private_stdout_commitment'] for x in calls})==19
+    assert sum(child['status']=='private-intent-reviewed' for x in responses for child in x['child_responses'])==6
     for x in responses:
         for child in x['child_responses']:
             if child['status']=='private-intent-reviewed':assert child['review_commitment_scheme']=='sha256-private-review-v2-with-keyed-blind'
