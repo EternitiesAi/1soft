@@ -100,3 +100,13 @@ external specialist review, economics and public launch remain unassessed.
 
 All assets and openings in this gate are synthetic. Public receipts and sanitized
 logs are retained; private requests, validator keys and SQLite stores are omitted.
+
+## Final root regression run
+
+`full-unit-04.log` ran on clean source
+`742cf4d86f9edea6e519577e10df7285a1f93592`: 1,760 methods,
+1,600 passed and 160 skipped, with no failures or errors. Those older missing
+native/receipt inputs remain unassessed. The earlier `full-unit-03.log` omitted
+the required `PYTHONPATH=src`; its import/crash-test errors are retained. The
+corrected invocation uses the documented source path. The final registration
+adds these logs and this explanation only, without changing tested source.
