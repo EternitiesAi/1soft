@@ -1,5 +1,6 @@
 """Closed receipt regressions over retained real alpha evidence; no native execution."""
 import copy,json,sys,tempfile,unittest
+from unittest.mock import patch
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'tools/release')]
@@ -41,6 +42,25 @@ class AlphaReceipt(unittest.TestCase):
         self.assertEqual(result['actual_browser_payments'],2)
         self.assertEqual(result['fixture_native_processes'],3)
         self.assertEqual(result['validator_application_processes'],24)
+    def test_historical_membership_does_not_expand_with_current_inventory(self):
+        members=alpha.source_membership()
+        current={row['path'] for row in json.loads((ROOT/'SOURCE_MANIFEST.json').read_bytes())['files']}
+        self.assertEqual(len(members),252)
+        self.assertIn('src/protocol9_application.py',current)
+        self.assertNotIn('src/protocol9_application.py',members)
+        self.assertEqual(members,set(self.original['source']['files']))
+    def test_additional_measured_producer_member_refused(self):
+        value=copy.deepcopy(self.original);name='src/protocol9_application.py';raw=(ROOT/name).read_bytes()
+        value['source']['files'][name]={'bytes':len(raw),'sha256':n.sha(raw)}
+        with self.assertRaises(AssertionError):self.check(value)
+    def test_membership_pin_tampering_refused(self):
+        original=alpha.SOURCE_MEMBERSHIP_PATH.read_bytes()
+        value=json.loads(original);value['members'].pop()
+        for raw in (original+b' ',n.canonical(value)+b'\n',original.replace(b'protocol8',b'protocol9',1)):
+            with self.subTest(sha256=n.sha(raw)),tempfile.TemporaryDirectory() as name:
+                path=Path(name)/'members.json';path.write_bytes(raw)
+                with patch.object(alpha,'SOURCE_MEMBERSHIP_PATH',path):
+                    with self.assertRaises(AssertionError):self.check(self.original)
     def test_coherent_semantic_alterations_refused(self):
         cases=[]
         def add(name,mutation):cases.append((name,mutation))

@@ -17,11 +17,23 @@ CLAIMS={'one_trusted_host':True,'synthetic_funds':True,'actual_browser_required'
 CHECKS=('fresh_native_four_validators','actual_browser_two_wallet_flow','two_lost_reply_one_attempts',
  'two_signed_exact_recoveries','recipient_received_funds_used','duplicate_submit_refused_without_io',
  'native_children_reaped','owned_servers_nodes_stopped','known_private_material_absent','source_unchanged')
-SOURCE_PREFIXES=('src/','scripts/','tools/recipient-transfer/','tools/recipient-consensus-bridge/',
- 'tools/shielded-consensus/halo2/','tools/recipient-wallet/','tools/p8-wallet/')
-SOURCE_FIXED={'tests/test_protocol8_consensus.py','tests/test_protocol8_engine_report.py',
- 'tools/release/check_protocol8_engine.py','tools/release/check_protocol8_native.py'}
+SOURCE_MEMBERSHIP_PATH=ROOT/'tools/release/protocol8_alpha_source_members_v1.json'
+SOURCE_MEMBERSHIP_SHA256='67047d7c345a63809fc117bde119a1a90ecc05b67ccdc93ebaaa4b0fbc21c071'
 ENGINE_SHA256='218628da07bed5d27e178d38d0bef9ecf46f21b214c8e9fea402fd215fccc024'
+
+def source_membership():
+    # Receipt v1 has an immutable producer membership. The current checkout
+    # inventory may grow; it must not redefine historical evidence requirements.
+    raw=SOURCE_MEMBERSHIP_PATH.read_bytes()
+    assert n.sha(raw)==SOURCE_MEMBERSHIP_SHA256
+    value=json.loads(raw);assert raw==n.canonical(value)+b'\n'
+    assert set(value)=={'format','inventory_commit','members'}
+    assert value['format']=='1soft/protocol8-alpha-source-members/v1'
+    assert value['inventory_commit']=='ebff5ff4519d7894894a92482c1cb64c0dd0be91'
+    members=value['members'];assert isinstance(members,list) and len(members)==252
+    assert all(type(name) is str and not Path(name).is_absolute() and '..' not in Path(name).parts for name in members)
+    assert members==sorted(set(members))
+    return set(members)
 
 def identity(row):
     assert type(row['pid']) is int and row['pid']>0
@@ -38,10 +50,9 @@ def check(path,worker=None):
     assert r['claims']==CLAIMS and all(type(v) is bool for v in r['claims'].values())
     assert r['source']['clean'] is True and r['source_unchanged'] is True and r['cleanup_errors']==[]
     assert [c['id'] for c in r['checks']]==list(CHECKS) and all(c['passed'] is True for c in r['checks'])
-    # The frozen producer map must have its entire declared membership. The
-    # delivered manifest separately binds checker/tests/docs, including this file.
-    manifest=json.loads((ROOT/'SOURCE_MANIFEST.json').read_bytes())
-    expected_source=SOURCE_FIXED|{row['path'] for row in manifest['files'] if row['path'].startswith(SOURCE_PREFIXES)}
+    # Exact membership and every producer file's bytes remain mandatory. The
+    # delivered manifest separately binds current checker/tests/docs and the pin.
+    expected_source=source_membership()
     assert set(r['source']['files'])==expected_source
     for name,meta in r['source']['files'].items():
         assert not Path(name).is_absolute() and '..' not in Path(name).parts

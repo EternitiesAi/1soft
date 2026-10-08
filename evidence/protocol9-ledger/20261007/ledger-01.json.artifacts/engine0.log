@@ -1,0 +1,51 @@
+I[2026-10-07|22:00:38.791] service start                                module=proxy msg="Starting multiAppConn service" impl=multiAppConn
+I[2026-10-07|22:00:38.791] service start                                module=abci-client connection=query msg="Starting socketClient service" impl=socketClient
+I[2026-10-07|22:00:38.791] service start                                module=abci-client connection=snapshot msg="Starting socketClient service" impl=socketClient
+I[2026-10-07|22:00:38.791] service start                                module=abci-client connection=mempool msg="Starting socketClient service" impl=socketClient
+I[2026-10-07|22:00:38.791] service start                                module=abci-client connection=consensus msg="Starting socketClient service" impl=socketClient
+I[2026-10-07|22:00:38.791] service start                                module=events msg="Starting EventBus service" impl=EventBus
+I[2026-10-07|22:00:38.791] service start                                module=pubsub msg="Starting PubSub service" impl=PubSub
+I[2026-10-07|22:00:38.792] service start                                module=txindex msg="Starting IndexerService service" impl=IndexerService
+I[2026-10-07|22:00:38.793] ABCI Handshake App Info                      module=consensus height=0 hash= software-version=0.38.25-segmented-development protocol-version=9
+I[2026-10-07|22:00:38.793] ABCI Replay Blocks                           module=consensus appHeight=0 storeHeight=0 stateHeight=0
+I[2026-10-07|22:00:38.812] Completed ABCI Handshake - CometBFT and App are synced module=consensus appHeight=0 appHash=D53FBE68FE638E15F308ABDA45D6E84CB4D40BFC819E301987A539CDE91F3671
+I[2026-10-07|22:00:38.812] Version info                                 module=main tendermint_version=0.38.25 abci=2.0.0 block=11 p2p=8 commit_hash=
+I[2026-10-07|22:00:38.812] This node is a validator                     module=consensus addr=0F0F2066734A854398C310502A69426926F0451B pubKey=PubKeyEd25519{9D85102E410478573EF15733F2DDC67DE56E75022C4E171737A3D59D43624E84}
+I[2026-10-07|22:00:38.813] P2P Node ID                                  module=p2p ID=47f05bcdd21eb3b434e0c5f66ae6bd0290839d0a file=<private-run>/nodes/node0/config/node_key.json
+I[2026-10-07|22:00:38.813] Adding persistent peers                      module=p2p addrs="[8147e71b2495a0a2e721602856b787cc9c2eb7b3@127.0.0.1:38365 4bcd34e402e1c63de43d0abb2bccaacc98de8030@127.0.0.1:52419 50385ec00ef4d80b6b67f331b6ee526333f9d974@127.0.0.1:46031]"
+I[2026-10-07|22:00:38.813] Adding unconditional peer ids                module=p2p ids=[]
+I[2026-10-07|22:00:38.813] Add our address to book                      module=p2p book=<private-run>/nodes/node0/config/addrbook.json addr=47f05bcdd21eb3b434e0c5f66ae6bd0290839d0a@127.0.0.1:55595
+I[2026-10-07|22:00:38.813] service start                                module=main msg="Starting Node service" impl=Node
+I[2026-10-07|22:00:38.814] service start                                module=p2p msg="Starting P2P Switch service" impl="P2P Switch"
+I[2026-10-07|22:00:38.814] service start                                module=mempool msg="Starting Mempool service" impl=Mempool
+I[2026-10-07|22:00:38.814] service start                                module=blocksync msg="Starting Reactor service" impl=Reactor
+I[2026-10-07|22:00:38.814] service start                                module=blocksync msg="Starting BlockPool service" impl=BlockPool
+I[2026-10-07|22:00:38.814] service start                                module=consensus msg="Starting Consensus service" impl=ConsensusReactor
+I[2026-10-07|22:00:38.814] Reactor                                      module=consensus waitSync=true
+I[2026-10-07|22:00:38.814] service start                                module=evidence msg="Starting Evidence service" impl=Evidence
+I[2026-10-07|22:00:38.814] service start                                module=statesync msg="Starting StateSync service" impl=StateSync
+I[2026-10-07|22:00:38.814] Saving AddrBook to file                      module=p2p book=<private-run>/nodes/node0/config/addrbook.json size=3
+I[2026-10-07|22:00:38.814] serve                                        module=rpc-server msg="Starting RPC HTTP server on 127.0.0.1:40147"
+I[2026-10-07|22:00:38.814] Started node                                 module=main nodeInfo="{ProtocolVersion:{P2P:8 Block:11 App:9} DefaultNodeID:47f05bcdd21eb3b434e0c5f66ae6bd0290839d0a ListenAddr:tcp://127.0.0.1:55595 Network:one-p9-ab28c0cd4fdf Version:0.38.25 Channels:402021222330386061 Moniker:node0 Other:{TxIndex:on RPCAddress:tcp://127.0.0.1:40147}}"
+I[2026-10-07|22:00:39.431] signal trapped                               module=main msg="captured terminated, exiting..."
+I[2026-10-07|22:00:39.431] service stop                                 module=main msg="Stopping Node service" impl=Node
+I[2026-10-07|22:00:39.431] Stopping Node                                module=main 
+I[2026-10-07|22:00:39.431] service stop                                 module=events msg="Stopping EventBus service" impl=EventBus
+I[2026-10-07|22:00:39.431] service stop                                 module=pubsub msg="Stopping PubSub service" impl=PubSub
+I[2026-10-07|22:00:39.431] service stop                                 module=txindex msg="Stopping IndexerService service" impl=IndexerService
+I[2026-10-07|22:00:39.431] service stop                                 module=p2p msg="Stopping P2P Switch service" impl="P2P Switch"
+I[2026-10-07|22:00:39.431] service stop                                 module=evidence msg="Stopping Evidence service" impl=Evidence
+I[2026-10-07|22:00:39.431] service stop                                 module=statesync msg="Stopping StateSync service" impl=StateSync
+I[2026-10-07|22:00:39.431] service stop                                 module=mempool msg="Stopping Mempool service" impl=Mempool
+I[2026-10-07|22:00:39.431] service stop                                 module=blocksync msg="Stopping Reactor service" impl=Reactor
+I[2026-10-07|22:00:39.431] service stop                                 module=blocksync msg="Stopping BlockPool service" impl=BlockPool
+I[2026-10-07|22:00:39.431] service stop                                 module=consensus msg="Stopping Consensus service" impl=ConsensusReactor
+E[2026-10-07|22:00:39.431] Not stopping State service -- has not been started yet module=consensus impl=ConsensusState
+E[2026-10-07|22:00:39.431] Error stopping consensus state               module=consensus err="not started"
+E[2026-10-07|22:00:39.431] Stopped accept routine, as transport is closed module=p2p numPeers=0
+I[2026-10-07|22:00:39.431] Closing rpc listener                         module=main listener="&{Listener:0x18fcb1b8fd80 sem:0x18fcb1cf13b0 closeOnce:{_:{} done:{_:{} v:0} m:{_:{} mu:{state:0 sema:0}}} done:0x18fcb1cf1420}"
+I[2026-10-07|22:00:39.431] RPC HTTP server stopped                      module=rpc-server err="accept tcp 127.0.0.1:40147: use of closed network connection"
+E[2026-10-07|22:00:39.431] Error serving server                         module=main err="accept tcp 127.0.0.1:40147: use of closed network connection"
+I[2026-10-07|22:00:39.431] Closing blockstore                           module=main 
+I[2026-10-07|22:00:39.432] Closing statestore                           module=main 
+I[2026-10-07|22:00:39.432] Closing evidencestore                        module=main 
