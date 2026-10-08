@@ -81,6 +81,17 @@ with their actual source identities rather than adding historical counts togethe
 
 ## Review, integration and publication
 
+The separately versioned [segmented recipient ledger](SEGMENTED_RECIPIENT_DESIGN.md)
+has a one-host actual-engine development gate beyond P8's original caps:
+10 native payments, 21 notes, a payment after height 64, same-store validator restart,
+global older-segment spend refusal, and a signed height 83 checkpoint. The native
+relation/profile/wire remain P8; consensus genesis, bootstrap, storage and AppHash
+identities are new. Existing wallets and stores do not migrate. Its direct 50-
+attempt probe, 21 fake-verifier storage tests, and separate 11-proof/header check
+have distinct scopes. Retained disk growth, linear restart replay, sixteen-note
+segment input sets, pruning/state sync, compact authenticated wallet witnesses,
+production custody, independent operators and external review remain gates.
+
 Independent review names its exact source and executed cases. Preserve negative
 results and limitations, including unmeasured maximum-capacity resource behavior.
 After combining reviewed changes, rerun the current local profile and affected

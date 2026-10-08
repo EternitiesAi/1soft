@@ -66,3 +66,39 @@ Independent hosts/operators, protected signers and double-sign fencing, compact
 authenticated wallet witnesses, scalable custody/discovery/recovery, pruning,
 state sync, dynamic validator governance, hostile-network testing, long-duration
 measurement, external review, and economics are not established by this gate.
+
+Segments retain the circuit's at-most-sixteen-note input set; public anchors
+identify a segment prefix. This is not a new anonymity or metadata-privacy
+qualification. Disk usage and restart audit cost grow with retained history.
+The extension removes the old development caps; it does not establish general
+production scalability or replace the separate wallet/custody design.
+
+## Registered local execution
+
+Clean source `3fed399b4f98b34cc1e220068c86fec8c51ac327` passed all 16 checks
+in [ledger02](../evidence/protocol9-ledger/20261007/ledger-02.json). Four actual
+pinned CometBFT 0.38.25 validators committed 10 genuine synthetic payments and 21
+notes. The tenth payment committed after height 64 (observed application height 67).
+All four agreed at height 83, authenticated by signed header 84. A validator
+restarted its same stores and rejoined; a separate fresh worker streamed the
+stopped node's full native replay at height 84. A valid competing spend of the
+original input was refused at every validator after segment rollover.
+
+The direct application probe retained 50 attempts (10 accepted/40 malformed refusals)
+at height 51 and reopened through native history replay. This is separate from
+the actual-engine result, which did not commit those malformed transactions.
+The [separate public check](../evidence/protocol9-ledger/20261007/public-check-01.json)
+reverified 11 native proofs and the static-quorum signed checkpoint; it does not replay
+public full history or establish freshness. All owned processes stopped.
+
+The 21 ledger tests use a labeled fake verifier for transition/storage boundaries.
+The full unit run executed 1,757 methods: 1,597 passed and 160 skipped because their
+older pinned proof/origin/worker inputs were not supplied. Skips are unassessed,
+not cryptographic passes. The initial actual run's pre-block1 admission refusal
+is retained as [ledger01](../evidence/protocol9-ledger/20261007/ledger-01.json).
+The runner now waits for a committed first block, preserving validity checks.
+Post-execution changes register docs, evidence, the additional tested boundary
+file, and the separately executed verifier; original executed runtime bytes stay
+unchanged. [Review/reproduction](../evidence/protocol9-ledger/20261007/REPRODUCE.md)
+records the exact scope and source distinction. This is not independent external
+security review, a wallet alpha, an independent-host trial, or a public release.

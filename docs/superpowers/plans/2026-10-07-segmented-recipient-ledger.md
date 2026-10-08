@@ -34,14 +34,14 @@ Consumes existing `protocol8_worker.Worker`, `protocol8_transfer.parse`,
 Produces `genesis_document(raw,worker)`, `Store(db,g,worker).advance(txs,height)`,
 and an ABCI-compatible `Application(path,worker,expected_genesis=raw)`.
 
-- [ ] Write failing tests for9 accepted payments/19 notes,80heights,40refused
+- [x] Write failing tests for9 accepted payments/19 notes,80heights,40refused
   attempts,old-root replay rejection,and savepoint isolation.
-- [ ] Run `PYTHONPATH=src python -B -m unittest discover -s tests -p test_protocol9_ledger.py -v`.
-- [ ] Implement exact genesis,segmented roots/global indexes,compact history
+- [x] Run `PYTHONPATH=src python -B -m unittest discover -s tests -p test_protocol9_ledger.py -v`.
+- [x] Implement exact genesis,segmented roots/global indexes,compact history
   commitment,streaming restart audit,atomic Commit,and exact response recovery.
-- [ ] Add tests injecting failed block insertion and post-commit refresh failure;
+- [x] Add tests injecting failed block insertion and post-commit refresh failure;
   corrupt retained wires,responses,checkpoint,and global indexes must refuse.
-- [ ] Run the same test command and existing `test_protocol8_consensus.py`.
+- [x] Run the same test command and existing `test_protocol8_consensus.py`.
 
 ## Task2: Actual proof and engine qualification
 
@@ -50,13 +50,13 @@ Files: `src/protocol9_notes.py`, `src/protocol9_abci_server.py`,
 Consumes Task1 Application and measured existing native binaries.
 Produces a closed execution report and sanitized public artifact directory.
 
-- [ ] Reuse protected native process mechanics with a protocol9 bootstrap adapter;
+- [x] Reuse protected native process mechanics with a protocol9 bootstrap adapter;
   compare every returned public statement with the requested statement.
-- [ ] Bind only an owner-only Unix ABCI socket; explicitly decline snapshots.
-- [ ] Generate at least8 accepted native payments and a valid competing spend.
+- [x] Bind only an owner-only Unix ABCI socket; explicitly decline snapshots.
+- [x] Generate at least8 accepted native payments and a valid competing spend.
   Run four pinned engines through >64heights,>16notes,and a same-store restart.
-- [ ] Separately commit >32 decided refusals through the direct application.
-- [ ] Verify static-quorum signed header against the final AppHash,retain public
+- [x] Separately commit >32 decided refusals through the direct application.
+- [x] Verify static-quorum signed header against the final AppHash,retain public
   proofs/logs/source/process receipts,and reap every owned process.
 
 ## Task3: Review and registration
@@ -64,10 +64,10 @@ Produces a closed execution report and sanitized public artifact directory.
 Files: `docs/SEGMENTED_RECIPIENT_DESIGN.md`, `docs/CURRENT_QUALIFICATION.md`,
 new `evidence/protocol9-ledger/20261007/`,private output result/continuity.
 
-- [ ] Audit segment rollover/global uniqueness and crash/replay boundaries.
-- [ ] Run a separate fresh Application replay against the actual retained store
+- [x] Audit segment rollover/global uniqueness and crash/replay boundaries.
+- [x] Run a separate fresh Application replay against the actual retained store
   before discarding its owned temporary runtime.
-- [ ] Record exact source SHA,gate result,and source/binary/artifact hashes.
-- [ ] Check all P1-P8 historical/runtime bytes unchanged;check source whitespace.
-- [ ] Register only demonstrated results;retain multi-host,custody,state sync,
+- [x] Record exact source SHA,gate result,and source/binary/artifact hashes.
+- [x] Check all P1-P8 historical/runtime bytes unchanged;check source whitespace.
+- [x] Register only demonstrated results;retain multi-host,custody,state sync,
   pruning,long-duration load,freshness,and external review as unassessed.

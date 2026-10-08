@@ -18,6 +18,7 @@ security review, production custody and economic design remain release gates.
 |---|---|---|
 | Local browser product (P4 durable alpha) | Native public-ledger payments, spending review, invoices, merchant resources and retained recovery | [First-run guide](docs/LOCAL_DEMO_GUIDE.md), [durable alpha](docs/DURABLE_ALPHA.md), [release architecture](docs/LOCAL_DEVELOPER_RELEASE.md) |
 | Private recipient wallet (P8 local alpha) | Two actual browser payments, recipient spending, one-attempt lost-reply recovery and private delivery on four disposable validators | [Wallet and demo](docs/PROTOCOL8_LOCAL_ALPHA.md), [actual browser receipt](evidence/protocol8-alpha/20261007/alpha-05.json), [independent native replay](evidence/protocol8-alpha/20261007/alpha-independent-replay.json) |
+| Segmented recipient ledger (P9 development) | Ten actual payments, 21 notes, a payment after height 64, global old-segment replay refusal and validator restart on four disposable validators | [Design and limitations](docs/SEGMENTED_RECIPIENT_DESIGN.md), [actual engine receipt](evidence/protocol9-ledger/20261007/ledger-02.json), [separate proof/header check](evidence/protocol9-ledger/20261007/public-check-01.json) |
 | Proof-backed owner treasury (P7) | Fresh-network enrollment/revocation/rotation, atomic payment/shared allowance, exact owner/payment recovery after lost acknowledgements | [Owner profile](docs/PROTOCOL7_OWNER_TREASURY.md), [prepared-wire client](docs/PROTOCOL7_CERTIFIED_CLIENT.md), [actual caller receipt](evidence/protocol7-client/20261005/client-qualified-01.json) |
 | Encrypted restricted CHANGE custody (P7) | Exact certified import, encrypted reopen, protected-input re-spend and original-wire recovery | [Custody guide](docs/PROTOCOL7_VAULT.md), [commands](docs/PROTOCOL7_CUSTODY_CLI.md), [24-check receipt](evidence/protocol7-vault/20261005/vault-qualified-02.json) |
 | Retained authority and preparation status (P7) | Three-payment CHANGE 7 -> 4 -> 1 progression, original-wire recovery, AS-OF inspection and full-state restart certificate | [Authority](docs/PROTOCOL7_RETAINED_AUTHORITY.md), [reconciliation](docs/PROTOCOL7_RECONCILIATION.md), [36-check v2 receipt](evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json) |
@@ -56,6 +57,16 @@ one ephemeral verifier. Three alternating pairs on this host measured median
 startup of 27.50 seconds before and 7.74 seconds after. This measures the startup
 component only. Changed runtime/worker pins refuse existing wallets; the alpha
 accepts fresh disposable wallets and performs no custody migration or repinning.
+
+The separate [segmented recipient ledger](docs/SEGMENTED_RECIPIENT_DESIGN.md)
+keeps the frozen relation8 proof and its sixteen-note membership tree, while a
+fresh consensus9 application registers additional segments and preserves global
+spent-note/intent/output indexes. Compact checkpoints commit ordered history;
+restart streams full native replay from disk. Its local gate reached signed
+state height 83 with 21 notes and 10 payments, including a genuine payment after height 64
+payment. P8 wallets do not use this profile. Disk/history growth, the small
+per-segment anonymity set, pruning/state sync, wallet authentication and recovery,
+independent operators and production review remain open.
 
 P7 is an opt-in successor with a fresh genesis. It does not migrate or upgrade
 P4/P6 state, and it is not the default browser or merchant path. Its developer
