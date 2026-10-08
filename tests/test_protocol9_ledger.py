@@ -120,6 +120,8 @@ class LedgerTests(unittest.TestCase):
     def test_p8_genesis_and_unknown_profile_refused(self):
         other=copy.deepcopy(self.g);other['protocol_version']=8
         with self.assertRaises(n.Invalid):p.genesis_shape(n.canonical(other))
+        other=copy.deepcopy(self.g);other['profile_sha256']='ff'*32
+        with self.assertRaises(n.Invalid):p.genesis_shape(n.canonical(other))
     def test_postcommit_refresh_failure_closes_and_reopens_durable_state(self):
         finalize(self.a,[tx(self.g,self.root(),0)],1)
         with patch.object(self.a,'_publish',side_effect=RuntimeError('post-commit injected')):
@@ -141,7 +143,5 @@ class LedgerTests(unittest.TestCase):
         from protocol9_abci_server import dispatch
         q=Request();q.offer_snapshot.SetInParent()
         self.assertEqual(dispatch(self.a,q).offer_snapshot.result,3)
-        other=copy.deepcopy(self.g);other['profile_sha256']='ff'*32
-        with self.assertRaises(n.Invalid):p.genesis_shape(n.canonical(other))
 
 if __name__=='__main__':unittest.main()

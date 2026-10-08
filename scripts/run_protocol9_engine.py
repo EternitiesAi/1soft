@@ -143,7 +143,7 @@ def run(args):
         n.need(req[136:552]==first[8:424],'P9 synthetic opening projection differs');req=None
         opening={'origin':origin,'value':400,'expiry':100000,'note_secret':field(42),'blind':field(43)}
         txs=[first]
-        # Eight further spends follow the recipient's change, including rollover.
+        # Nine further spends follow change, with the last reserved for post64.
         for i in range(1,10):
             ps,pb,cs,cb=[field(700+i*4+j) for j in range(4)]
             req,origin=controller.construct(opening,field(41),probe.checkpoint['active_notes'],request=field(900+i),
@@ -165,8 +165,11 @@ def run(args):
         check('direct_store_streamed_native_reopen',probe.info()==before_probe);probe.close();probe=None
         network.install_genesis(raw,w);network.start_sources()
         check('four_validators_initialized',all(network.direct_state(i)['genesis']==g for i in range(4)))
+        # A live InitChain response is not a committed block. The fixture starts
+        # at height2, so admission at application height0 correctly refuses it.
+        wait_until(lambda:all(network.direct_state(i)['height']>=1 for i in range(4)),120)
         for count,wire in enumerate(txs[:9],1):
-            admission=network.broadcast(0,wire);n.need(int(admission['code'])==0,'P9 engine admission refused')
+            admission=network.broadcast(0,wire);n.need(int(admission['code'])==0,'P9 engine admission refused: '+str(admission['code']))
             wait_until(lambda:all(network.direct_state(i)['checkpoint']['accepted_count']==count for i in range(4)),240)
             print('P9_PAYMENT '+str(count)+' committed',flush=True)
         check('nine_payments_committed',all(network.direct_state(i)['checkpoint']['notes_count']==19 for i in range(4)),{'notes':19,'payments':9})
