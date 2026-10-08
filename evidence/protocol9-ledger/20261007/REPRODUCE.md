@@ -10,6 +10,16 @@ All executed application, worker, circuit, wire, profile and runner bytes remain
 unchanged. This is self-review and separate verification execution, not an
 independent external security review.
 
+The later root source inventory adds P9 files without redefining the historical
+P8 alpha v1 producer. `full-unit-02.log` exposed that the old checker derived its
+membership from the mutable current inventory. The checker now uses the exact
+252-member inventory from the trusted pre-P9 commit, with a hard-coded digest,
+closed schema, exact membership equality and unchanged per-file byte checks.
+`p8-pin-01.log` retains an intermediate checker return-value error;
+`p8-pin-02.log` records all five corrected receipt methods passing, including the
+51 existing coherent mutation cases and additional-member/pin-tampering refusals.
+P8 runtime, wallets, circuits, producer files and historical evidence are unchanged.
+
 ## Actual results
 
 - `ledger-02.json`: all 16 declared checks passed; four actual pinned validators;

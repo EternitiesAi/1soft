@@ -1,0 +1,24 @@
+test_actual_retained_receipt_has_explicitly_weaker_structural_result (test_protocol8_alpha_receipt.AlphaReceipt.test_actual_retained_receipt_has_explicitly_weaker_structural_result) ... ERROR
+test_additional_measured_producer_member_refused (test_protocol8_alpha_receipt.AlphaReceipt.test_additional_measured_producer_member_refused) ... ok
+test_coherent_semantic_alterations_refused (test_protocol8_alpha_receipt.AlphaReceipt.test_coherent_semantic_alterations_refused) ... ok
+test_historical_membership_does_not_expand_with_current_inventory (test_protocol8_alpha_receipt.AlphaReceipt.test_historical_membership_does_not_expand_with_current_inventory) ... ok
+test_membership_pin_tampering_refused (test_protocol8_alpha_receipt.AlphaReceipt.test_membership_pin_tampering_refused) ... ok
+
+======================================================================
+ERROR: test_actual_retained_receipt_has_explicitly_weaker_structural_result (test_protocol8_alpha_receipt.AlphaReceipt.test_actual_retained_receipt_has_explicitly_weaker_structural_result)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol8_alpha_receipt.py", line 38, in test_actual_retained_receipt_has_explicitly_weaker_structural_result
+    result=self.check(self.original)
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tests/test_protocol8_alpha_receipt.py", line 36, in check
+    return alpha.check(path) # Explicit structure-only mode; final CLI requires actual worker replay.
+           ~~~~~~~~~~~^^^^^^
+  File "/home/xnuonux/1soft-p7-certified-client-20261005/tools/release/check_protocol8_alpha.py", line 194, in check
+    'complete_producer_source_membership':len(expected_source),
+                                              ^^^^^^^^^^^^^^^
+NameError: name 'expected_source' is not defined
+
+----------------------------------------------------------------------
+Ran 5 tests in 1.364s
+
+FAILED (errors=1)
