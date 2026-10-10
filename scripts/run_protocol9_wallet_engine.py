@@ -136,7 +136,7 @@ def run(args):
         alice.import_note(n.parse(wire2)[10],back,raw=wire2)
         bob.import_note(n.parse(wire2)[11],bc,raw=wire2,output=11)
         check('authenticated_change_and_conservation',ac['value']==599 and bc['value']==349 and back['value']==50 and ac['value']+bc['value']+back['value']+final['checkpoint']['fees']==1000,{'alice_unspent_value':649,'bob_unspent_value':349,'fees':2,'synthetic_initial_value':1000})
-        refused=[]
+        refused=[];unchanged=alice.path.read_bytes()
         for kind in ('history','checkpoint','header','owner','rollback'):
             try:
                 bad=copy.deepcopy(final);header=copy.deepcopy(signed)
@@ -147,18 +147,41 @@ def run(args):
                 else:alice.observe(initial,report['observations'][0]['signed_header'])
                 raise AssertionError('tamper accepted: '+kind)
             except ValueError:refused.append(kind)
-        check('tampered_history_and_header_refused',len(refused)==5,{'refused':refused})
+            except n.Unavailable:
+                # The private native helper deliberately suppresses diagnostic
+                # contents. Wrong-owner inspection must exit unsuccessfully,
+                # be reaped without timeout, and leave the wallet unchanged.
+                run=controller.runs[-1]
+                n.need(kind=='owner' and run['operation']=='inspect-note' and run['exit_code']!=0 and run['process_reaped'] and not run['timed_out'],'unexpected private worker failure')
+                alice.import_note(n.parse(wire1)[11],ac,raw=wire1,output=11)
+                refused.append(kind)
+            n.need(alice.path.read_bytes()==unchanged,'negative test changed wallet')
+        check('tampered_history_and_header_refused',len(refused)==5,{'refused':refused,'wallet_unchanged':True})
         expected={name:wallet.inventory() for name,wallet in wallets.items()};cold_worker=Worker(args.worker,g['worker_sha256'],first);workers.append(cold_worker)
         cold_controller=NoteController(args.helper,report['inputs']['helper']['sha256'],g=g,worker=cold_worker);private.append(cold_controller)
         cold={name:RecipientWallet(homes/name,key=keys[name],wallet_id=ids[name],recipient_secret=secrets[name],controller=cold_controller) for name in keys}
-        check('cold_wallets_replayed',all(cold[name].inventory()==expected[name] for name in keys) and cold['alice'].reconcile(ident1)==result1 and cold['bob'].reconcile(ident2)==result2,{'inventories':expected,'native_worker':cold_worker.audit()})
+        command=[sys.executable,'-B',str(ROOT/'scripts/protocol9_wallet_reopen.py'),'--genesis',str(fixtures/'genesis.json'),
+            '--genesis-sha256',n.sha(raw),'--kat',str(fixtures/'kat.tx'),'--worker',str(args.worker),
+            '--worker-sha256',g['worker_sha256'],'--helper',str(args.helper),'--helper-sha256',report['inputs']['helper']['sha256']]
+        child=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        secret_rows=[{'path':str(homes/name),'key':keys[name].hex(),'wallet_id':ids[name],'recipient_secret':secrets[name],'txid':ident} for name,ident in (('alice',ident1),('bob',ident2))]
+        try:out,err=child.communicate(n.canonical(secret_rows),timeout=300)
+        finally:
+            if child.poll() is None:child.kill()
+            child.communicate()
+        n.need(child.returncode==0 and not err and len(out)<=2*1024**2,'P9 cold child failed')
+        import json
+        cold_result=json.loads(out);report['cold_process']={'pid':child.pid,'exit_code':child.returncode,'process_reaped':child.poll() is not None,'script_sha256':n.sha((ROOT/'scripts/protocol9_wallet_reopen.py').read_bytes()),'result':cold_result}
+        check('cold_wallets_replayed',all(cold[name].inventory()==expected[name] for name in keys) and cold_result['status']=='reopened-authenticated' and
+            cold_result['wallets']==[{'inventory':expected['alice'],'result':result1},{'inventory':expected['bob'],'result':result2}],{'inventories':expected,'fresh_python_process':True})
         for name,ident in (('alice',ident1),('bob',ident2)):
             try:send_once(cold[name],ident,'http://127.0.0.1:'+str(network.http[0]));raise AssertionError('cold retry accepted')
             except n.Invalid:pass
         check('cold_retry_refused',all(row['attempts']==1 for wallet in cold.values() for row in wallet.inventory()['obligations']))
         report['genesis_sha256']=n.sha(raw);report['payments']=[{'txid':ident1,'wire_sha256':n.sha(wire1),'result':result1},{'txid':ident2,'wire_sha256':n.sha(wire2),'result':result2}]
         report['worker_audits']=[{'node':i,**network.worker_audit(i)} for i in range(4)]+[{'node':'wallet-'+str(i),**worker.audit()} for i,worker in enumerate(workers)]
-        report['private_process_audits']=[item.audit() for item in private]
+        report['worker_audits'].append({'node':'cold-child',**cold_result['worker_audit']})
+        report['private_process_audits']=[item.audit() for item in private]+[cold_result['private_process_audit']]
         audits=report['worker_audits']+report['private_process_audits']
         check('native_processes_reaped',all(a['call_count']==a['reaped_count'] and a['timeout_count']==0 for a in audits) and all(r['process_reaped'] for r in report['native_processes']))
     except Exception as exc:report['error']={'type':type(exc).__name__,'message':str(exc)}

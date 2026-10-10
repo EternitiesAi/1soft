@@ -74,4 +74,15 @@ class EnvelopeMechanics(unittest.TestCase):
         self.assertEqual(self.wallet._segment(ledger,'3'),[str(i) for i in range(16)])
         self.assertEqual(self.wallet._segment(ledger,'36'),[str(i) for i in range(32,37)])
         with self.assertRaises(n.Invalid):self.wallet._segment(ledger,'unknown')
+    def test_import_refuses_another_commitment_in_the_same_segment(self):
+        # Fake private inspection isolates the explicit caller identity check.
+        # Authentication/native ownership are exercised in the actual gate.
+        from test_protocol9_ledger import f
+        from contextlib import nullcontext
+        o={'origin':f(1),'value':10,'expiry':100,'note_secret':f(2),'blind':f(3)}
+        p={'observations':[{}],'notes':[],'obligations':[],'revision':0}
+        ledger={'notes':[{'commitment':f(100),'segment':0,'position':0},{'commitment':f(101),'segment':0,'position':1}]}
+        with patch.object(self.wallet,'_locked',return_value=nullcontext()),patch.object(self.wallet,'_read',return_value=p),patch.object(self.wallet,'_ledger',return_value=ledger),patch.object(self.controller,'inspect',return_value={'commitment':f(101)}):
+            with patch.object(self.wallet,'_origin'),patch.object(self.wallet,'_write',side_effect=AssertionError('mismatched import wrote wallet')):
+                with self.assertRaises(n.Invalid):self.wallet.import_note(f(100),o,genesis=True)
 if __name__=='__main__':unittest.main()

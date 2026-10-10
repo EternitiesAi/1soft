@@ -230,6 +230,7 @@ class RecipientWallet:
             p=self._read();n.need(bool(p['observations']),'P9 signed observation required before import')
             obs=p['observations'][-1];notes=self._segment(self._ledger(obs),commitment)
             d=self.controller.inspect(o,self.secret,notes)
+            n.need(d['commitment']==commitment,'P9 explicit imported commitment differs')
             if genesis:
                 n.need(raw is None and output==10,'P9 explicit genesis source')
                 origin={'kind':'genesis','raw':None,'txid':None,'height':0,'output':None}
