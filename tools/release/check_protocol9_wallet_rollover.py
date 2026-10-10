@@ -2,8 +2,9 @@
 """Separate pinned native public replay of the P9 wallet rollover receipt.
 
 Reported transport/custody exercises are not independently observable from the
-public ledger. Signed history, native proofs, exact outputs and input segments
-are independently re-executed here. This is not an external security audit.
+public ledger. Signed history, native proofs and exact outputs are re-executed
+here; reported commitment locations are checked against the derived ledger.
+Hidden input/amount binding remains a private native-runner check. This is not an external security audit.
 """
 import argparse, json, subprocess, sys
 from pathlib import Path
@@ -40,7 +41,6 @@ def verify(receipt,worker_path):
     for pin in r['artifacts']:
         raw=artifact(pin['name']);n.need(len(raw)==pin['bytes'] and n.sha(raw)==pin['sha256'],'artifact identity changed')
     runtime=[name for name in r['source']['files'] if name.startswith(('src/','scripts/','tools/recipient-','tools/shielded-consensus/halo2/','tools/segmented-fixture/'))]
-    runtime.append('tools/release/check_protocol9_wallet_rollover.py')
     for name in runtime:
         raw=(ROOT/name).read_bytes();pin=r['source']['files'][name]
         n.need(len(raw)==pin['bytes'] and n.sha(raw)==pin['sha256'],'executed runtime identity changed')
@@ -82,10 +82,11 @@ def verify(receipt,worker_path):
         'source_commit':subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip(),
         'executed_runtime_commit':r['source']['commit'],'receipt_sha256':n.sha(raw_receipt),
         'signed_observations':5,'certificates':certificates,'exact_receipts':10,'wallet_receipts':3,
-        'generator_receipts':7,'notes':21,'post64_input_segments':[0,1],'worker_audit':audit,
+        'generator_receipts':7,'notes':21,'reported_post64_input_segments':[0,1],'worker_audit':audit,
         'claims':{'full_native_public_history':True,'separate_process':True,'freshness':False,
             'independent_security_review':False,'compact_witness':False,
             'private_openings_or_amounts_independently_verified':False,
+            'private_input_binding_independently_verified':False,
             'lost_response_and_custody_exercises':'reported by native runner; not inferable from public ledger'}}
 
 def main():

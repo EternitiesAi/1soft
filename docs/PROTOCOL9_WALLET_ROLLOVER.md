@@ -38,8 +38,10 @@ python tools/release/check_protocol9_wallet_rollover.py \
 
 The separate public checker validates artifact/runtime pins and replays all five
 signed observations with the actual verifier. It derives the ten exact receipts
-and old/new input locations; public proof verification does not independently
-reveal private balances or demonstrate transport/custody behavior. Those latter
+and the locations of reported input commitments. The public proof hides its
+private input, so this checker does not independently bind that input to the
+reported commitment or reveal private balances. The native wallet runner checks
+actual input ownership/path and transport/custody behavior. Those latter
 exercises are recorded by the native runner. Tests of report refusal use no fake
 native qualification.
 
