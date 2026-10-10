@@ -92,6 +92,15 @@ have distinct scopes. Retained disk growth, linear restart replay, sixteen-note
 segment input sets, pruning/state sync, compact authenticated wallet witnesses,
 production custody, independent operators and external review remain gates.
 
+The separate [P9 authenticated wallet](PROTOCOL9_AUTHENTICATED_WALLET.md) passed
+19 actual native journey checks on four disposable validators: two payments,
+received-fund spending, discarded-reply exact recovery, one-attempt refusal,
+authenticated change and fresh Python-process encrypted reopening. It authenticates
+complete bounded native history under a static-quorum signed next header. This
+is not a compact witness, freshness proof, browser migration or independent-host
+trial. Its five-note journey does not combine with the older 21-note backend
+receipt to claim native wallet rollover or maximum-capacity performance.
+
 Independent review names its exact source and executed cases. Preserve negative
 results and limitations, including unmeasured maximum-capacity resource behavior.
 After combining reviewed changes, rerun the current local profile and affected
