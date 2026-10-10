@@ -61,3 +61,19 @@ No Actions, paid compute, public deployment, website/DNS changes, real funds,
 production custody keys, force-push or Resident/Luna work. Old profiles, stores,
 runtime and historical public evidence are preserved. No validator homes, wallet
 plaintext/openings/keys, private stores or native binaries belong in this evidence.
+
+## Final verification registration
+
+Clean source c6fc76ed7780d27301c04bbcd5aa0a0a15745973 ran the final root
+regression suite: 1776 methods, 1616 passed/160 skipped, zero failures/errors,
+with existing SQLite resource warnings retained. All 958 required source members
+matched. All 246 prior runtime files, 996 historical evidence files and 251
+actual executed runtime files remain byte-identical.
+
+The separately executed verify_public.py checked the measured runtime file pins,
+public artifact digests, external full genesis, every native transaction attempt
+in all three signed observations, and both exact public receipts. Its public
+result is public-check-01.json. This is full bounded public-history verification
+in a separate process, not an independent security review, freshness proof or
+maximum-capacity test. The later source delta registers these logs/results and
+this note only; actual executable runtime bytes are unchanged.
