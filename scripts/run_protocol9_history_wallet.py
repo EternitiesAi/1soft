@@ -209,6 +209,11 @@ def run(args):
         from protocol9_history_codec import pack
         starting={name:wallet.inventory()['as_of_height'] for name,wallet in wallets.items()}
         for index in range(12):
+            # observation() leaves two engines paused. Restore the full
+            # source quorum before taking the next consistent checkpoint.
+            network.start_engine(2);network.start_engine(3)
+            prior_height=final['height']
+            wait_until(lambda:all(network.direct_state(i)['height']>prior_height for i in range(4)),120)
             final,signed,ledger=observation('history-update-%02d'%(index+1))
             for wallet in wallets.values():wallet.observe(final,signed)
             n.need(alice.reconcile(ident1)==result1 and alice.reconcile(ident2)==result2 and bob.reconcile(ident3)==result3,'update changed original exact result')
