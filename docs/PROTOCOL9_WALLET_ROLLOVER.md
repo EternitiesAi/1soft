@@ -47,7 +47,12 @@ native qualification.
 
 ## Scope and limits
 
-Execution evidence is pending until an exact completed receipt is registered.
+The [completed native receipt](../evidence/protocol9-wallet-rollover/native-01.json)
+passed all25 checks at source `6959387506532523048cff7ef57895b5b7f2ba06`. The
+[separate public check](../evidence/protocol9-wallet-rollover/public-check-01.json)
+replayed all five signed observations and ten exact receipts. Older/newer wallet
+payments committed at heights[68, 70]; final21notes/10fees. Root regressions and
+source details are retained beside those receipts.
 One host, disposable keys and synthetic funds. Complete history replay is linear
 and bounded, without compact proofs or freshness. Client4096blocks/512attempts/
 6MiB; wallet32notes/16obligations/8observations/256revisions/16MiB plaintext, with
