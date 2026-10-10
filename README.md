@@ -18,7 +18,7 @@ security review, production custody and economic design remain release gates.
 |---|---|---|
 | Local browser product (P4 durable alpha) | Native public-ledger payments, spending review, invoices, merchant resources and retained recovery | [First-run guide](docs/LOCAL_DEMO_GUIDE.md), [durable alpha](docs/DURABLE_ALPHA.md), [release architecture](docs/LOCAL_DEVELOPER_RELEASE.md) |
 | Private recipient wallet (P8 local alpha) | Two actual browser payments, recipient spending, one-attempt lost-reply recovery and private delivery on four disposable validators | [Wallet and demo](docs/PROTOCOL8_LOCAL_ALPHA.md), [actual browser receipt](evidence/protocol8-alpha/20261007/alpha-05.json), [independent native replay](evidence/protocol8-alpha/20261007/alpha-independent-replay.json) |
-| Segmented recipient ledger and wallet (P9 development) | Ledger: 10 payments/21 notes, post64 spending and restart. Separate wallet journey: two native payments, signed full-history recovery, one send and cold-process reopening | [Ledger design](docs/SEGMENTED_RECIPIENT_DESIGN.md), [authenticated wallet and limits](docs/PROTOCOL9_AUTHENTICATED_WALLET.md), [actual wallet receipt](evidence/protocol9-wallet/20261010/native-02.json) |
+| Segmented recipient ledger and wallet (P9 development) | Ledger: 10 payments/21 notes, post64 spending and restart. Separate wallet rollover gate: three wallet payments plus seven setup payments, old/new segment spending after64, exact recovery and cold-process reopening | [Ledger design](docs/SEGMENTED_RECIPIENT_DESIGN.md), [wallet and limits](docs/PROTOCOL9_AUTHENTICATED_WALLET.md), [rollover qualification](docs/PROTOCOL9_WALLET_ROLLOVER.md) |
 | Proof-backed owner treasury (P7) | Fresh-network enrollment/revocation/rotation, atomic payment/shared allowance, exact owner/payment recovery after lost acknowledgements | [Owner profile](docs/PROTOCOL7_OWNER_TREASURY.md), [prepared-wire client](docs/PROTOCOL7_CERTIFIED_CLIENT.md), [actual caller receipt](evidence/protocol7-client/20261005/client-qualified-01.json) |
 | Encrypted restricted CHANGE custody (P7) | Exact certified import, encrypted reopen, protected-input re-spend and original-wire recovery | [Custody guide](docs/PROTOCOL7_VAULT.md), [commands](docs/PROTOCOL7_CUSTODY_CLI.md), [24-check receipt](evidence/protocol7-vault/20261005/vault-qualified-02.json) |
 | Retained authority and preparation status (P7) | Three-payment CHANGE 7 -> 4 -> 1 progression, original-wire recovery, AS-OF inspection and full-state restart certificate | [Authority](docs/PROTOCOL7_RETAINED_AUTHORITY.md), [reconciliation](docs/PROTOCOL7_RECONCILIATION.md), [36-check v2 receipt](evidence/protocol7-reconciliation/20261006/reconciliation-qualified-04.json) |
@@ -63,12 +63,15 @@ keeps the frozen relation8 proof and its sixteen-note membership tree, while a
 fresh consensus9 application registers additional segments and preserves global
 spent-note/intent/output indexes. Compact checkpoints commit ordered history;
 restart streams full native replay from disk. Its local gate reached signed
-state height 83 with 21 notes and 10 payments, including a genuine payment after height 64
-payment. P8 wallets do not use this profile. The separate
+state height 83 with 21 notes and 10 payments, including a genuine payment after height 64. P8 wallets do not use this profile. The separate
 [P9 authenticated wallet](docs/PROTOCOL9_AUTHENTICATED_WALLET.md) now completes
 native receive/re-spend, lost-reply exact recovery and fresh-process reopening
 through full bounded native history replay. Its 19-check actual journey uses two
 payments and five ledger notes; the 21-note backend gate is a separate scope.
+The new [25-check wallet rollover rehearsal](docs/PROTOCOL9_WALLET_ROLLOVER.md)
+adds actual wallet spending from segment0 and segment1 after height64. Its three
+wallet payments plus seven separately identified setup payments reach21notes,
+while preserving exact lost-reply recovery and fresh-process encrypted reopening.
 Disk/history growth, compact witnesses, the small per-segment anonymity set,
 pruning/state sync, production custody, independent operators and external review
 remain open.

@@ -98,8 +98,16 @@ received-fund spending, discarded-reply exact recovery, one-attempt refusal,
 authenticated change and fresh Python-process encrypted reopening. It authenticates
 complete bounded native history under a static-quorum signed next header. This
 is not a compact witness, freshness proof, browser migration or independent-host
-trial. Its five-note journey does not combine with the older 21-note backend
-receipt to claim native wallet rollover or maximum-capacity performance.
+trial. That earlier five-note receipt keeps its original scope.
+
+A separate [native P9 wallet rollover gate](PROTOCOL9_WALLET_ROLLOVER.md) now
+qualified three wallet payments plus seven setup-generator payments,21notes,
+actual segment0/segment1 wallet spending after height64, valid competing older
+input refusal, discarded-response recovery and fresh-process encrypted reopening.
+All25 native checks passed; a separate public process replayed five signed full
+histories and ten exact receipts. Public proofs hide inputs/amounts; their private
+binding and conservation are checked by the native wallet runner. Maximum-capacity,
+long-duration, independent-host and production-custody behavior remain unassessed.
 
 Independent review names its exact source and executed cases. Preserve negative
 results and limitations, including unmeasured maximum-capacity resource behavior.
