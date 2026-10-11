@@ -123,3 +123,17 @@ development checks.
 Long-term history policy, independent operators and network faults, external
 security review, hardware/cross-device custody and economic/genesis decisions stay
 visible as distinct release gates. See the [roadmap](ROADMAP.md).
+
+
+## P9 separately versioned history wallet v2
+
+[One-copy history storage](PROTOCOL9_HISTORY_WALLET.md) now passed28 actual
+native checks on four local CometBFT validators. After the three-wallet-payment/
+seven-setup-payment rollover journey, twelve further signed updates preserved
+original results, wires and single-attempt markers; both wallets reopened in a
+fresh Python process. Public full-native replay authenticated17 states/ten exact
+receipts. One stored history replaces duplicate packets, with only an unused last
+slot replaceable. Required observation slots never change. Existing v1 source and
+all previous evidence remain frozen; formats refuse cross-open without migration.
+Full native authentication remains linear/bounded. Independent operators,
+production custody, public launch and the documented remaining gates are open.
