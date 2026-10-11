@@ -50,7 +50,11 @@ with duplicated history versus one copy. Encrypted size is the actual file size.
 
 ## Limits
 
-Execution evidence is pending until a completed exact receipt is registered.
+The [native receipt](../evidence/protocol9-history-wallet/native-02.json)
+passed all28 checks at `449652754b770c75c430bf33ee438d92bf1db365`. The separate
+[public replay](../evidence/protocol9-history-wallet/public-check-01.json)
+verified17 signed states and ten exact native receipts. Storage and root regression
+measurements are recorded in [the execution notes](../evidence/protocol9-history-wallet/REPRODUCE.md).
 One trusted host/four validators/disposable keys/synthetic funds. Client4096
 blocks/512attempts/6MiB; wallet32notes/16obligations/8observations/256revisions/
 16MiB plaintext, possibly exhausting byte capacity first. No caps are relaxed.
