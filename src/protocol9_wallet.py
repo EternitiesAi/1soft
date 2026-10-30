@@ -310,8 +310,42 @@ class RecipientWallet:
             obs=p['observations'][-1];wire=bytes.fromhex(row['raw']);public=n.parse(wire);t=self._ledger(obs)
             if any(r['txid']==ident for r in t['receipts']):
                 row['result']=self._result(wire,obs,len(p['observations'])-1);p['revision']+=1;self._write(p);return copy.deepcopy(row['result'])
+            if self._expired(public,t,obs,ident):
+                return {'status':'expired-unexecuted','txid':ident,'attempts':row['attempts'],'as_of_height':obs['witness']['height'],
+                        'valid_until':n.integer(public[8]),'automatic_retry':False,'freshness_established':False,
+                        'claim':'AS-OF certified: the window closed with this intent unspent; this wire can never execute'}
             return {'status':'conflict-held' if public[5] in t['nullifiers'] or public[6] in t['requests'] else 'unresolved-held',
                     'txid':ident,'attempts':row['attempts'],'as_of_height':obs['witness']['height'],'automatic_retry':False,'freshness_established':False}
+    def _expired(self,public,t,obs,ident):
+        # The ledger runs a payment only at a block height h with valid_from <= h < valid_until. A certified state at
+        # height >= valid_until has already applied every block that could have run it.
+        return (not any(r['txid']==ident for r in t['receipts']) and public[5] not in t['nullifiers'] and
+                public[6] not in t['requests'] and obs['witness']['height']>=n.integer(public[8]))
+    def resume(self,prover,request):
+        """Proves a retained request whose proof never finished. No wire of it ever left this wallet (export needs the
+        stored wire), so this is not a resend; the nullifier and intent are fixed by the retained request."""
+        n.need(isinstance(prover,Prover) and prover.worker is self.worker and prover.g==self.g,'P9 actual pinned prover required')
+        n.field(request)
+        with self._locked():
+            p=self._read();held=next((x for x in p['obligations'] if x['request']==request),None)
+            n.need(held is not None and held['raw'] is None and held['attempts']==0 and held['result'] is None,'P9 unproven original obligation required')
+            item=copy.deepcopy(held)
+        wire=prover.produce(bytes.fromhex(item['private_request']))
+        with self._locked():
+            p=self._read();held=next((x for x in p['obligations'] if x['request']==request),None)
+            n.need(held==item,'P9 original obligation changed while proving')
+            held['raw']=wire.hex();p['revision']+=1;self._write(p)
+        return n.txid(wire)
+    def release_expired(self,ident):
+        """Frees the input and intent of a wire the latest certified observation proves can never execute. The same
+        contract can then be paid by a new preparation; the ledger still spends its intent at most once."""
+        with self._locked():
+            p=self._read();row=self._find(p,ident);n.need(row['result'] is None,'P9 completed obligation is never released')
+            obs=p['observations'][-1];public=n.parse(bytes.fromhex(row['raw']));t=self._ledger(obs)
+            n.need(self._expired(public,t,obs,ident),'P9 release needs a certified observation past the window with the intent unspent')
+            p['obligations'].remove(row);p['revision']+=1;self._write(p)
+            return {'status':'released-expired','txid':ident,'input':row['input'],'request':row['request'],
+                    'as_of_height':obs['witness']['height'],'valid_until':n.integer(public[8])}
     def output_opening(self,ident,output=10):
         """Explicit private disclosure for recipient delivery; never log this result."""
         n.need(type(output) is int and output in (10,11),'P9 selected output')
