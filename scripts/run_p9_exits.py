@@ -116,7 +116,7 @@ def run(args):
         # 2. the attempt is marked and the caller dies before any byte leaves
         cold.mark_attempt(ident)
         check('attempt_marked_never_sent',refused(lambda:send_once(cold,ident,'http://127.0.0.1:'+str(network.http[0]))) and cold.inventory()['obligations'][0]['attempts']==1)
-        mid,signed,_=observation('window-open');cold.observe(mid,signed)
+        advance(network.height(0)+1);mid,signed,_=observation('window-open');cold.observe(mid,signed)
         r=cold.reconcile(ident)
         check('open_window_stays_unresolved',mid['height']<short and r['status']=='unresolved-held',{'as_of_height':mid['height'],'valid_until':short})
         check('release_refused_while_open',refused(lambda:cold.release_expired(ident)))
