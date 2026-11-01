@@ -19,8 +19,8 @@ try: import protocol9_history_wallet as v2
 except ModuleNotFoundError:v2=None
 
 def observation(height):
-    blocks=[{'height':i,'transactions':[]} for i in range(1,height+1)]
-    return {'witness':{'format':'1soft/protocol9-complete-history/v1','genesis':{'unit':'shape-only'},
+    blocks=[{'height':i,'transactions':['%02x'%i]} for i in range(1,height+1)]
+    return {'witness':{'format':'1soft/protocol9-sparse-history/v2','genesis':{'unit':'shape-only'},
         'height':height,'blocks':blocks,'app_hash':'11'*32,'checkpoint':{'height':height}},
         'signed_header':{},'certificate':{}}
 
@@ -45,7 +45,7 @@ class CodecTests(unittest.TestCase):
             if kind=='history-extra':h['trusted_index']={}
             elif kind=='ref-extra':o[0]['trusted_index']={}
             elif kind=='height':o[0]['height']=3
-            elif kind=='blocks':h['blocks'].pop()
+            elif kind=='blocks':h['blocks'].append({'height':3,'transactions':['03']})
             else:h['blocks'][0]['height']=2
             with self.subTest(kind=kind),self.assertRaises(ValueError):codec.unpack(h,o)
     def test_unused_latest_replaced_without_touching_earlier_slots(self):
@@ -93,7 +93,8 @@ class WalletTests(unittest.TestCase):
         raw['ciphertext']=AESGCM(b'K'*32).encrypt(bytes.fromhex(h['nonce']),n.canonical(p),v2.AAD+n.canonical(h)).hex();self.path.write_bytes(n.canonical(raw))
     def test_twenty_signed_updates_keep_one_history_and_cold_reopen(self):
         for _ in range(20):self.wallet.observe(*self.packet())
-        physical=self.physical();self.assertEqual(len(physical['history']['blocks']),20)
+        # twenty empty blocks: v2 stores none of them and rebuilds each on replay
+        physical=self.physical();self.assertEqual(len(physical['history']['blocks']),0)
         self.assertEqual(len(physical['observations']),1)
         self.assertEqual(n.canonical(physical).count(b'"blocks":'),1)
         before=self.path.read_bytes();cold=v2.RecipientWallet(self.path,**self.args)
@@ -106,7 +107,7 @@ class WalletTests(unittest.TestCase):
         with self.assertRaises(ValueError):v2.RecipientWallet(path,**self.args)
         self.assertEqual(path.read_bytes(),old)
     def test_tampered_history_cannot_be_authorized_by_ciphertext_key(self):
-        self.wallet.observe(*self.packet());self.corrupt(lambda p:p['history']['blocks'][0].update(transactions=['aa']))
+        self.wallet.observe(*self.packet());self.corrupt(lambda p:p['history']['blocks'].append({'height':1,'transactions':['aa']}))
         with self.assertRaises(ValueError):self.wallet.inventory()
     def test_tampered_signed_checkpoint_and_metadata_refused(self):
         self.wallet.observe(*self.packet());original=self.path.read_bytes()
@@ -125,7 +126,7 @@ class WalletTests(unittest.TestCase):
         old=self.packet();self.wallet.observe(*old);self.wallet.observe(*self.packet());raw=self.path.read_bytes()
         with self.assertRaises(ValueError):self.wallet.observe(*old)
         self.assertEqual(self.path.read_bytes(),raw)
-        bad,header=self.packet();bad['blocks'][0]['transactions']=['aa']
+        bad,header=self.packet();bad['blocks'].append({'height':1,'transactions':['aa']})
         with self.assertRaises(ValueError):self.wallet.observe(bad,header)
         self.assertEqual(self.path.read_bytes(),raw)
     def test_revision_and_byte_capacity_preserve_original(self):

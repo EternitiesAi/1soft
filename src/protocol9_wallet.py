@@ -10,7 +10,7 @@ from pathlib import Path
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import protocol8_transfer as n
-from protocol9_certificate import verify_history, MAX_BLOCKS, MAX_ATTEMPTS
+from protocol9_certificate import verify_history, MAX_HISTORY_HEIGHT, MAX_ATTEMPTS
 from protocol8_consensus import canonical, closed_json, hex32
 from protocol9_consensus import bootstrap_digest, MAX_HEIGHT, genesis_document
 from protocol8_notes import opening, num
@@ -129,7 +129,8 @@ class RecipientWallet:
         return [r['commitment'] for r in rows]
     def _extend(self,previous,current):
         old,new=previous['witness'],current['witness']
-        n.need(new['height']>old['height'] and new['blocks'][:len(old['blocks'])]==old['blocks'],
+        n.need(new['height']>old['height'] and new['blocks'][:len(old['blocks'])]==old['blocks'] and
+               all(b['height']>old['height'] for b in new['blocks'][len(old['blocks']):]),
                'P9 observation rollback or divergent history refused')
     def _receipt(self,obs,raw):
         ident=n.txid(raw);rows=[r for r in self._ledger(obs)['receipts'] if r['txid']==ident]
@@ -256,7 +257,7 @@ class RecipientWallet:
             obs=p['observations'][-1];d=self._origin(r,obs);t=self._ledger(obs);earliest=obs['witness']['height']+2
             n.need(d['nullifier'] not in t['nullifiers'] and request not in t['requests'] and d['root'] in t['anchors'],'P9 AS-OF note spent/intent/root refused')
             n.need(0<payment and payment+self.g['fee']<r['opening']['value'] and earliest<valid_until<=payment_expiry<=r['opening']['expiry'] and
-                   valid_until<=MAX_HEIGHT and earliest<MAX_BLOCKS and obs['witness']['checkpoint']['attempt_count']<MAX_ATTEMPTS,'P9 finite conservation/window/capacity')
+                   valid_until<=MAX_HEIGHT and earliest<MAX_HISTORY_HEIGHT and obs['witness']['checkpoint']['attempt_count']<MAX_ATTEMPTS,'P9 finite conservation/window/capacity')
             req,origin=self.controller.construct(r['opening'],self.secret,self._segment(t,r['commitment']),
                 request=request,valid_from=earliest,valid_until=valid_until,destination=destination,
                 payment=payment,payment_expiry=payment_expiry,payment_secret=random_field(),payment_blind=random_field(),
