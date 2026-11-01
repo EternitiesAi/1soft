@@ -19,7 +19,9 @@ def pack(observations,genesis):
         n.need(w['genesis']==genesis,'P9 history full genesis differs')
         n.need(type(o['signed_header']) is dict and type(o['certificate']) is dict,'P9 history signed metadata shape')
         if previous is not None:
-            n.need(w['height']>previous['height'] and w['blocks'][:previous['height']]==previous['blocks'],'P9 history divergent prefix')
+            k=len(previous['blocks'])  # v2 lists only blocks with attempts: the old ones, then only newer heights
+            n.need(w['height']>previous['height'] and w['blocks'][:k]==previous['blocks'] and
+                   all(b['height']>previous['height'] for b in w['blocks'][k:]),'P9 history divergent prefix')
         refs.append({**{k:copy.deepcopy(w[k]) for k in ('height','app_hash','checkpoint')},
             'signed_header':copy.deepcopy(o['signed_header']),'certificate':copy.deepcopy(o['certificate'])})
         previous=w
@@ -33,14 +35,15 @@ def unpack(history,refs):
     observations=[];previous=-1
     for r in refs:
         n.need(type(r) is dict and set(r)==REF_FIELDS,'P9 closed history reference')
-        h=r['height'];n.need(type(h) is int and previous<h<=len(history['blocks']),'P9 history prefix height')
-        w={'format':FORMAT,'genesis':copy.deepcopy(history['genesis']),'blocks':copy.deepcopy(history['blocks'][:h]),
+        h=r['height'];n.need(type(h) is int and previous<h,'P9 history prefix height')
+        n.need(all(type(b) is dict and type(b.get('height')) is int for b in history['blocks']),'P9 closed stored history')
+        w={'format':FORMAT,'genesis':copy.deepcopy(history['genesis']),'blocks':copy.deepcopy([b for b in history['blocks'] if b['height']<=h]),
             **{k:copy.deepcopy(r[k]) for k in ('height','app_hash','checkpoint')}}
         _shape(w)
         n.need(type(r['signed_header']) is dict and type(r['certificate']) is dict,'P9 history signed metadata shape')
         observations.append({'witness':w,'signed_header':copy.deepcopy(r['signed_header']),'certificate':copy.deepcopy(r['certificate'])})
         previous=h
-    n.need(previous==len(history['blocks']),'P9 trailing unobserved history refused')
+    n.need(not history['blocks'] or history['blocks'][-1]['height']<=previous,'P9 trailing unobserved history refused')
     return observations
 
 def retain(observations,obligations,new):

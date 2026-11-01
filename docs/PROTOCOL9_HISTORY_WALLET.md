@@ -21,6 +21,21 @@ Original private requests, exact wires, attempt markers and result dictionaries
 are still rechecked. Authentication remains linear and bounded, not incremental
 or compact proof verification. Encryption and host ownership rules stay intact.
 
+## Sparse history packets
+
+A history packet (`1soft/protocol9-sparse-history/v2`) lists only the blocks that
+hold attempts. An empty block touches no index, only the height and the history
+hash, so the verifier rebuilds it (`Store.skip_empty`) and the signed checkpoint
+still binds every height: leaving out, adding or moving an attempt-bearing block
+changes the replayed checkpoint and is refused. The v1 packet listed every block
+under a 4096-block cap. Because the app hash moves with the height, the engine
+never stops making blocks, so an idle ledger outgrew v1 in about an hour.
+
+v2 bounds the blocks with attempts at 4096 (and attempts at 512, as before) and
+the replayed height at 2^20, about ten days at 500 ms blocks. Replaying 2^20
+empty heights took 1.9 s on one Ryzen 9 9900X core. v1 packets and wallets
+holding v1 packets are refused; no migration is performed.
+
 ## Native acceptance and reproduction
 
 The additive runner repeats the prior three-wallet-payment/seven-setup-payment

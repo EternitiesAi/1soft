@@ -35,7 +35,7 @@ class HistoryCertificateTests(unittest.TestCase):
         trust=c.trust(self.raw,self.worker)
         byaddr={sha(k.public_key().public_bytes_raw())[:20]:k for k in self.keys}
         previous={'hash':'11'*32,'parts':{'total':1,'hash':'22'*32}}
-        signed=make_commit(make_header(trust,4,witness['app_hash'],previous=previous),trust,[byaddr[v.address] for v in trust.validators])
+        signed=make_commit(make_header(trust,witness['height']+1,witness['app_hash'],previous=previous),trust,[byaddr[v.address] for v in trust.validators])
         return witness,signed
     def test_exact_history_derives_receipt_and_global_indexes(self):
         witness,signed=self.packet();cert,ledger=c.verify_history(witness,signed,self.raw,self.worker)
@@ -75,7 +75,37 @@ class HistoryCertificateTests(unittest.TestCase):
     def test_export_refuses_symlink_and_large_history_before_allocation(self):
         self.packet();alias=Path(self.tmp.name)/'alias';alias.symlink_to(self.path)
         with self.assertRaises(ValueError):c.export_history(alias)
-        self.app.db.execute('UPDATE p9_checkpoint SET checkpoint=?',(n.canonical({'height':c.MAX_BLOCKS+1}),))
+        self.app.db.execute('UPDATE p9_checkpoint SET checkpoint=?',(n.canonical({'height':c.MAX_HISTORY_HEIGHT+1}),))
         with self.assertRaises(ValueError):c.export_history(self.path)
+    def test_empty_blocks_are_rebuilt_not_carried(self):
+        witness,signed=self.packet()
+        self.assertEqual(witness['height'],3);self.assertEqual([b['height'] for b in witness['blocks']],[1,2])
+        cert,_=c.verify_history(witness,signed,self.raw,self.worker);self.assertEqual(cert['state_height'],3)
+        for kind in ('listed-empty','moved-later','moved-past-height','short-height'):
+            bad=copy.deepcopy(witness)
+            if kind=='listed-empty':bad['blocks'].append({'height':3,'transactions':[]})
+            elif kind=='moved-later':bad['blocks'][1]['height']=3
+            elif kind=='moved-past-height':bad['blocks'][1]['height']=4
+            else:bad['height']=2
+            with self.subTest(kind=kind),self.assertRaises(ValueError):c.verify_history(bad,signed,self.raw,self.worker)
+    def test_an_idle_ledger_outlives_the_old_block_cap(self):
+        # v1 listed every block and refused past 4096; an idle engine makes ~1.2 a second, so a house lasted an hour.
+        for height in range(4,4101):finalize(self.app,[],height);self.app.commit()
+        witness,signed=self.packet()
+        self.assertEqual(witness['height'],4100);self.assertEqual(len(witness['blocks']),2)
+        cert,ledger=c.verify_history(witness,signed,self.raw,self.worker)
+        self.assertEqual(cert['state_height'],4100);self.assertEqual(ledger['receipts'][0]['raw'],self.wire.hex())
+        bad=copy.deepcopy(witness);bad['height']=4099
+        with self.assertRaises(ValueError):c.verify_history(bad,signed,self.raw,self.worker)
+    def test_skip_empty_is_the_empty_advance(self):
+        import sqlite3
+        from protocol9_store import Store, schema
+        db=sqlite3.connect(':memory:');schema(db,create=True);store=Store(db,self.g,self.worker)
+        a=store.initial();a,_,_=store.advance(a,[self.wire],1)
+        b=a
+        for h in range(2,40):b,_,_=store.advance(b,[],h)
+        self.assertEqual(store.skip_empty(a,39),b);self.assertEqual(store.skip_empty(b,39),b)
+        with self.assertRaises(ValueError):store.skip_empty(b,38)
+        db.close()
 
 if __name__=='__main__':unittest.main()

@@ -1,5 +1,5 @@
 """Indexed segmented ledger; block execution never loads historical blocks."""
-import copy
+import copy, hashlib
 import sqlite3
 from itertools import zip_longest
 import protocol8_transfer as n
@@ -94,6 +94,18 @@ class Store:
         c['history_sha256'] = n.sha(HISTORY_DOMAIN + bytes.fromhex(checkpoint['history_sha256']) +
             n.canonical({'height':height,'transactions':[raw.hex() for raw in txs],'results':results}))
         return c, results, application_hash(self.g,c)
+
+    def skip_empty(self, checkpoint, height):
+        """Advance through empty blocks up to height: the same checkpoint advance([], h) gives, without its copies.
+
+        An empty block touches no index, only the height and the history hash, so a history packet may leave it out
+        and the verifier rebuilds it here."""
+        n.need(type(height) is int and checkpoint['height'] <= height <= MAX_HEIGHT, 'P9 sequential signed64 height required')
+        c = dict(checkpoint); digest = bytes.fromhex(c['history_sha256'])
+        for h in range(c['height']+1, height+1):
+            digest = hashlib.sha256(HISTORY_DOMAIN + digest + n.canonical({'height':h,'transactions':[],'results':[]})).digest()
+        c['height'] = height; c['history_sha256'] = digest.hex()
+        return c
 
 def compare_indexes(actual, replayed):
     missing = object()
