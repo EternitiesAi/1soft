@@ -1,5 +1,10 @@
 """Bounded P9 full-history authentication; no compact witness or freshness.
 
+v2 carries only the blocks that hold attempts. An empty block changes nothing but the height and the history hash, so
+the verifier rebuilds it (Store.skip_empty) and the signed checkpoint still binds every height. v1 listed every block,
+and since the app hash moves with the height the engine never stops making them: a ledger outgrew v1's 4096 blocks
+in about an hour while idle.
+
 Only the external genesis and signed next header are trust inputs. Derived
 indexes are reconstructed with the pinned native worker, never supplied by RPC.
 """
@@ -10,8 +15,9 @@ from protocol9_consensus import genesis_document, application_hash, closed, MAX_
 from protocol9_store import Store, schema
 from commit_verifier import TrustAnchor, Validator, merkle_root, verify_signed_header
 
-FORMAT='1soft/protocol9-complete-history/v1'
-MAX_BLOCKS=4096
+FORMAT='1soft/protocol9-sparse-history/v2'
+MAX_BLOCKS=4096            # blocks that carry attempts
+MAX_HISTORY_HEIGHT=2**20   # heights replayed, empty ones included (~10 days at 500 ms blocks)
 MAX_ATTEMPTS=512
 MAX_PACKET_BYTES=6*1024**2
 
@@ -24,11 +30,12 @@ def trust(raw_genesis,worker):
 def _shape(witness):
     n.need(type(witness) is dict and set(witness)=={'format','genesis','height','app_hash','checkpoint','blocks'} and witness['format']==FORMAT,'P9 closed complete history')
     h=witness['height'];blocks=witness['blocks']
-    n.need(type(h) is int and 0<=h<=MAX_BLOCKS and type(blocks) is list and len(blocks)==h,'P9 client history height bound')
-    count=0
-    for height,b in enumerate(blocks,1):
-        n.need(type(b) is dict and set(b)=={'height','transactions'} and type(b['height']) is int and b['height']==height,'P9 sequential client history')
-        rows=b['transactions'];n.need(type(rows) is list and len(rows)<=2,'P9 client block attempt bound')
+    n.need(type(witness['checkpoint']) is dict and witness['checkpoint'].get('height')==h,'P9 client checkpoint height')
+    n.need(type(h) is int and 0<=h<=MAX_HISTORY_HEIGHT and type(blocks) is list and len(blocks)<=MAX_BLOCKS,'P9 client history height bound')
+    count=0;last=0
+    for b in blocks:
+        n.need(type(b) is dict and set(b)=={'height','transactions'} and type(b['height']) is int and last<b['height']<=h,'P9 sequential client history')
+        last=b['height'];rows=b['transactions'];n.need(type(rows) is list and 1<=len(rows)<=2,'P9 client block attempt bound')
         count+=len(rows);n.need(count<=MAX_ATTEMPTS,'P9 client attempt bound')
         for wire in rows:n.need(type(wire) is str and len(wire)%2==0 and len(wire)<=2*MAX_TX_BYTES and all(c in '0123456789abcdef' for c in wire),'P9 client wire bound')
     n.need(len(n.canonical(witness))<=MAX_PACKET_BYTES,'P9 client packet byte bound')
@@ -45,7 +52,9 @@ def verify_history(witness,signed_header,raw_genesis,worker):
     try:
         schema(db,create=True);store=Store(db,g,worker);checkpoint=store.initial()
         for b in witness['blocks']:
+            checkpoint=store.skip_empty(checkpoint,b['height']-1)
             checkpoint,_,_=store.advance(checkpoint,[bytes.fromhex(w) for w in b['transactions']],b['height'])
+        checkpoint=store.skip_empty(checkpoint,h)
         n.need(checkpoint==witness['checkpoint'] and application_hash(g,checkpoint)==witness['app_hash'],'P9 replayed checkpoint differs')
         notes=[{'commitment':v,'segment':s,'position':p,'height':height} for v,s,p,height in db.execute('SELECT commitment,segment,position,height FROM p9_notes ORDER BY seq')]
         receipts=[]
@@ -76,11 +85,12 @@ def export_history(path):
         row=db.execute('SELECT genesis,checkpoint,app_hash FROM p9_checkpoint WHERE id=1').fetchone()
         n.need(row is not None,'P9 exporter checkpoint absent')
         g=closed(bytes(row[0]),16384);checkpoint=closed(bytes(row[1]),4096);h=checkpoint.get('height') if type(checkpoint) is dict else None
-        n.need(type(h) is int and 0<=h<=MAX_BLOCKS,'P9 export history capacity')
+        n.need(type(h) is int and 0<=h<=MAX_HISTORY_HEIGHT,'P9 export history capacity')
         blocks=[];count=0
-        for height,raw in db.execute('SELECT height,txs FROM p9_blocks ORDER BY height LIMIT ?',(MAX_BLOCKS+1,)):
+        for height,raw in db.execute('SELECT height,txs FROM p9_blocks WHERE txs!=? ORDER BY height LIMIT ?',(n.canonical([]),MAX_BLOCKS+1)):
             txs=closed(bytes(raw),2*MAX_TX_BYTES*2+128)
             n.need(type(txs) is list and len(txs)<=2,'P9 export attempt container')
+            if not txs:continue  # an empty block stored in another spelling of []; the verifier rebuilds it either way
             count+=len(txs);n.need(count<=MAX_ATTEMPTS and len(blocks)<MAX_BLOCKS,'P9 export capacity')
             blocks.append({'height':height,'transactions':txs})
         witness={'format':FORMAT,'genesis':g,'height':h,'app_hash':row[2],'checkpoint':checkpoint,'blocks':blocks};_shape(witness)
